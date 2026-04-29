@@ -1179,6 +1179,40 @@
             .modal [style*="background:var(--background)"][style*="border:1px solid var(--border-light)"] {
                 padding: 6px !important;
             }
+
+            /* Compactar la sección "Mensajes a la clienta" del modal Editar traje:
+               cada widget (label + gmail + wa) toma toda la fila pero ocupa menos alto */
+            .modal #trajeMensajesBtns {
+                gap: 4px !important;
+                flex-direction: column !important;
+            }
+            .modal #trajeMensajesBtns > div {
+                margin: 0 !important;
+                width: 100% !important;
+                display: flex !important;
+            }
+            .modal #trajeMensajesBtns > div > span {
+                flex: 1 !important;
+                padding: 6px 10px !important;
+                font-size: 13px !important;
+            }
+            .modal #trajeMensajesBtns > div > button {
+                padding: 6px 12px !important;
+                font-size: 14px !important;
+                min-width: 38px;
+            }
+            /* Reducir el espaciado del contenedor de Mensajes a la clienta */
+            .modal div:has(> #trajeMensajesBtns) {
+                padding-top: 6px !important;
+                margin-top: 6px !important;
+            }
+            .modal div:has(> #trajeMensajesBtns) > label {
+                margin-bottom: 4px !important;
+            }
+            /* Ocultar el texto auxiliar "— se rellenan con los datos de este traje" en móvil */
+            .modal div:has(> #trajeMensajesBtns) > label > span {
+                display: none;
+            }
             /* Cualquier grid de varias columnas dentro de un modal pasa a 1 columna */
             .modal [style*="grid-template-columns"] {
                 grid-template-columns: 1fr !important;
@@ -10329,6 +10363,7 @@ window.addEventListener('load', () => {
 
 </body>
 </html>
+
 
 
 
