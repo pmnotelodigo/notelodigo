@@ -1003,6 +1003,9 @@
             opacity: 1;
         }
 
+        /* ---- BOTTOM NAVIGATION (móvil) ---- */
+        .bottom-nav { display: none; }
+
         @media (max-width: 768px) {
             /* Hamburguesa visible */
             .hamburger-btn { display: flex; }
@@ -1020,10 +1023,15 @@
             }
             .sidebar.open { transform: translateX(0); }
 
-            /* Topbar más compacto */
+            /* Topbar sticky para que la hamburguesa nunca desaparezca al hacer scroll */
             .topbar {
+                position: sticky;
+                top: 0;
+                z-index: 90;
                 padding: 10px 12px;
                 gap: 10px;
+                flex-wrap: wrap;
+                background: var(--surface);
             }
             .topbar-left {
                 display: flex;
@@ -1031,13 +1039,37 @@
                 gap: 10px;
                 min-width: 0;
                 flex: 1;
+                order: 1;
             }
             .topbar-left h1 { font-size: 18px; line-height: 1.2; }
             .topbar-left p { font-size: 11px; line-height: 1.2; }
-            .topbar-right { gap: 6px; flex-shrink: 0; }
+            .topbar-right {
+                gap: 6px;
+                flex-shrink: 0;
+                order: 2;
+            }
 
-            /* Reducir padding del contenido principal */
-            .content-body { padding: 12px; }
+            /* Connection badge: solo el punto, ocultar el texto "Conectado" */
+            .connection-badge { padding: 4px 6px; }
+            .connection-badge #connectionLabel { display: none; }
+
+            /* Selector de temporada: a su propia fila completa, debajo del topbar */
+            .season-selector {
+                order: 3;
+                flex-basis: 100%;
+                width: 100%;
+                justify-content: center;
+                padding-top: 8px;
+                margin-top: 4px;
+                border-top: 1px solid var(--border-light);
+                font-size: 13px;
+            }
+
+            /* Reducir padding del contenido principal y dejar hueco para la bottom nav */
+            .content-body {
+                padding: 12px;
+                padding-bottom: 84px;
+            }
 
             /* Tarjetas del dashboard: 2 columnas, más compactas */
             .summary-grid {
@@ -1056,6 +1088,48 @@
 
             /* Settings: forzar una columna */
             .settings-row { grid-template-columns: 1fr; }
+
+            /* Bottom navigation visible en móvil */
+            .bottom-nav {
+                display: flex;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background: var(--surface);
+                border-top: 1px solid var(--border);
+                z-index: 80;
+                padding: 4px 0 max(4px, env(safe-area-inset-bottom));
+                box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
+            }
+            .bottom-nav-item {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 6px 4px;
+                cursor: pointer;
+                font-size: 10.5px;
+                color: var(--text-light);
+                gap: 2px;
+                background: transparent;
+                border: none;
+                font-family: inherit;
+                font-weight: 500;
+                transition: color 0.15s ease, background 0.15s ease;
+                border-radius: 8px;
+                margin: 0 2px;
+            }
+            .bottom-nav-item:active { background: rgba(0,0,0,0.05); }
+            .bottom-nav-item.active {
+                color: var(--primary);
+                font-weight: 700;
+            }
+            .bottom-nav-item .bottom-nav-icon {
+                font-size: 22px;
+                line-height: 1;
+            }
         }
     </style>
 </head>
@@ -2327,6 +2401,28 @@
         </div><!-- /content-body -->
     </div><!-- /main-area -->
 </div><!-- /app-container -->
+
+<!-- ============================================
+     BOTTOM NAVIGATION (visible solo en móvil)
+     ============================================ -->
+<nav class="bottom-nav" id="bottomNav">
+    <button class="bottom-nav-item active" data-section="dashboard" onclick="App.ui.navigateTo('dashboard')" type="button">
+        <span class="bottom-nav-icon">&#x1F3E0;</span>
+        <span>Inicio</span>
+    </button>
+    <button class="bottom-nav-item" data-section="clientas" onclick="App.ui.navigateTo('clientas')" type="button">
+        <span class="bottom-nav-icon">&#x1F465;</span>
+        <span>Fichas</span>
+    </button>
+    <button class="bottom-nav-item" data-section="trajes" onclick="App.ui.navigateTo('trajes')" type="button">
+        <span class="bottom-nav-icon">&#x1F457;</span>
+        <span>Trajes</span>
+    </button>
+    <button class="bottom-nav-item" onclick="App.ui.toggleSidebar()" type="button" aria-label="Abrir m&aacute;s opciones">
+        <span class="bottom-nav-icon">&#x2630;</span>
+        <span>M&aacute;s</span>
+    </button>
+</nav>
 
 
 <!-- ============================================
@@ -5258,6 +5354,10 @@ const App = {
         navigateTo(sectionId) {
             // Update sidebar
             document.querySelectorAll('.nav-item').forEach(el => {
+                el.classList.toggle('active', el.dataset.section === sectionId);
+            });
+            // Update bottom nav (móvil)
+            document.querySelectorAll('.bottom-nav-item[data-section]').forEach(el => {
                 el.classList.toggle('active', el.dataset.section === sectionId);
             });
             // Update sections
@@ -10159,4 +10259,5 @@ window.addEventListener('load', () => {
 
 </body>
 </html>
+
 
