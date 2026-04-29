@@ -1153,19 +1153,24 @@
                 flex: none;
             }
 
-            /* Modales fullscreen en móvil */
-            .modal-overlay {
+            /* Modales fullscreen en móvil — forzados con position:fixed para
+               que ocupen literalmente toda la pantalla sin que la flex layout
+               interna se interponga */
+            .modal-overlay.active {
                 align-items: stretch;
                 padding: 0;
             }
             .modal {
+                position: fixed !important;
+                inset: 0 !important;
                 width: 100% !important;
-                max-width: 100% !important;
-                height: 100vh !important;
-                max-height: 100vh !important;
+                height: 100% !important;
+                max-width: none !important;
+                max-height: none !important;
+                margin: 0 !important;
                 border-radius: 0 !important;
                 padding: 16px !important;
-                margin: 0;
+                box-sizing: border-box;
             }
             /* Cualquier grid de varias columnas dentro de un modal pasa a 1 columna */
             .modal [style*="grid-template-columns"] {
@@ -1179,6 +1184,13 @@
             .modal-actions .btn {
                 flex: 1 1 auto;
                 min-height: 42px;
+            }
+
+            /* Prevenir el auto-zoom de iOS Safari al tocar un input.
+               iOS hace zoom solo si font-size < 16px. Forzando 16px
+               desactivamos el comportamiento sin tener que rebobinar. */
+            input, textarea, select {
+                font-size: 16px !important;
             }
         }
     </style>
@@ -10309,6 +10321,7 @@ window.addEventListener('load', () => {
 
 </body>
 </html>
+
 
 
 
