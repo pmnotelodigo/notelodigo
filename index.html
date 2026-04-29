@@ -1130,6 +1130,56 @@
                 font-size: 22px;
                 line-height: 1;
             }
+
+            /* Layout móvil: body scrollea naturalmente, sin scroll interno
+               (esto hace que .topbar sticky funcione de verdad) */
+            body {
+                overflow: auto;
+                height: auto;
+            }
+            .app-container,
+            .app-container.active {
+                height: auto;
+                min-height: 100vh;
+                overflow: visible;
+            }
+            .main-area {
+                overflow: visible;
+                height: auto;
+            }
+            .content-body {
+                overflow: visible;
+                height: auto;
+                flex: none;
+            }
+
+            /* Modales fullscreen en móvil */
+            .modal-overlay {
+                align-items: stretch;
+                padding: 0;
+            }
+            .modal {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 100vh !important;
+                max-height: 100vh !important;
+                border-radius: 0 !important;
+                padding: 16px !important;
+                margin: 0;
+            }
+            /* Cualquier grid de varias columnas dentro de un modal pasa a 1 columna */
+            .modal [style*="grid-template-columns"] {
+                grid-template-columns: 1fr !important;
+            }
+            /* Botones de acción del modal: ancho completo, fáciles de tocar */
+            .modal-actions {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .modal-actions .btn {
+                flex: 1 1 auto;
+                min-height: 42px;
+            }
         }
     </style>
 </head>
@@ -10259,5 +10309,6 @@ window.addEventListener('load', () => {
 
 </body>
 </html>
+
 
 
