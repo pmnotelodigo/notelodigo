@@ -964,16 +964,97 @@
         }
 
         /* ---- RESPONSIVE ---- */
+        /* ---- HAMBURGER & BACKDROP (móvil) ---- */
+        .hamburger-btn {
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            padding: 0;
+            border-radius: 6px;
+            flex-shrink: 0;
+        }
+        .hamburger-btn:hover { background: rgba(0,0,0,0.06); }
+        .hamburger-btn:active { background: rgba(0,0,0,0.12); }
+        .hamburger-btn span {
+            display: block;
+            width: 22px;
+            height: 2px;
+            background: var(--primary);
+            margin: 2px 0;
+            border-radius: 2px;
+        }
+        .sidebar-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 99;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+        .sidebar-backdrop.active {
+            display: block;
+            opacity: 1;
+        }
+
         @media (max-width: 768px) {
-            .sidebar { width: 60px; }
-            .sidebar .nav-label,
-            .sidebar-title, .sidebar-subtitle,
-            .nav-group-label, .sidebar-footer span { display: none; }
-            .sidebar-header { padding: 15px 10px; text-align: center; }
-            .nav-item { justify-content: center; padding: 12px; }
-            .nav-icon { margin: 0; }
-            .content-body { padding: 15px; }
-            .topbar { padding: 12px 15px; }
+            /* Hamburguesa visible */
+            .hamburger-btn { display: flex; }
+
+            /* Sidebar como overlay deslizante por la izquierda */
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                width: 260px;
+                z-index: 100;
+                transform: translateX(-100%);
+                transition: transform 0.25s ease;
+            }
+            .sidebar.open { transform: translateX(0); }
+
+            /* Topbar más compacto */
+            .topbar {
+                padding: 10px 12px;
+                gap: 10px;
+            }
+            .topbar-left {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-width: 0;
+                flex: 1;
+            }
+            .topbar-left h1 { font-size: 18px; line-height: 1.2; }
+            .topbar-left p { font-size: 11px; line-height: 1.2; }
+            .topbar-right { gap: 6px; flex-shrink: 0; }
+
+            /* Reducir padding del contenido principal */
+            .content-body { padding: 12px; }
+
+            /* Tarjetas del dashboard: 2 columnas, más compactas */
+            .summary-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                margin-bottom: 16px;
+            }
+            .summary-card { padding: 14px; }
+            .summary-card-value { font-size: 22px; }
+            .summary-card-label { font-size: 11px; }
+            .summary-card-hint { font-size: 10px; }
+
+            /* Densidad general de cards */
+            .card { padding: 14px; }
+            .card-title { font-size: 15px; }
+
+            /* Settings: forzar una columna */
             .settings-row { grid-template-columns: 1fr; }
         }
     </style>
@@ -1106,12 +1187,20 @@
         </div>
     </nav>
 
+    <!-- Backdrop para sidebar móvil -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="App.ui.closeSidebar()"></div>
+
     <!-- MAIN -->
     <div class="main-area">
         <div class="topbar">
             <div class="topbar-left">
-                <h1 id="topbarTitle">Inicio</h1>
-                <p id="topbarSubtitle">Panel de control</p>
+                <button class="hamburger-btn" onclick="App.ui.toggleSidebar()" aria-label="Abrir men&uacute;" type="button">
+                    <span></span><span></span><span></span>
+                </button>
+                <div style="min-width:0;">
+                    <h1 id="topbarTitle">Inicio</h1>
+                    <p id="topbarSubtitle">Panel de control</p>
+                </div>
             </div>
             <div class="topbar-right">
                 <div class="season-selector" id="seasonSelector" style="display:none;">
@@ -5181,6 +5270,23 @@ const App = {
             document.getElementById('topbarSubtitle').textContent = info.subtitle || '';
             // Scroll to top
             document.querySelector('.content-body').scrollTop = 0;
+            // En móvil, cerrar el sidebar al navegar
+            this.closeSidebar();
+        },
+
+        // ── Sidebar móvil ──────────────────────────────────────────────────
+        toggleSidebar() {
+            const sb = document.querySelector('.sidebar');
+            const bd = document.getElementById('sidebarBackdrop');
+            if (!sb) return;
+            const isOpen = sb.classList.toggle('open');
+            if (bd) bd.classList.toggle('active', isOpen);
+        },
+        closeSidebar() {
+            const sb = document.querySelector('.sidebar');
+            const bd = document.getElementById('sidebarBackdrop');
+            if (sb) sb.classList.remove('open');
+            if (bd) bd.classList.remove('active');
         },
 
         setConnection(status) {
@@ -10053,3 +10159,4 @@ window.addEventListener('load', () => {
 
 </body>
 </html>
+
