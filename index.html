@@ -269,13 +269,24 @@
             align-items: center;
             justify-content: space-between;
         }
-        .sidebar-footer .user-name { font-weight: 600; opacity: 1; }
+        .sidebar-footer .user-name { font-weight: 600; opacity: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
         .sidebar-footer .logout-btn {
             cursor: pointer;
-            opacity: 0.7;
-            transition: opacity var(--transition);
+            opacity: 0.85;
+            font-weight: 600;
+            font-size: 12px;
+            padding: 5px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.05);
+            transition: all var(--transition);
+            white-space: nowrap;
         }
-        .sidebar-footer .logout-btn:hover { opacity: 1; }
+        .sidebar-footer .logout-btn:hover {
+            opacity: 1;
+            background: rgba(255,255,255,0.18);
+            border-color: rgba(255,255,255,0.4);
+        }
 
         /* ---- MAIN AREA ---- */
         .main-area {
@@ -1091,7 +1102,7 @@
         </div>
         <div class="sidebar-footer">
             <span class="user-name" id="sidebarUser">—</span>
-            <span class="logout-btn" onclick="App.auth.signOut()" title="Cerrar sesion">&#x274C;</span>
+            <span class="logout-btn" onclick="App.auth.signOut()" title="Cerrar sesi&oacute;n">Cerrar sesi&oacute;n</span>
         </div>
     </nav>
 
