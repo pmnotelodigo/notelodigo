@@ -1153,25 +1153,31 @@
                 flex: none;
             }
 
-            /* Modales fullscreen en móvil — usamos align-items:stretch del overlay
-               para que el modal llene la pantalla sin tocar position:fixed (que
-               rompía el flex layout interno y escondía campos). */
+            /* Modales fullscreen en móvil — height estricta a 100dvh para que
+               el modal nunca exceda el viewport visible (incluido cuando aparece
+               el teclado en iOS). El flex interno (header + middle scroll + footer)
+               funciona dentro de esos límites. */
             .modal-overlay.active {
                 display: flex !important;
                 align-items: stretch !important;
-                justify-content: stretch !important;
                 padding: 0 !important;
             }
             .modal {
                 width: 100% !important;
                 max-width: none !important;
-                max-height: none !important;
-                min-height: 100dvh !important;
+                height: 100dvh !important;
+                max-height: 100dvh !important;
                 margin: 0 !important;
                 border-radius: 0 !important;
-                padding: 16px !important;
+                padding: 14px !important;
                 box-sizing: border-box !important;
                 flex: 1 1 auto !important;
+            }
+            /* Reducir padding interno de los boxes de estado (Estado, Tela
+               recibida, Corte, Taller, etc.) — selecciona divs con fondo
+               y borde claro tipo "tarjetita" */
+            .modal [style*="background:var(--background)"][style*="border:1px solid var(--border-light)"] {
+                padding: 6px !important;
             }
             /* Cualquier grid de varias columnas dentro de un modal pasa a 1 columna */
             .modal [style*="grid-template-columns"] {
@@ -2143,7 +2149,7 @@
                                             <option value="INCIDENCIA">INCIDENCIA</option>
                                         </select>
                                     </div>
-                                    <textarea id="editTrajeNotaEstado" class="form-input" rows="1" style="font-size:11px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
+                                    <textarea id="editTrajeNotaEstado" class="form-input" rows="2" style="font-size:13px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
                                 </div>
                                 <div style="background:var(--background); border:1px solid var(--border-light); border-radius:var(--radius-sm); padding:8px;">
                                     <div class="form-group" style="margin:0 0 4px;">
@@ -2157,7 +2163,7 @@
                                             <option value="INCIDENCIA">INCIDENCIA</option>
                                         </select>
                                     </div>
-                                    <textarea id="editTrajeNotaTelRecibida" class="form-input" rows="1" style="font-size:11px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
+                                    <textarea id="editTrajeNotaTelRecibida" class="form-input" rows="2" style="font-size:13px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
                                 </div>
                             </div>
 
@@ -2175,7 +2181,7 @@
                                             <option value="INCIDENCIA">INCIDENCIA</option>
                                         </select>
                                     </div>
-                                    <textarea id="editTrajeNotaCorte" class="form-input" rows="1" style="font-size:11px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
+                                    <textarea id="editTrajeNotaCorte" class="form-input" rows="2" style="font-size:13px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
                                 </div>
                                 <div style="background:var(--background); border:1px solid var(--border-light); border-radius:var(--radius-sm); padding:8px;">
                                     <div class="form-group" style="margin:0 0 4px;">
@@ -2201,7 +2207,7 @@
                                         <label style="font-size:10px; color:var(--text-muted);">Fecha entrega al taller</label>
                                         <input type="date" class="form-input" id="editTrajeFechaEntregaTaller" style="font-size:11px;">
                                     </div>
-                                    <textarea id="editTrajeNotaTaller" class="form-input" rows="1" style="font-size:11px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
+                                    <textarea id="editTrajeNotaTaller" class="form-input" rows="2" style="font-size:13px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
                                 </div>
                             </div>
 
@@ -2222,7 +2228,7 @@
                                         <label style="font-size:10px; color:var(--text-muted);">Fecha recibido <span style="font-size:9px;">(auto)</span></label>
                                         <input type="date" class="form-input" id="editTrajeFechaRecibido" style="font-size:11px;">
                                     </div>
-                                    <textarea id="editTrajeNotaTrajeRecibido" class="form-input" rows="1" style="font-size:11px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
+                                    <textarea id="editTrajeNotaTrajeRecibido" class="form-input" rows="2" style="font-size:13px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
                                 </div>
                                 <div style="background:var(--background); border:1px solid var(--border-light); border-radius:var(--radius-sm); padding:8px;">
                                     <div class="form-group" style="margin:0 0 4px;">
@@ -2236,7 +2242,7 @@
                                             <option value="ARREGLO">ARREGLO</option>
                                         </select>
                                     </div>
-                                    <textarea id="editTrajeNotaTrajeEntregado" class="form-input" rows="1" style="font-size:11px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
+                                    <textarea id="editTrajeNotaTrajeEntregado" class="form-input" rows="2" style="font-size:13px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
                                 </div>
                             </div>
 
@@ -10323,6 +10329,7 @@ window.addEventListener('load', () => {
 
 </body>
 </html>
+
 
 
 
