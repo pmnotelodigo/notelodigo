@@ -2177,6 +2177,10 @@
                             <label>ORDEN DE CORTE — Sheet ID</label>
                             <input type="text" class="form-input mono" id="seasonOrdenId">
                         </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>ESCANDALLOS — Sheet ID</label>
+                            <input type="text" class="form-input mono" id="seasonEscandallosId">
+                        </div>
                         <div class="form-group" style="margin:0;">
                             <label>Carpeta Fichas Clientes — Folder ID</label>
                             <input type="text" class="form-input mono" id="seasonFichasFolderId">
@@ -2890,6 +2894,7 @@ const CONFIG = {
     SEASON_KEYS: {
         listadoId:       'LISTADO_ID',
         ordenId:         'ORDEN_ID',
+        escandallosId:   'ESCANDALLOS_ID',
         pdfFolderId:     'PDF_FOLDER_ID',
         fichasFolderId:  'FICHAS_FOLDER_ID',
         templateFichaId: 'TEMPLATE_FICHA_ID',
@@ -2898,7 +2903,7 @@ const CONFIG = {
 
     // Fields stored in each CONFIG_APP_<temporada> file (key-value rows)
     SEASON_HEADERS: [
-        'NOMBRE','LISTADO_ID','LISTADO_TAB','ORDEN_ID',
+        'NOMBRE','LISTADO_ID','LISTADO_TAB','ORDEN_ID','ESCANDALLOS_ID',
         'FICHAS_FOLDER_ID','PDF_FOLDER_ID','TEMPLATE_FICHA_ID','GUIA_TALLAS_ID',
         'ACTIVA'
     ],
@@ -4291,7 +4296,7 @@ const App = {
          *   • Busca la carpeta _PLANTILLAS/ dentro de CONFIG.
          *   • Crea TEMPORADA_<NOMBRE>/ en la RAÍZ de APP NOTELODIGO (padre de CONFIG),
          *     con subcarpetas FICHAS_<NOMBRE>/ y PDFS_<NOMBRE>/.
-         *   • Copia TEMPLATE_LISTADO_TRAJES y TEMPLATE_ORDEN_DE_CORTE dentro.
+         *   • Copia TEMPLATE_LISTADO_TRAJES, TEMPLATE_ORDEN_DE_CORTE y TEMPLATE_ESCANDALLOS dentro.
          *   • Renombra la pestaña de datos del LISTADO al nombre de la temporada.
          *   • Escribe los _CONFIG tab de cada copia con los IDs hermanos correctos.
          *   • Crea CONFIG_APP_<NOMBRE> dentro de CONFIG (no en la carpeta de temporada).
@@ -4305,12 +4310,14 @@ const App = {
          *     TEMPORADA_<NOMBRE>/      ← aquí (en la raíz, no dentro de CONFIG)
          *       LISTADO_<NOMBRE>
          *       ORDEN_DE_CORTE_<NOMBRE>
+         *       ESCANDALLOS_<NOMBRE>
          *       FICHAS_<NOMBRE>/
          *       PDFS_<NOMBRE>/
          *
          * Nombres fijos esperados en _PLANTILLAS/:
          *   - TEMPLATE_LISTADO_TRAJES
          *   - TEMPLATE_ORDEN_DE_CORTE
+         *   - TEMPLATE_ESCANDALLOS
          */
         async createFromScratch(nombre) {
             const folderId = App.settings.getLocal('configsFolderId'); // carpeta CONFIG
@@ -4337,6 +4344,9 @@ const App = {
                 const tplOrden = await App.sheets.findChildFile(plantillas.id, 'TEMPLATE_ORDEN_DE_CORTE');
                 if (!tplOrden)
                     throw new Error('No se encontró TEMPLATE_ORDEN_DE_CORTE en _PLANTILLAS/.');
+                const tplEscandallos = await App.sheets.findChildFile(plantillas.id, 'TEMPLATE_ESCANDALLOS');
+                if (!tplEscandallos)
+                    throw new Error('No se encontró TEMPLATE_ESCANDALLOS en _PLANTILLAS/.');
 
                 // Obtener la carpeta raíz (padre de CONFIG = APP NOTELODIGO)
                 const configMeta = await App.sheets.getDriveFileMetadata(folderId);
@@ -4372,6 +4382,11 @@ const App = {
                     tplOrden.id, `ORDEN_DE_CORTE_${nombre}`, tempFolder.id
                 );
                 rollback.push({ id: ordenCopy.id, label: `ORDEN_DE_CORTE_${nombre}` });
+
+                const escandallosCopy = await App.sheets.copyDriveFile(
+                    tplEscandallos.id, `ESCANDALLOS_${nombre}`, tempFolder.id
+                );
+                rollback.push({ id: escandallosCopy.id, label: `ESCANDALLOS_${nombre}` });
 
                 // ── 5. Renombrar pestañas de datos ────────────────────────
                 // LISTADO: primera pestaña que no sea _CONFIG → renombrar al nombre de temporada
@@ -4419,6 +4434,20 @@ const App = {
                     ['LOGO_FILE_ID', ''],  // vacío → usa el default del Apps Script
                 ]);
 
+                // ESCANDALLOS._CONFIG: metadata de la plantilla + IDs hermanos
+                const fechaCreacion = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+                await escribirConfigTab(escandallosCopy.id, [
+                    ['CAMPO', 'VALOR'],
+                    ['NOMBRE', nombre],
+                    ['MODELOS_TAB', 'MODELOS'],
+                    ['TELAS_TAB', 'TELAS'],
+                    ['MOVIMIENTOS_TAB', 'MOVIMIENTOS'],
+                    ['VERSION_PLANTILLA', '1.0'],
+                    ['FECHA_CREACION', fechaCreacion],
+                    ['LISTADO_ID', listadoCopy.spreadsheetId || listadoCopy.id],
+                    ['ORDEN_ID', ordenCopy.spreadsheetId || ordenCopy.id],
+                ]);
+
                 // ── 7. Crear CONFIG_APP_<NOMBRE> ───────────────────────────
                 App.toast.show('Creando CONFIG_APP...', 'info', 3000);
                 const payload = {
@@ -4426,6 +4455,7 @@ const App = {
                     LISTADO_ID:        listadoCopy.id,
                     LISTADO_TAB:       listadoTab,
                     ORDEN_ID:          ordenCopy.id,
+                    ESCANDALLOS_ID:    escandallosCopy.id,
                     FICHAS_FOLDER_ID:  fichasFolder.id,
                     PDF_FOLDER_ID:     pdfsFolder.id,
                     TEMPLATE_FICHA_ID: App.settings.getLocal('templateFichaId') ||
@@ -4813,7 +4843,8 @@ const App = {
         openSeasonModal(originalNombre) {
             // Reset fields
             const fields = ['seasonNombre','seasonListadoTab','seasonListadoId','seasonOrdenId',
-                'seasonFichasFolderId','seasonPdfFolderId','seasonTemplateFichaId','seasonGuiaTallasId'];
+                'seasonEscandallosId','seasonFichasFolderId','seasonPdfFolderId',
+                'seasonTemplateFichaId','seasonGuiaTallasId'];
             fields.forEach(f => document.getElementById(f).value = '');
             document.getElementById('seasonActiva').checked = false;
             document.getElementById('seasonOriginalNombre').value = originalNombre || '';
@@ -4827,6 +4858,7 @@ const App = {
                     document.getElementById('seasonListadoTab').value      = s.LISTADO_TAB || '';
                     document.getElementById('seasonListadoId').value       = s.LISTADO_ID || '';
                     document.getElementById('seasonOrdenId').value         = s.ORDEN_ID || '';
+                    document.getElementById('seasonEscandallosId').value   = s.ESCANDALLOS_ID || '';
                     document.getElementById('seasonFichasFolderId').value  = s.FICHAS_FOLDER_ID || '';
                     document.getElementById('seasonPdfFolderId').value     = s.PDF_FOLDER_ID || '';
                     document.getElementById('seasonTemplateFichaId').value = s.TEMPLATE_FICHA_ID || '';
@@ -4851,6 +4883,7 @@ const App = {
                     LISTADO_TAB:       document.getElementById('seasonListadoTab').value.trim(),
                     LISTADO_ID:        document.getElementById('seasonListadoId').value.trim(),
                     ORDEN_ID:          document.getElementById('seasonOrdenId').value.trim(),
+                    ESCANDALLOS_ID:    document.getElementById('seasonEscandallosId').value.trim(),
                     FICHAS_FOLDER_ID:  document.getElementById('seasonFichasFolderId').value.trim(),
                     PDF_FOLDER_ID:     document.getElementById('seasonPdfFolderId').value.trim(),
                     TEMPLATE_FICHA_ID: document.getElementById('seasonTemplateFichaId').value.trim(),
