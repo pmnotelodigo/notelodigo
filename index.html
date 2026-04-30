@@ -1429,6 +1429,11 @@
                 width: 100%;
                 padding: 8px;
             }
+            /* Si la celda de acción está vacía (caso "ya en corte"), ocultarla
+               para que la card no muestre un área en blanco con border-top. */
+            .table-container td:not([data-label]):empty {
+                display: none !important;
+            }
             /* El contenido del <td> alineado a la derecha (donde va el valor) */
             .table-container td > *:not(::before) {
                 text-align: right;
@@ -7591,14 +7596,34 @@ App.trajes = {
                 ? `<span style="font-size:12px;">${telaVal}</span>`
                 : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
 
-            // "Listo para cortar" = cumple los prereqs (canEnviar) Y el corte
-            // no se ha enviado todavía. Si Corte ya está ENVIADO/RECOGIDO/INCIDENCIA
-            // no destacamos visualmente aunque técnicamente se pueda re-enviar.
+            // Tres estados visuales del botón de corte:
+            //   (1) Listo: botón naranja "Enviar a corte" + card destacada
+            //   (2) Ya cortado: ningún botón (limpio)
+            //   (3) Prereqs faltan: botón gris deshabilitado con tooltip
             const corteEstado   = (t[this.COL.corte] || '').toUpperCase();
             const necesitaCorte = canEnviar && (corteEstado === '' || corteEstado === 'PENDIENTE');
-            const trClass  = necesitaCorte ? ' class="traje-listo-corte"' : '';
-            const btnClass = necesitaCorte ? 'btn-corte btn-corte-listo' : 'btn-corte';
-            const btnText  = necesitaCorte ? '&#x1F680; Enviar a corte' : '&#x2702;&#xFE0F; Corte';
+            const yaEnCorte     = canEnviar && !necesitaCorte;
+            const trClass = necesitaCorte ? ' class="traje-listo-corte"' : '';
+
+            let actionHtml;
+            if (necesitaCorte) {
+                actionHtml = `<button class="btn-corte btn-corte-listo"
+                                      title="${btnTitle}"
+                                      onclick="App.trajes.enviarACorteByRow(${t._rowIndex})">
+                    &#x1F680; Enviar a corte
+                </button>`;
+            } else if (yaEnCorte) {
+                // Ya enviado/recogido — sin botón. Para re-cortar se va a la sección Corte.
+                actionHtml = '';
+            } else {
+                // Faltan prereqs (sin modelo, tela no recibida, estado != CORRECTO)
+                // → botón deshabilitado con tooltip explicativo.
+                actionHtml = `<button class="btn-corte"
+                                      disabled
+                                      title="${btnTitle}">
+                    &#x2702;&#xFE0F; Corte
+                </button>`;
+            }
 
             return `<tr${trClass} style="cursor:pointer;" onclick="App.trajes.showEditModal(${t._rowIndex})">
                 <td data-label="N&ordm;" style="font-weight:600; color:var(--primary);">${t[this.COL.num] || '&mdash;'}</td>
@@ -7613,14 +7638,7 @@ App.trajes = {
                 <td data-label="Taller" style="text-align:center; font-size:12px;">${tallerCell}${noteIconFor(this.COL.taller)}</td>
                 <td data-label="Talla" style="text-align:center; font-size:13px;">${tallaStr}${noteIconFor(this.COL.medidas)}</td>
                 <td data-label="Entrega" style="text-align:center;">${this._entregaChip(t)}${noteIconFor(this.COL.trajeEntregado)}${noteIconFor(this.COL.trajeRecibido)}</td>
-                <td onclick="event.stopPropagation()">
-                    <button class="${btnClass}"
-                            ${canEnviar ? '' : 'disabled'}
-                            title="${btnTitle}"
-                            onclick="App.trajes.enviarACorteByRow(${t._rowIndex})">
-                        ${btnText}
-                    </button>
-                </td>
+                <td onclick="event.stopPropagation()">${actionHtml}</td>
             </tr>`;
         };
 
