@@ -1337,6 +1337,85 @@
             .modal [style*="background:var(--background)"][style*="border:1px solid var(--border-light)"] {
                 overflow: hidden !important;
             }
+
+            /* ---- TABLAS → CARDS APILADAS ---- */
+            /* Las tablas dentro de .table-container (Trajes, Fichas) se
+               transforman en una lista vertical de tarjetas. Cada <tr> es una
+               card, cada <td> muestra "ETIQUETA: valor" con la etiqueta
+               sacada del atributo data-label. La fila de cabeceras (con <th>)
+               queda oculta porque ya no hace falta. */
+            .table-container {
+                overflow: visible !important;
+            }
+            .table-container table,
+            .table-container thead,
+            .table-container tbody,
+            .table-container tr,
+            .table-container td {
+                display: block !important;
+                width: 100% !important;
+                border: none;
+            }
+            /* Ocultar la fila de cabeceras (los <th> de la primera <tr>) */
+            .table-container th {
+                display: none !important;
+            }
+            .table-container tr:has(> th) {
+                display: none !important;
+            }
+            /* Cada <tr> se vuelve una card con borde y padding */
+            .table-container tr {
+                background: var(--surface);
+                border: 1px solid var(--border) !important;
+                border-radius: var(--radius-sm);
+                padding: 10px 12px;
+                margin-bottom: 8px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+            }
+            /* Cada <td> con data-label se convierte en una fila etiqueta-valor */
+            .table-container td {
+                display: flex !important;
+                justify-content: space-between !important;
+                align-items: flex-start !important;
+                gap: 10px;
+                padding: 6px 0 !important;
+                border-bottom: 1px solid var(--border-light);
+                text-align: left !important;
+                font-size: 13px;
+            }
+            .table-container td:last-child {
+                border-bottom: none;
+            }
+            .table-container td[data-label]::before {
+                content: attr(data-label);
+                font-weight: 600;
+                font-size: 10.5px;
+                color: var(--text-muted);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                flex-shrink: 0;
+                min-width: 72px;
+                padding-top: 2px;
+            }
+            /* Celdas SIN data-label (botón de acción al final) ocupan toda la
+               anchura, centradas, sin separador */
+            .table-container td:not([data-label]) {
+                justify-content: center !important;
+                padding-top: 10px !important;
+                margin-top: 4px;
+                border-top: 1px solid var(--border-light);
+                border-bottom: none !important;
+            }
+            .table-container td:not([data-label]) > button {
+                width: 100%;
+                padding: 8px;
+            }
+            /* El contenido del <td> alineado a la derecha (donde va el valor) */
+            .table-container td > *:not(::before) {
+                text-align: right;
+                flex: 1;
+                min-width: 0;
+            }
         }
     </style>
 </head>
@@ -5907,14 +5986,14 @@ App.clientas = {
             const idx = start + i;
 
             html += `<tr style="cursor:pointer;" onclick="App.clientas.openFicha(${idx})">
-                <td style="font-weight:600; color:var(--text-muted);">${c[this.COL.num] || '—'}</td>
-                <td style="font-weight:600;">${c[this.COL.nombre] || '—'}</td>
-                <td>${c[this.COL.telefono] || '—'}</td>
-                <td>${c[this.COL.feria] || '—'}</td>
-                <td>${c[this.COL.modelo] || '—'}</td>
-                <td>${corteVal ? `<span class="badge ${corteBadge}">${corteVal}</span>` : '<span class="badge badge-neutral">—</span>'}</td>
-                <td>${c[this.COL.taller] || '—'}</td>
-                <td>${entregado ? '&#x2705;' : entregadoVal === 'ARREGLO' ? '&#x1F527;' : entregadoVal === 'INCIDENCIA' ? '&#x274C;' : '&#x23F3;'}</td>
+                <td data-label="N&ordm;" style="font-weight:600; color:var(--text-muted);">${c[this.COL.num] || '—'}</td>
+                <td data-label="Nombre" style="font-weight:600;">${c[this.COL.nombre] || '—'}</td>
+                <td data-label="Tel&eacute;fono">${c[this.COL.telefono] || '—'}</td>
+                <td data-label="Feria">${c[this.COL.feria] || '—'}</td>
+                <td data-label="Modelo">${c[this.COL.modelo] || '—'}</td>
+                <td data-label="Corte">${corteVal ? `<span class="badge ${corteBadge}">${corteVal}</span>` : '<span class="badge badge-neutral">—</span>'}</td>
+                <td data-label="Taller">${c[this.COL.taller] || '—'}</td>
+                <td data-label="Entregado">${entregado ? '&#x2705;' : entregadoVal === 'ARREGLO' ? '&#x1F527;' : entregadoVal === 'INCIDENCIA' ? '&#x274C;' : '&#x23F3;'}</td>
                 <td><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); App.clientas.openFicha(${idx})">Ver</button></td>
             </tr>`;
         });
@@ -7430,18 +7509,18 @@ App.trajes = {
                 : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
 
             return `<tr style="cursor:pointer;" onclick="App.trajes.showEditModal(${t._rowIndex})">
-                <td style="font-weight:600; color:var(--primary);">${t[this.COL.num] || '&mdash;'}</td>
-                <td>
+                <td data-label="N&ordm;" style="font-weight:600; color:var(--primary);">${t[this.COL.num] || '&mdash;'}</td>
+                <td data-label="Clienta">
                     <div style="font-weight:500;">${t[this.COL.nombre] || '&mdash;'}${revisarIcon}${noteIconFor(this.COL.nombre)}${orphanIcon}</div>
                     <div style="font-size:11px; color:var(--text-muted);">${t[this.COL.feria] || ''}${noteIconFor(this.COL.feria)}</div>
                 </td>
-                <td><span style="font-size:12px; color:var(--text-light);">${t[this.COL.modelo] || '<span class="badge-sin-modelo">sin modelo</span>'}</span>${noteIconFor(this.COL.modelo)}</td>
-                <td>${this._estadoChip(t[this.COL.estado])}${noteIconFor(this.COL.estado)}</td>
-                <td style="font-size:12px;">${telaCell}${noteIconFor(this.COL.tipoTela)}</td>
-                <td>${this._corteChip(t[this.COL.corte])}${noteIconFor(this.COL.corte)}</td>
-                <td style="text-align:center; font-size:12px;">${tallerCell}${noteIconFor(this.COL.taller)}</td>
-                <td style="text-align:center; font-size:13px;">${tallaStr}${noteIconFor(this.COL.medidas)}</td>
-                <td style="text-align:center;">${this._entregaChip(t)}${noteIconFor(this.COL.trajeEntregado)}${noteIconFor(this.COL.trajeRecibido)}</td>
+                <td data-label="Modelo"><span style="font-size:12px; color:var(--text-light);">${t[this.COL.modelo] || '<span class="badge-sin-modelo">sin modelo</span>'}</span>${noteIconFor(this.COL.modelo)}</td>
+                <td data-label="Estado">${this._estadoChip(t[this.COL.estado])}${noteIconFor(this.COL.estado)}</td>
+                <td data-label="Tela" style="font-size:12px;">${telaCell}${noteIconFor(this.COL.tipoTela)}</td>
+                <td data-label="Corte">${this._corteChip(t[this.COL.corte])}${noteIconFor(this.COL.corte)}</td>
+                <td data-label="Taller" style="text-align:center; font-size:12px;">${tallerCell}${noteIconFor(this.COL.taller)}</td>
+                <td data-label="Talla" style="text-align:center; font-size:13px;">${tallaStr}${noteIconFor(this.COL.medidas)}</td>
+                <td data-label="Entrega" style="text-align:center;">${this._entregaChip(t)}${noteIconFor(this.COL.trajeEntregado)}${noteIconFor(this.COL.trajeRecibido)}</td>
                 <td onclick="event.stopPropagation()">
                     <button class="btn-corte"
                             ${canEnviar ? '' : 'disabled'}
