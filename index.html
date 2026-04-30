@@ -1271,6 +1271,25 @@
             input, textarea, select {
                 font-size: 16px !important;
             }
+
+            /* Equilibrar la jerarquía visual del modal: el 16px del input
+               obligatorio se siente menos exagerado si las etiquetas y los
+               subheaders están un poco más grandes y los campos tienen menos
+               padding (más compactos verticalmente). */
+            .modal label {
+                font-size: 13px !important;
+            }
+            .modal .form-input {
+                padding: 6px 10px !important;
+                line-height: 1.3 !important;
+            }
+            .modal textarea.form-input {
+                padding: 8px 10px !important;
+            }
+            /* Subheader tipo "ESTADO DEL TRAJE" un punto más legible */
+            .modal [style*="text-transform:uppercase"] {
+                font-size: 11px !important;
+            }
         }
     </style>
 </head>
