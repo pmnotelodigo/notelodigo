@@ -1004,6 +1004,25 @@
             opacity: 1;
         }
 
+        /* ---- TRAJE LISTO PARA CORTAR (highlight visual) ----
+           Cuando _canEnviarACorte() devuelve true (Tela RECIBIDA + Corte
+           PENDIENTE), destacamos visualmente la fila para que el ojo capte
+           sin filtrar que ese traje hay que enviarlo a Orden de Corte. */
+        .traje-listo-corte {
+            box-shadow: inset 4px 0 0 var(--warning) !important;
+            background: linear-gradient(to right, rgba(255, 152, 0, 0.06), transparent 35%) !important;
+        }
+        .btn-corte.btn-corte-listo {
+            background: var(--warning) !important;
+            color: #fff !important;
+            font-weight: 700 !important;
+            border: none !important;
+            box-shadow: 0 1px 3px rgba(255, 152, 0, 0.4);
+        }
+        .btn-corte.btn-corte-listo:hover {
+            background: #F57C00 !important;
+        }
+
         /* ---- TRAJE MENSAJES (sección desplegable) ---- */
         .traje-mensajes-details > summary {
             cursor: pointer;
@@ -1417,23 +1436,64 @@
                 min-width: 0;
             }
 
-            /* ---- TOOLBAR DE FILTROS (Fichas, Trajes) EN MÓVIL ----
+            /* ---- TOOLBAR DE FILTROS EN MÓVIL ----
                Los inputs/selects con max-width inline se ven truncados ("Todos
                los estad..."). En móvil pasan a ocupar todo el ancho disponible
-               para que las opciones se lean enteras. */
-            .content-body .card input.form-input[style*="max-width"],
-            .content-body .card select.form-input[style*="max-width"] {
+               para que las opciones se lean enteras. Aplica a Fichas, Trajes,
+               Corte, Vista por taller y cualquier otra toolbar dentro de
+               .content-body. */
+            .content-body input.form-input[style*="max-width"],
+            .content-body select.form-input[style*="max-width"] {
                 max-width: 100% !important;
                 width: 100% !important;
                 flex: 1 1 100% !important;
+                min-width: 0 !important;
             }
-            /* El bloque de botones del lado derecho (Actualizar + Nueva ficha)
-               también va en su propia fila, alineado a la derecha */
-            .content-body .card div[style*="margin-left:auto"] {
+            /* Bloques de botones del lado derecho (Actualizar, Nueva ficha,
+               Imprimir selección) también en su propia fila, alineados a la
+               derecha. */
+            .content-body div[style*="margin-left:auto"] {
                 margin-left: 0 !important;
                 width: 100%;
                 justify-content: flex-end !important;
                 flex-wrap: wrap;
+            }
+            /* Bottom-nav: con 5 botones reducir un pelín tamaños para que
+               todos quepan cómodamente en pantallas estrechas. */
+            .bottom-nav-item {
+                font-size: 10px !important;
+                padding: 6px 2px !important;
+                margin: 0 1px !important;
+            }
+            .bottom-nav-item .bottom-nav-icon {
+                font-size: 20px !important;
+            }
+
+            /* En móvil reforzamos el destaque de "listos para cortar" con
+               border-left más grueso (más visible que el inset box-shadow
+               sobre el borde de la card). */
+            .table-container tr.traje-listo-corte {
+                border-left: 4px solid var(--warning) !important;
+                padding-left: 10px !important;
+            }
+
+            /* En Fichas el #clientasList va envuelto en un .card con fondo blanco
+               (lleva la paginación dentro). En móvil eso crea un "marco blanco"
+               entre las cards apiladas. Lo hacemos transparente para que se vea
+               el cream del body como en Trajes. */
+            .section .card:has(> #clientasList) {
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+            /* También quitamos el border del .table-container interno por la
+               misma razón (en mobile cada card ya tiene su propio borde). */
+            .table-container {
+                border: none !important;
+                border-radius: 0 !important;
+                background: transparent !important;
             }
         }
     </style>
@@ -1545,12 +1605,12 @@
                 <span class="nav-icon">&#x1F457;</span>
                 <span class="nav-label">Trajes</span>
             </div>
+            <div class="nav-item nav-item-primary" data-section="corte" onclick="App.ui.navigateTo('corte')">
+                <span class="nav-icon">&#x2702;&#xFE0F;</span>
+                <span class="nav-label">Corte</span>
+            </div>
 
             <div class="nav-group-label">Herramientas</div>
-            <div class="nav-item" data-section="corte" onclick="App.ui.navigateTo('corte')">
-                <span class="nav-icon">&#x1F5A8;&#xFE0F;</span>
-                <span class="nav-label">Imprimir cortes</span>
-            </div>
             <div class="nav-item" data-section="talleres" onclick="App.ui.navigateTo('talleres')">
                 <span class="nav-icon">&#x1F3ED;</span>
                 <span class="nav-label">Vista por taller</span>
@@ -2722,6 +2782,10 @@
         <button class="bottom-nav-item" data-section="trajes" onclick="App.ui.navigateTo('trajes')" type="button">
             <span class="bottom-nav-icon">&#x1F457;</span>
             <span>Trajes</span>
+        </button>
+        <button class="bottom-nav-item" data-section="corte" onclick="App.ui.navigateTo('corte')" type="button">
+            <span class="bottom-nav-icon">&#x2702;&#xFE0F;</span>
+            <span>Corte</span>
         </button>
         <button class="bottom-nav-item" onclick="App.ui.toggleSidebar()" type="button" aria-label="Abrir m&aacute;s opciones">
             <span class="bottom-nav-icon">&#x2630;</span>
@@ -5653,7 +5717,7 @@ const App = {
             dashboard:  { title: 'Inicio',            subtitle: 'Panel de control' },
             clientas:   { title: 'Fichas',            subtitle: 'Fichas de clientas' },
             trajes:     { title: 'Trajes',            subtitle: 'Seguimiento de produccion' },
-            corte:      { title: 'Imprimir cortes',   subtitle: 'Fichas de corte por modelo' },
+            corte:      { title: 'Corte',             subtitle: 'Orden de corte por modelo' },
             talleres:   { title: 'Vista por taller',  subtitle: 'Distribucion por taller' },
             ajustes:    { title: 'Ajustes',           subtitle: 'Configuracion del sistema' },
         },
@@ -7527,7 +7591,11 @@ App.trajes = {
                 ? `<span style="font-size:12px;">${telaVal}</span>`
                 : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
 
-            return `<tr style="cursor:pointer;" onclick="App.trajes.showEditModal(${t._rowIndex})">
+            const trClass  = canEnviar ? ' class="traje-listo-corte"' : '';
+            const btnClass = canEnviar ? 'btn-corte btn-corte-listo' : 'btn-corte';
+            const btnText  = canEnviar ? '&#x1F680; Enviar a corte' : '&#x2702;&#xFE0F; Corte';
+
+            return `<tr${trClass} style="cursor:pointer;" onclick="App.trajes.showEditModal(${t._rowIndex})">
                 <td data-label="N&ordm;" style="font-weight:600; color:var(--primary);">${t[this.COL.num] || '&mdash;'}</td>
                 <td data-label="Clienta">
                     <div style="font-weight:500;">${t[this.COL.nombre] || '&mdash;'}${revisarIcon}${noteIconFor(this.COL.nombre)}${orphanIcon}</div>
@@ -7541,11 +7609,11 @@ App.trajes = {
                 <td data-label="Talla" style="text-align:center; font-size:13px;">${tallaStr}${noteIconFor(this.COL.medidas)}</td>
                 <td data-label="Entrega" style="text-align:center;">${this._entregaChip(t)}${noteIconFor(this.COL.trajeEntregado)}${noteIconFor(this.COL.trajeRecibido)}</td>
                 <td onclick="event.stopPropagation()">
-                    <button class="btn-corte"
+                    <button class="${btnClass}"
                             ${canEnviar ? '' : 'disabled'}
                             title="${btnTitle}"
                             onclick="App.trajes.enviarACorteByRow(${t._rowIndex})">
-                        &#x2702;&#xFE0F; Corte
+                        ${btnText}
                     </button>
                 </td>
             </tr>`;
@@ -8987,7 +9055,7 @@ App.corte = {
                 <strong>${total - enviados}</strong> pendiente${(total - enviados) !== 1 ? 's' : ''}
             </span>
         </div>
-        <div style="overflow-x:auto;">
+        <div class="table-container">
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead>
                 <tr style="background:var(--background); border-bottom:2px solid var(--border); white-space:nowrap;">
@@ -9042,25 +9110,25 @@ App.corte = {
 
             html += `
             <tr style="${rowBg} border-bottom:1px solid var(--border-light);">
-                <td style="padding:6px 10px;">${this._coherenciaChip(coher)}</td>
-                <td style="padding:6px 10px; font-weight:700; color:var(--primary);">${num}</td>
-                <td style="padding:6px 10px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                <td data-label="Estado" style="padding:6px 10px;">${this._coherenciaChip(coher)}</td>
+                <td data-label="N&ordm;" style="padding:6px 10px; font-weight:700; color:var(--primary);">${num}</td>
+                <td data-label="Clienta" style="padding:6px 10px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
                     title="${nombre}">${nombre}</td>
-                <td style="padding:6px 10px;">${tejido || '—'}</td>
-                <td style="padding:6px 10px; max-width:260px; cursor:pointer;"
+                <td data-label="Tejido" style="padding:6px 10px;">${tejido || '—'}</td>
+                <td data-label="Adornos" style="padding:6px 10px; max-width:260px; cursor:pointer;"
                     title="Clic para editar adornos"
                     onclick="App.corte._editAdornos(${rIdx}, this)">
                     <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block;">${adornos || '<em style=&quot;color:var(--text-muted);&quot;>sin adornos</em>'}</span>
                 </td>
-                <td style="padding:6px 10px; text-align:center; font-weight:600;">${tallaLabel}</td>
-                <td style="padding:6px 10px; text-align:center; font-size:16px;">${isEnviado ? '✅' : '⬜'}</td>
-                <td style="padding:6px 10px; text-align:center;">
+                <td data-label="Talla" style="padding:6px 10px; text-align:center; font-weight:600;">${tallaLabel}</td>
+                <td data-label="Enviar a corte" style="padding:6px 10px; text-align:center; font-size:16px;">${isEnviado ? '✅' : '⬜'}</td>
+                <td data-label="Imprimir" style="padding:6px 10px; text-align:center;">
                     <input type="checkbox" ${isImprimir ? 'checked' : ''}
                            onchange="App.corte.toggleImprimir(${rIdx}, this.checked)"
                            style="cursor:pointer; width:15px; height:15px;"
                            title="Marcar para próxima impresión">
                 </td>
-                <td style="padding:6px 10px; text-align:center;">${impresoHtml}</td>
+                <td data-label="Impreso" style="padding:6px 10px; text-align:center;">${impresoHtml}</td>
                 <td style="padding:6px 10px; text-align:center; white-space:nowrap;">
                     <button class="btn btn-sm btn-secondary"
                             onclick="App.corte.comprobarFila(${rIdx})"
