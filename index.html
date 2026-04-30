@@ -1029,6 +1029,12 @@
             background: linear-gradient(to right, rgba(229, 57, 53, 0.06), transparent 35%) !important;
         }
 
+        /* Corte marcado para imprimir pero aún sin imprimir — destacar en naranja */
+        .corte-pendiente-imprimir {
+            box-shadow: inset 4px 0 0 var(--warning) !important;
+            background: linear-gradient(to right, rgba(255, 152, 0, 0.06), transparent 35%) !important;
+        }
+
         /* ---- TRAJE MENSAJES (sección desplegable) ---- */
         .traje-mensajes-details > summary {
             cursor: pointer;
@@ -1489,6 +1495,10 @@
             }
             .table-container tr.traje-atascado {
                 border-left: 4px solid var(--danger) !important;
+                padding-left: 10px !important;
+            }
+            .table-container tr.corte-pendiente-imprimir {
+                border-left: 4px solid var(--warning) !important;
                 padding-left: 10px !important;
             }
 
@@ -9148,8 +9158,19 @@ App.corte = {
                 ? '<span style="display:inline-block; background:#d1fae5; color:#065f46; font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px;">&#x1F5A8; Impreso</span>'
                 : '<span style="color:var(--text-muted); font-size:11px;">—</span>';
 
+            // Visual de "enviar a corte": misma forma de píldora con color para que se
+            // lea claro de un vistazo (igual de prominente que IMPRESO).
+            const enviarHtml = isEnviado
+                ? '<span style="display:inline-block; background:#d1fae5; color:#065f46; font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px;">&#x2705; Enviado</span>'
+                : '<span style="display:inline-block; background:#fff3cd; color:#7c5e10; font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px;">&#x23F3; Pendiente</span>';
+
+            // Highlight de card si está marcado para imprimir pero aún no se ha
+            // impreso → acción pendiente: imprimir.
+            const pendienteImprimir = isImprimir && !isImpreso;
+            const trCorteClass = pendienteImprimir ? ' class="corte-pendiente-imprimir"' : '';
+
             html += `
-            <tr style="${rowBg} border-bottom:1px solid var(--border-light);">
+            <tr${trCorteClass} style="${rowBg} border-bottom:1px solid var(--border-light);">
                 <td data-label="Estado" style="padding:6px 10px;">${this._coherenciaChip(coher)}</td>
                 <td data-label="N&ordm;" style="padding:6px 10px; font-weight:700; color:var(--primary);">${num}</td>
                 <td data-label="Clienta" style="padding:6px 10px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
@@ -9161,7 +9182,7 @@ App.corte = {
                     <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block;">${adornos || '<em style=&quot;color:var(--text-muted);&quot;>sin adornos</em>'}</span>
                 </td>
                 <td data-label="Talla" style="padding:6px 10px; text-align:center; font-weight:600;">${tallaLabel}</td>
-                <td data-label="Enviar a corte" style="padding:6px 10px; text-align:center; font-size:16px;">${isEnviado ? '✅' : '⬜'}</td>
+                <td data-label="Enviar a corte" style="padding:6px 10px; text-align:center;">${enviarHtml}</td>
                 <td data-label="Imprimir" style="padding:6px 10px; text-align:center;">
                     <input type="checkbox" ${isImprimir ? 'checked' : ''}
                            onchange="App.corte.toggleImprimir(${rIdx}, this.checked)"
