@@ -1648,6 +1648,10 @@
             </div>
 
             <div class="nav-group-label">Herramientas</div>
+            <div class="nav-item" data-section="modelos" onclick="App.ui.navigateTo('modelos')">
+                <span class="nav-icon">&#x1F4D0;</span>
+                <span class="nav-label">Modelos</span>
+            </div>
             <div class="nav-item" data-section="talleres" onclick="App.ui.navigateTo('talleres')">
                 <span class="nav-icon">&#x1F3ED;</span>
                 <span class="nav-label">Vista por taller</span>
@@ -2633,6 +2637,115 @@
                         <div class="empty-icon">&#x2702;&#xFE0F;</div>
                         <h3>Selecciona un modelo</h3>
                         <p>Elige un modelo del desplegable para ver su orden de corte.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Modelos (catálogo + escandallos) -->
+            <div class="section" id="sec-modelos">
+
+                <!-- Toolbar -->
+                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <input type="text" class="form-input" id="modelosSearch"
+                               placeholder="&#x1F50D; Buscar por nombre..."
+                               style="flex:1; min-width:180px; max-width:280px; margin:0;"
+                               oninput="App.modelos.filter()">
+                        <select class="form-input" id="modelosActivoFiltro"
+                                style="max-width:170px; margin:0; font-size:12px;"
+                                onchange="App.modelos.filter()">
+                            <option value="activos">Solo activos</option>
+                            <option value="todos">Todos</option>
+                            <option value="inactivos">Solo inactivos</option>
+                        </select>
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.modelos.load(true)"
+                                    title="Recargar datos desde Google Sheets">
+                                &#x21BB; Actualizar
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="App.modelos.openModal()">
+                                &plus; Nuevo modelo
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="modelosCount"></div>
+                </div>
+
+                <!-- Contenido: grid de cards -->
+                <div id="modelosContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+            </div>
+
+            <!-- MODELO EDIT MODAL -->
+            <div class="modal-overlay" id="modeloModal">
+                <div class="modal" style="max-width:720px; width:95%;">
+                    <h2 id="modeloModalTitle">Nuevo modelo</h2>
+                    <input type="hidden" id="modeloOriginalNombre" value="">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                        <div class="form-group" style="margin:0;">
+                            <label>Nombre *</label>
+                            <input type="text" class="form-input" id="modeloNombre" placeholder="ROCIO">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Tipo de construcción</label>
+                            <select class="form-input" id="modeloTipoConstruccion">
+                                <option value="">— sin definir —</option>
+                                <option value="con corte">Con corte</option>
+                                <option value="enterizo">Enterizo</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Tela principal (m)</label>
+                            <input type="number" step="0.01" class="form-input" id="modeloTelaPpalM" placeholder="8.7">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Precio (€)</label>
+                            <input type="number" step="1" class="form-input" id="modeloPrecio" placeholder="950">
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Adornos</label>
+                            <input type="text" class="form-input" id="modeloAdornos"
+                                   placeholder="50m de 0.9 + 50m de tira bordada">
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Talleres asignados</label>
+                            <div id="modeloTalleresContainer"
+                                 style="display:flex; flex-wrap:wrap; gap:6px; padding:6px; border:1px solid var(--border); border-radius:6px; min-height:42px; align-items:center;">
+                                <input type="text" id="modeloTallerInput" list="modeloTallerList"
+                                       style="border:none; outline:none; flex:1; min-width:140px; font-size:13px;"
+                                       placeholder="Escribe o elige un taller…"
+                                       onkeydown="App.modelos._onTallerKeydown(event)">
+                                <datalist id="modeloTallerList"></datalist>
+                            </div>
+                            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                                Elige uno y pulsa Enter, o escribe un nuevo taller. Click en cualquier chip para quitarlo.
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Foto (URL de Drive — opcional)</label>
+                            <input type="text" class="form-input mono" id="modeloFotoUrl" placeholder="https://drive.google.com/...">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>
+                                <input type="checkbox" id="modeloActivo" checked> Activo
+                            </label>
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Notas</label>
+                            <textarea class="form-input" id="modeloNotas" rows="2"
+                                      placeholder="Cualquier nota relevante (variantes, observaciones…)"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-danger btn-sm" onclick="App.modelos.markInactive()"
+                                id="btnModeloMarkInactive" style="display:none; margin-right:auto;">
+                            Marcar inactivo
+                        </button>
+                        <button class="btn btn-secondary" onclick="App.modelos.closeModal()">Cancelar</button>
+                        <button class="btn btn-primary" onclick="App.modelos.save()" id="btnModeloSave">
+                            Guardar
+                        </button>
                     </div>
                 </div>
             </div>
@@ -5788,6 +5901,7 @@ const App = {
             clientas:   { title: 'Fichas',            subtitle: 'Fichas de clientas' },
             trajes:     { title: 'Trajes',            subtitle: 'Seguimiento de produccion' },
             corte:      { title: 'Corte',             subtitle: 'Orden de corte por modelo' },
+            modelos:    { title: 'Modelos',           subtitle: 'Catálogo y escandallos' },
             talleres:   { title: 'Vista por taller',  subtitle: 'Distribucion por taller' },
             ajustes:    { title: 'Ajustes',           subtitle: 'Configuracion del sistema' },
         },
@@ -10234,6 +10348,325 @@ App.corte = {
 };
 
 /* ==========================================================
+   MODELOS — catálogo + escandallo por modelo
+   Lee/escribe el tab MODELOS del Sheet ESCANDALLOS_<NOMBRE>.
+   ========================================================== */
+App.modelos = {
+    // Headers del tab MODELOS (en este orden)
+    HEADERS: ['NOMBRE','TIPO_CONSTRUCCION','TELA_PPAL_M','ADORNOS','PRECIO_EUR',
+              'TALLERES_ASIGNADOS','FOTO_URL','ACTIVO','NOTAS'],
+    TAB: 'MODELOS',
+
+    _data: [],
+    _filtered: [],
+    _editingTalleres: [],  // chips actuales del modal
+
+    // ── Carga ─────────────────────────────────────────────────────────────
+    async load(forceRefresh = false) {
+        const contentEl = document.getElementById('modelosContent');
+        if (contentEl) {
+            contentEl.innerHTML =
+                '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando modelos…</p></div>';
+        }
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) {
+                this._data = [];
+                if (contentEl) contentEl.innerHTML =
+                    '<div class="alert alert-warning" style="margin:20px;">' +
+                    'No hay <code>ESCANDALLOS_ID</code> configurado para esta temporada. ' +
+                    'Ve a Ajustes → Temporadas y enlaza el Sheet de escandallos.</div>';
+                return;
+            }
+            // Lee A2:I (los headers fijos están en row 1)
+            const range = `${this.TAB}!A2:I`;
+            const rows = await App.sheets.readRange(sheetId, range);
+            this._data = rows.map((r, i) => this._parseRow(r, i + 2)); // _rowIndex = 2-based
+            this._populateTalleresDatalist();
+            this.filter();
+        } catch (err) {
+            console.error('[modelos.load]', err);
+            if (contentEl) contentEl.innerHTML =
+                `<div class="alert alert-danger" style="margin:20px;">Error cargando modelos: ${err.message}</div>`;
+        }
+    },
+
+    _parseRow(r, rowIndex) {
+        const cell = i => (r[i] || '').toString().trim();
+        return {
+            NOMBRE:             cell(0),
+            TIPO_CONSTRUCCION:  cell(1),
+            TELA_PPAL_M:        cell(2),
+            ADORNOS:            cell(3),
+            PRECIO_EUR:         cell(4),
+            TALLERES_ASIGNADOS: cell(5),
+            FOTO_URL:           cell(6),
+            ACTIVO:             cell(7),
+            NOTAS:              cell(8),
+            _rowIndex:          rowIndex,
+        };
+    },
+
+    _serializeRow(m) {
+        return [
+            m.NOMBRE || '',
+            m.TIPO_CONSTRUCCION || '',
+            m.TELA_PPAL_M || '',
+            m.ADORNOS || '',
+            m.PRECIO_EUR || '',
+            m.TALLERES_ASIGNADOS || '',
+            m.FOTO_URL || '',
+            m.ACTIVO || '',
+            m.NOTAS || '',
+        ];
+    },
+
+    _isActive(m) {
+        const v = (m.ACTIVO || '').toString().toUpperCase().trim();
+        // Por defecto activo si está vacío. Solo FALSE/NO/0 lo marca como inactivo.
+        return !['FALSE','NO','0','INACTIVO'].includes(v);
+    },
+
+    // ── Filtrado ──────────────────────────────────────────────────────────
+    filter() {
+        const q = (document.getElementById('modelosSearch')?.value || '').toLowerCase().trim();
+        const activoFiltro = (document.getElementById('modelosActivoFiltro')?.value || 'activos');
+        const valid = this._data.filter(m => m.NOMBRE);
+        this._filtered = valid.filter(m => {
+            if (q && !m.NOMBRE.toLowerCase().includes(q)) return false;
+            const active = this._isActive(m);
+            if (activoFiltro === 'activos'   && !active) return false;
+            if (activoFiltro === 'inactivos' && active) return false;
+            return true;
+        });
+        this._render();
+    },
+
+    // ── Render: grid de cards ─────────────────────────────────────────────
+    _render() {
+        const container = document.getElementById('modelosContent');
+        const countEl = document.getElementById('modelosCount');
+        if (!container) return;
+        if (countEl) countEl.textContent = `${this._filtered.length} modelo${this._filtered.length !== 1 ? 's' : ''}`;
+        if (!this._filtered.length) {
+            container.innerHTML =
+                '<div class="empty-state" style="padding:40px;">' +
+                '<p style="margin-bottom:12px;">No hay modelos que coincidan con los filtros.</p>' +
+                '<button class="btn btn-primary btn-sm" onclick="App.modelos.openModal()">+ Nuevo modelo</button>' +
+                '</div>';
+            return;
+        }
+        const cards = this._filtered.map(m => this._renderCard(m)).join('');
+        container.innerHTML =
+            `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px;">${cards}</div>`;
+    },
+
+    _renderCard(m) {
+        const active = this._isActive(m);
+        const escName = (m.NOMBRE || '').replace(/'/g, "\\'");
+        const tipo  = m.TIPO_CONSTRUCCION ? `<span class="chip">${m.TIPO_CONSTRUCCION}</span>` : '';
+        const tela  = m.TELA_PPAL_M       ? `<span class="chip">&#x1F9F5; ${m.TELA_PPAL_M} m</span>` : '';
+        const precio= m.PRECIO_EUR        ? `<span class="chip">${m.PRECIO_EUR} €</span>` : '';
+        const tallChips = (m.TALLERES_ASIGNADOS || '').split(',').map(s => s.trim()).filter(Boolean)
+            .map(t => `<span class="chip" style="font-size:10px;">&#x1F3ED; ${t}</span>`).join('');
+        const foto = m.FOTO_URL
+            ? `<img src="${m.FOTO_URL}" alt="${m.NOMBRE}" style="width:100%; height:140px; object-fit:cover; border-radius:6px;" onerror="this.style.display='none';">`
+            : `<div style="width:100%; height:140px; background:#f5f5f5; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:36px; color:#ccc;">&#x1F457;</div>`;
+        const opacity = active ? '' : 'opacity:0.55;';
+        const inactiveBadge = active ? '' :
+            '<span class="chip" style="background:#999; color:white; font-size:10px;">inactivo</span>';
+        return `
+        <div class="card" style="padding:12px; ${opacity} cursor:pointer;"
+             onclick="App.modelos.openModal('${escName}')">
+            ${foto}
+            <div style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <strong style="font-size:15px;">${m.NOMBRE}</strong>
+                ${inactiveBadge}
+            </div>
+            <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">
+                ${tipo}${tela}${precio}
+            </div>
+            ${tallChips ? `<div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">${tallChips}</div>` : ''}
+            ${m.NOTAS ? `<div style="margin-top:6px; font-size:11px; color:var(--text-muted);">${m.NOTAS}</div>` : ''}
+        </div>`;
+    },
+
+    // ── Catálogo unificado de talleres (CONFIG + LISTADO + MODELOS) ───────
+    _allTalleres() {
+        const set = new Set(CONFIG.TALLERES || []);
+        // Talleres presentes en LISTADO TRAJES (cache de App.trajes)
+        for (const t of (App.trajes?.data || [])) {
+            const v = (t['TALLER'] || '').trim();
+            if (v) set.add(v);
+        }
+        // Talleres presentes en el catálogo de Modelos (puede haber nuevos asignados aquí)
+        for (const m of this._data) {
+            (m.TALLERES_ASIGNADOS || '').split(',').forEach(s => {
+                const v = s.trim();
+                if (v) set.add(v);
+            });
+        }
+        return [...set].sort();
+    },
+
+    _populateTalleresDatalist() {
+        const dl = document.getElementById('modeloTallerList');
+        if (!dl) return;
+        const all = this._allTalleres();
+        dl.innerHTML = all.map(t => `<option value="${t}">`).join('');
+    },
+
+    // ── Modal: abrir / cerrar ─────────────────────────────────────────────
+    openModal(nombre) {
+        const get = id => document.getElementById(id);
+        get('modeloOriginalNombre').value = nombre || '';
+        const editing = !!nombre;
+        const m = editing ? this._data.find(x => x.NOMBRE === nombre) : null;
+        get('modeloModalTitle').textContent = editing ? `Editar "${nombre}"` : 'Nuevo modelo';
+        get('btnModeloMarkInactive').style.display = editing && this._isActive(m || {}) ? 'inline-flex' : 'none';
+
+        get('modeloNombre').value           = m?.NOMBRE || '';
+        get('modeloTipoConstruccion').value = m?.TIPO_CONSTRUCCION || '';
+        get('modeloTelaPpalM').value        = m?.TELA_PPAL_M || '';
+        get('modeloAdornos').value          = m?.ADORNOS || '';
+        get('modeloPrecio').value           = m?.PRECIO_EUR || '';
+        get('modeloFotoUrl').value          = m?.FOTO_URL || '';
+        get('modeloNotas').value            = m?.NOTAS || '';
+        get('modeloActivo').checked         = m ? this._isActive(m) : true;
+
+        // Talleres como chips
+        this._editingTalleres = (m?.TALLERES_ASIGNADOS || '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        this._populateTalleresDatalist();
+        this._renderTalleresChips();
+
+        get('modeloModal').classList.add('active');
+        setTimeout(() => get('modeloNombre').focus(), 50);
+    },
+
+    closeModal() {
+        document.getElementById('modeloModal').classList.remove('active');
+    },
+
+    // ── Modal: chips de talleres ──────────────────────────────────────────
+    _renderTalleresChips() {
+        const c = document.getElementById('modeloTalleresContainer');
+        if (!c) return;
+        const input = document.getElementById('modeloTallerInput');
+        // Quita chips previos pero conserva el input + datalist
+        [...c.querySelectorAll('.taller-chip')].forEach(el => el.remove());
+        const frag = document.createDocumentFragment();
+        for (const t of this._editingTalleres) {
+            const chip = document.createElement('span');
+            chip.className = 'chip taller-chip';
+            chip.style.cursor = 'pointer';
+            chip.title = 'Click para quitar';
+            chip.innerHTML = `\u{1F3ED} ${t} <span style="opacity:0.6; margin-left:4px;">×</span>`;
+            chip.onclick = () => App.modelos._removeTaller(t);
+            frag.appendChild(chip);
+        }
+        c.insertBefore(frag, input);
+    },
+
+    _addTaller(name) {
+        const v = (name || '').trim();
+        if (!v) return;
+        if (this._editingTalleres.some(t => t.toLowerCase() === v.toLowerCase())) return;
+        this._editingTalleres.push(v);
+        this._renderTalleresChips();
+    },
+
+    _removeTaller(name) {
+        this._editingTalleres = this._editingTalleres.filter(t => t !== name);
+        this._renderTalleresChips();
+    },
+
+    _onTallerKeydown(e) {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            const input = e.target;
+            this._addTaller(input.value);
+            input.value = '';
+        } else if (e.key === 'Backspace' && !e.target.value && this._editingTalleres.length) {
+            // Backspace con input vacío → quitar el último chip
+            this._editingTalleres.pop();
+            this._renderTalleresChips();
+        }
+    },
+
+    // ── Guardar (crear o editar) ──────────────────────────────────────────
+    async save() {
+        const get = id => document.getElementById(id);
+        const btn = get('btnModeloSave');
+        btn.disabled = true; btn.textContent = 'Guardando...';
+        try {
+            // Si quedó algo escrito en el input de tallleres, lo añadimos antes de serializar
+            const tallerInput = get('modeloTallerInput');
+            if (tallerInput && tallerInput.value.trim()) {
+                this._addTaller(tallerInput.value);
+                tallerInput.value = '';
+            }
+
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado en la temporada actual.');
+
+            const nombre = get('modeloNombre').value.trim();
+            if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
+
+            const original = get('modeloOriginalNombre').value;
+            // Comprobar duplicado de nombre (solo si es nuevo o si el nombre cambió)
+            if ((!original || original !== nombre) &&
+                this._data.some(m => m.NOMBRE.toLowerCase() === nombre.toLowerCase())) {
+                App.toast.show(`Ya existe un modelo "${nombre}"`, 'error');
+                return;
+            }
+
+            const m = {
+                NOMBRE:             nombre,
+                TIPO_CONSTRUCCION:  get('modeloTipoConstruccion').value,
+                TELA_PPAL_M:        get('modeloTelaPpalM').value.trim(),
+                ADORNOS:            get('modeloAdornos').value.trim(),
+                PRECIO_EUR:         get('modeloPrecio').value.trim(),
+                TALLERES_ASIGNADOS: this._editingTalleres.join(', '),
+                FOTO_URL:           get('modeloFotoUrl').value.trim(),
+                ACTIVO:             get('modeloActivo').checked ? 'TRUE' : 'FALSE',
+                NOTAS:              get('modeloNotas').value.trim(),
+            };
+            const row = this._serializeRow(m);
+
+            if (original) {
+                // Editar: actualizar la fila por _rowIndex
+                const existing = this._data.find(x => x.NOMBRE === original);
+                if (!existing) throw new Error(`No se encontró el modelo original "${original}".`);
+                const range = `${this.TAB}!A${existing._rowIndex}:I${existing._rowIndex}`;
+                await App.sheets.writeRange(sheetId, range, [row]);
+            } else {
+                // Crear: append
+                await App.sheets.appendRows(sheetId, `${this.TAB}!A:I`, [row]);
+            }
+
+            App.toast.show('Modelo guardado', 'success');
+            this.closeModal();
+            await this.load(true);
+        } catch (err) {
+            console.error('[modelos.save]', err);
+            App.toast.show('Error: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Guardar';
+        }
+    },
+
+    async markInactive() {
+        const get = id => document.getElementById(id);
+        const original = get('modeloOriginalNombre').value;
+        if (!original) return;
+        if (!confirm(`¿Marcar "${original}" como inactivo? El modelo dejará de aparecer en la vista por defecto pero no se borrará.`)) return;
+        get('modeloActivo').checked = false;
+        await this.save();
+    },
+};
+
+/* ==========================================================
    TALLERES — Phase 5
    Vista agrupada por taller. Comparte la fuente de datos con
    App.trajes (App.sheets.getListadoTrajes → cache de 5 min).
@@ -10706,6 +11139,9 @@ App.ui.navigateTo = function(sectionId) {
     if (sectionId === 'talleres') {
         // Reusa el cache de App.trajes — carga si está vacío
         App.talleres.load(false);
+    }
+    if (sectionId === 'modelos') {
+        App.modelos.load();
     }
     if (sectionId === 'ajustes') {
         // Actualizar estado de sesión al entrar en Ajustes
