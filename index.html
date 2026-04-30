@@ -1369,8 +1369,8 @@
                 border: 1px solid var(--border) !important;
                 border-radius: var(--radius-sm);
                 padding: 10px 12px;
-                margin-bottom: 8px;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+                margin-bottom: 14px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             }
             /* Cada <td> con data-label se convierte en una fila etiqueta-valor */
             .table-container td {
@@ -1415,6 +1415,25 @@
                 text-align: right;
                 flex: 1;
                 min-width: 0;
+            }
+
+            /* ---- TOOLBAR DE FILTROS (Fichas, Trajes) EN MÓVIL ----
+               Los inputs/selects con max-width inline se ven truncados ("Todos
+               los estad..."). En móvil pasan a ocupar todo el ancho disponible
+               para que las opciones se lean enteras. */
+            .content-body .card input.form-input[style*="max-width"],
+            .content-body .card select.form-input[style*="max-width"] {
+                max-width: 100% !important;
+                width: 100% !important;
+                flex: 1 1 100% !important;
+            }
+            /* El bloque de botones del lado derecho (Actualizar + Nueva ficha)
+               también va en su propia fila, alineado a la derecha */
+            .content-body .card div[style*="margin-left:auto"] {
+                margin-left: 0 !important;
+                width: 100%;
+                justify-content: flex-end !important;
+                flex-wrap: wrap;
             }
         }
     </style>
