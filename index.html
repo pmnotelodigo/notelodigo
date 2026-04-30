@@ -546,6 +546,7 @@
             font-family: inherit;
             transition: border-color var(--transition);
             background: var(--surface);
+            box-sizing: border-box;
         }
         .form-input:focus {
             outline: none;
@@ -1289,6 +1290,29 @@
             /* Subheader tipo "ESTADO DEL TRAJE" un punto más legible */
             .modal [style*="text-transform:uppercase"] {
                 font-size: 11px !important;
+            }
+
+            /* Selects coloreados (Estado/Tela/Corte/Recibido/Entregado): el JS
+               les pone font-weight:700 inline cuando hay valor, lo que combinado
+               con el 16px obligatorio se siente "gritón". Bajar a 500 en móvil. */
+            .modal select.form-input {
+                font-weight: 500 !important;
+                padding: 6px 28px 6px 10px !important;
+            }
+
+            /* Salvaguarda contra overflow horizontal: form-groups dentro del
+               modal nunca sobrepasan su contenedor (típica trampa de flex/grid
+               con min-width: auto por defecto). */
+            .modal .form-group,
+            .modal .form-input {
+                min-width: 0 !important;
+                max-width: 100% !important;
+            }
+            /* Inputs de tipo date en iOS: a veces se renderiza más ancho que el
+               contenedor por el calendario nativo. Forzar contenedor de bloque. */
+            .modal input[type="date"].form-input {
+                display: block !important;
+                width: 100% !important;
             }
         }
     </style>
