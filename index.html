@@ -1023,6 +1023,12 @@
             background: #F57C00 !important;
         }
 
+        /* Traje "atascado" >15 días en taller sin volver — destacar en rojo */
+        .traje-atascado {
+            box-shadow: inset 4px 0 0 var(--danger) !important;
+            background: linear-gradient(to right, rgba(229, 57, 53, 0.06), transparent 35%) !important;
+        }
+
         /* ---- TRAJE MENSAJES (sección desplegable) ---- */
         .traje-mensajes-details > summary {
             cursor: pointer;
@@ -1479,6 +1485,10 @@
                sobre el borde de la card). */
             .table-container tr.traje-listo-corte {
                 border-left: 4px solid var(--warning) !important;
+                padding-left: 10px !important;
+            }
+            .table-container tr.traje-atascado {
+                border-left: 4px solid var(--danger) !important;
                 padding-left: 10px !important;
             }
 
@@ -4763,10 +4773,10 @@ const App = {
                 const isCurrent = current && s.NOMBRE === current.NOMBRE;
                 const short = (v) => v ? v.substring(0,10) + '…' : '<em style="color:var(--text-muted)">—</em>';
                 html += `<tr>
-                    <td><strong>${s.NOMBRE}</strong>${isCurrent ? ' <span class="badge badge-success" style="margin-left:6px;">activa</span>' : ''}</td>
-                    <td>${s.LISTADO_TAB || '—'}</td>
-                    <td class="mono" style="font-size:11px;">${short(s.LISTADO_ID)}</td>
-                    <td>${(s.ACTIVA || '').toUpperCase() === 'SI' ? '<span class="badge badge-info">por defecto</span>' : ''}</td>
+                    <td data-label="Nombre"><strong>${s.NOMBRE}</strong>${isCurrent ? ' <span class="badge badge-success" style="margin-left:6px;">activa</span>' : ''}</td>
+                    <td data-label="Pesta&ntilde;a">${s.LISTADO_TAB || '—'}</td>
+                    <td data-label="LISTADO" class="mono" style="font-size:11px;">${short(s.LISTADO_ID)}</td>
+                    <td data-label="Estado">${(s.ACTIVA || '').toUpperCase() === 'SI' ? '<span class="badge badge-info">por defecto</span>' : '—'}</td>
                     <td style="text-align:right; white-space:nowrap;">
                         ${!isCurrent ? `<button class="btn btn-secondary btn-sm" onclick="App.seasons.setCurrent('${s.NOMBRE.replace(/'/g,"\\'")}')">Activar</button>` : ''}
                         <button class="btn btn-secondary btn-sm" onclick="App.settings.openSeasonModal('${s.NOMBRE.replace(/'/g,"\\'")}')">Editar</button>
@@ -7603,7 +7613,14 @@ App.trajes = {
             const corteEstado   = (t[this.COL.corte] || '').toUpperCase();
             const necesitaCorte = canEnviar && (corteEstado === '' || corteEstado === 'PENDIENTE');
             const yaEnCorte     = canEnviar && !necesitaCorte;
-            const trClass = necesitaCorte ? ' class="traje-listo-corte"' : '';
+            // Atascado >15 días: ya cortado, en taller, sin volver hace mucho tiempo
+            const esAtascado    = !!(App.dashboard && App.dashboard._estaAtascado && App.dashboard._estaAtascado(t, 15));
+            // Las dos clases son mutuamente excluyentes en práctica pero por seguridad
+            // construimos la lista
+            const _trClasses = [];
+            if (necesitaCorte) _trClasses.push('traje-listo-corte');
+            if (esAtascado)    _trClasses.push('traje-atascado');
+            const trClass = _trClasses.length ? ` class="${_trClasses.join(' ')}"` : '';
 
             let actionHtml;
             if (necesitaCorte) {
@@ -10382,7 +10399,7 @@ App.talleres = {
                 </span>
             </div>
             <div class="taller-card-body">
-                <div style="overflow-x:auto;">
+                <div class="table-container">
                 <table style="width:100%; border-collapse:collapse; font-size:12px;">
                     <thead>
                         <tr style="background:var(--background); border-bottom:1px solid var(--border);">
@@ -10450,14 +10467,14 @@ App.talleres = {
 
         return `
         <tr style="border-bottom:1px solid var(--border-light);">
-            <td style="padding:6px 8px; font-weight:600; color:var(--primary);">${num}</td>
-            <td style="padding:6px 8px;">
+            <td data-label="N&ordm;" style="padding:6px 8px; font-weight:600; color:var(--primary);">${num}</td>
+            <td data-label="Clienta" style="padding:6px 8px;">
                 <div style="font-weight:500; overflow:hidden; text-overflow:ellipsis; max-width:160px; white-space:nowrap;" title="${nombre}">${nombre}</div>
                 ${feria ? `<div style="font-size:10px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; max-width:160px; white-space:nowrap;" title="${feria}">${feria}</div>` : ''}
             </td>
-            <td style="padding:6px 8px; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${modelo}">${modeloCell}</td>
-            <td style="padding:6px 8px; text-align:center; font-size:11px; color:var(--text-light); white-space:nowrap;">${fechaEntrega || '\u2014'}</td>
-            <td style="padding:6px 8px; text-align:center;">${chip}</td>
+            <td data-label="Modelo" style="padding:6px 8px; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${modelo}">${modeloCell}</td>
+            <td data-label="Entrega" style="padding:6px 8px; text-align:center; font-size:11px; color:var(--text-light); white-space:nowrap;">${fechaEntrega || '\u2014'}</td>
+            <td data-label="Estado" style="padding:6px 8px; text-align:center;">${chip}</td>
             <td style="padding:6px 8px; text-align:center;">
                 <div class="taller-row-actions">
                     <select class="form-input"
