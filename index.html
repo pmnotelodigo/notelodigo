@@ -1394,14 +1394,26 @@
             .table-container tr:has(> th) {
                 display: none !important;
             }
-            /* Cada <tr> se vuelve una card con borde y padding */
+            /* Cada <tr> se vuelve una card con borde y padding.
+               !important en background para anular el zebra striping inline
+               que algunas tablas (Corte) aplican en filas impares. */
             .table-container tr {
-                background: var(--surface);
+                background: var(--surface) !important;
                 border: 1px solid var(--border) !important;
                 border-radius: var(--radius-sm);
                 padding: 10px 12px;
                 margin-bottom: 14px;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            }
+            /* Excepción: las cards con highlight (listo-corte/atascado/pendiente-imprimir)
+               mantienen su tinte sutil — el !important no las afecta porque ellas
+               usan linear-gradient como background. */
+            .table-container tr.traje-listo-corte,
+            .table-container tr.corte-pendiente-imprimir {
+                background: linear-gradient(to right, rgba(255, 152, 0, 0.06), var(--surface) 35%) !important;
+            }
+            .table-container tr.traje-atascado {
+                background: linear-gradient(to right, rgba(229, 57, 53, 0.06), var(--surface) 35%) !important;
             }
             /* Cada <td> con data-label se convierte en una fila etiqueta-valor */
             .table-container td {
