@@ -1308,11 +1308,21 @@
                 min-width: 0 !important;
                 max-width: 100% !important;
             }
-            /* Inputs de tipo date en iOS: a veces se renderiza más ancho que el
-               contenedor por el calendario nativo. Forzar contenedor de bloque. */
+            /* Inputs de tipo date en iOS: el rendering nativo puede aumentar
+               el ancho intrínseco. Quitar appearance nativa y forzar que se
+               comporte como un input de texto normal. */
             .modal input[type="date"].form-input {
                 display: block !important;
                 width: 100% !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            /* Boxes de estado: clip cualquier overflow de hijos (parche para
+               casos donde algún input se sale por su intrínseco mínimo). */
+            .modal [style*="background:var(--background)"][style*="border:1px solid var(--border-light)"] {
+                overflow: hidden !important;
             }
         }
     </style>
