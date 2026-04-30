@@ -7591,9 +7591,14 @@ App.trajes = {
                 ? `<span style="font-size:12px;">${telaVal}</span>`
                 : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
 
-            const trClass  = canEnviar ? ' class="traje-listo-corte"' : '';
-            const btnClass = canEnviar ? 'btn-corte btn-corte-listo' : 'btn-corte';
-            const btnText  = canEnviar ? '&#x1F680; Enviar a corte' : '&#x2702;&#xFE0F; Corte';
+            // "Listo para cortar" = cumple los prereqs (canEnviar) Y el corte
+            // no se ha enviado todavía. Si Corte ya está ENVIADO/RECOGIDO/INCIDENCIA
+            // no destacamos visualmente aunque técnicamente se pueda re-enviar.
+            const corteEstado   = (t[this.COL.corte] || '').toUpperCase();
+            const necesitaCorte = canEnviar && (corteEstado === '' || corteEstado === 'PENDIENTE');
+            const trClass  = necesitaCorte ? ' class="traje-listo-corte"' : '';
+            const btnClass = necesitaCorte ? 'btn-corte btn-corte-listo' : 'btn-corte';
+            const btnText  = necesitaCorte ? '&#x1F680; Enviar a corte' : '&#x2702;&#xFE0F; Corte';
 
             return `<tr${trClass} style="cursor:pointer;" onclick="App.trajes.showEditModal(${t._rowIndex})">
                 <td data-label="N&ordm;" style="font-weight:600; color:var(--primary);">${t[this.COL.num] || '&mdash;'}</td>
