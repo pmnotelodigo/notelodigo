@@ -1003,6 +1003,44 @@
             opacity: 1;
         }
 
+        /* ---- TRAJE MENSAJES (sección desplegable) ---- */
+        .traje-mensajes-details > summary {
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text);
+            padding: 6px 0;
+            user-select: none;
+            font-weight: 500;
+        }
+        .traje-mensajes-details > summary::-webkit-details-marker {
+            display: none;
+        }
+        .traje-mensajes-details > summary:hover {
+            color: var(--primary);
+        }
+        .traje-mensajes-chevron {
+            display: inline-block;
+            width: 0;
+            height: 0;
+            border-left: 5px solid var(--text-muted);
+            border-top: 4px solid transparent;
+            border-bottom: 4px solid transparent;
+            transition: transform 0.2s ease;
+            flex-shrink: 0;
+        }
+        .traje-mensajes-details[open] > summary > .traje-mensajes-chevron {
+            transform: rotate(90deg);
+        }
+        .traje-mensajes-hint {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-weight: normal;
+        }
+
         /* ---- BOTTOM NAVIGATION (móvil) ---- */
         .bottom-nav { display: none; }
 
@@ -1201,16 +1239,16 @@
                 font-size: 14px !important;
                 min-width: 38px;
             }
-            /* Reducir el espaciado del contenedor de Mensajes a la clienta */
-            .modal div:has(> #trajeMensajesBtns) {
+            /* Reducir el espaciado del desplegable de Mensajes a la clienta */
+            .modal .traje-mensajes-details {
                 padding-top: 6px !important;
                 margin-top: 6px !important;
             }
-            .modal div:has(> #trajeMensajesBtns) > label {
-                margin-bottom: 4px !important;
+            .modal .traje-mensajes-details > summary {
+                margin-bottom: 0 !important;
             }
             /* Ocultar el texto auxiliar "— se rellenan con los datos de este traje" en móvil */
-            .modal div:has(> #trajeMensajesBtns) > label > span {
+            .modal .traje-mensajes-hint {
                 display: none;
             }
             /* Cualquier grid de varias columnas dentro de un modal pasa a 1 columna */
@@ -2283,14 +2321,15 @@
                         </div>
                     </div>
 
-                    <!-- Mensajes rápidos del traje (mover desde ficha de clienta) -->
-                    <div style="flex-shrink:0; padding-top:10px; margin-top:8px; border-top:1px dashed var(--border-light);">
-                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted); margin-bottom:6px;">
+                    <!-- Mensajes rápidos del traje — desplegable -->
+                    <details class="traje-mensajes-details" style="flex-shrink:0; padding-top:10px; margin-top:8px; border-top:1px dashed var(--border-light);">
+                        <summary>
+                            <span class="traje-mensajes-chevron"></span>
                             &#x1F4AC; Mensajes a la clienta
-                            <span style="font-size:10px;">— se rellenan con los datos de este traje</span>
-                        </label>
-                        <div id="trajeMensajesBtns" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
-                    </div>
+                            <span class="traje-mensajes-hint">— se rellenan con los datos de este traje</span>
+                        </summary>
+                        <div id="trajeMensajesBtns" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
+                    </details>
 
                     <!-- Botones (fijos abajo) -->
                     <div class="modal-actions" style="flex-shrink:0; padding-top:10px; margin-top:8px; border-top:1px solid var(--border-light);">
