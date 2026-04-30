@@ -1267,9 +1267,22 @@
             }
 
             /* Prevenir el auto-zoom de iOS Safari al tocar un input.
-               iOS hace zoom solo si font-size < 16px. Forzando 16px
-               desactivamos el comportamiento sin tener que rebobinar. */
+               iOS hace zoom solo si font-size < 16px en el momento del tap.
+               Truco: dentro del modal el font-size en reposo es 14px (mejor
+               proporción visual) pero al enfocar se sube a 16px, así iOS no
+               zoomea. Fuera del modal mantenemos 16px porque las búsquedas
+               y filtros no se ven afectados por la jerarquía del modal. */
             input, textarea, select {
+                font-size: 16px !important;
+            }
+            .modal input,
+            .modal textarea,
+            .modal select {
+                font-size: 14px !important;
+            }
+            .modal input:focus,
+            .modal textarea:focus,
+            .modal select:focus {
                 font-size: 16px !important;
             }
 
