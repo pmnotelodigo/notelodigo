@@ -691,6 +691,31 @@
             margin-top: 24px;
         }
 
+        /* ---- COMBOBOX (input + dropdown con creación libre) ---- */
+        .combobox-wrap { position: relative; }
+        .combobox-input { padding-right: 30px !important; }
+        .combobox-chev {
+            position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+            color: #888; pointer-events: none; font-size: 12px;
+        }
+        .combobox-panel {
+            display: none; position: absolute; left: 0; right: 0; top: 100%;
+            z-index: 2100; background: white; border: 1px solid var(--border, #ddd);
+            border-top: none; max-height: 220px; overflow-y: auto;
+            border-radius: 0 0 6px 6px; box-shadow: 0 6px 16px rgba(0,0,0,0.10);
+        }
+        .combobox-open .combobox-panel { display: block; }
+        .combobox-open .combobox-input { border-radius: 6px 6px 0 0; }
+        .combobox-item {
+            padding: 8px 12px; cursor: pointer; font-size: 13px; line-height: 1.3;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .combobox-item:last-child { border-bottom: none; }
+        .combobox-item:hover, .combobox-item.active { background: #fce4ec; }
+        .combobox-create { color: var(--primary, #c2185b); font-weight: 600; background: #fafafa; }
+        .combobox-create:hover { background: #fce4ec; }
+        .combobox-empty { padding: 8px 12px; color: #aaa; font-size: 13px; font-style: italic; }
+
         /* ---- LOADING SPINNER ---- */
         .spinner {
             display: inline-block;
@@ -2810,27 +2835,19 @@
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
                         <div class="form-group" style="margin:0;">
                             <label>Tipo *</label>
-                            <input type="text" class="form-input" id="telaTipo"
-                                   list="telaTipoList" placeholder="BAMBULA">
-                            <datalist id="telaTipoList"></datalist>
+                            <input type="text" class="form-input" id="telaTipo" placeholder="BAMBULA" autocomplete="off">
                         </div>
                         <div class="form-group" style="margin:0;">
                             <label>Variante *</label>
-                            <input type="text" class="form-input" id="telaVariante" placeholder="rosa palo">
+                            <input type="text" class="form-input" id="telaVariante" placeholder="rosa palo" autocomplete="off">
                         </div>
                         <div class="form-group" style="margin:0;">
                             <label>Proveedor</label>
-                            <input type="text" class="form-input" id="telaProveedor"
-                                   list="telaProveedorList" placeholder="TELATER">
-                            <datalist id="telaProveedorList"></datalist>
+                            <input type="text" class="form-input" id="telaProveedor" placeholder="TELATER" autocomplete="off">
                         </div>
                         <div class="form-group" style="margin:0;">
                             <label>Ubicación</label>
-                            <select class="form-input" id="telaUbicacion">
-                                <option value="">— sin definir —</option>
-                                <option value="cortador">cortador</option>
-                                <option value="tienda">tienda</option>
-                            </select>
+                            <input type="text" class="form-input" id="telaUbicacion" placeholder="cortador" autocomplete="off">
                         </div>
                         <div class="form-group" style="margin:0;">
                             <label>Stock actual (m)</label>
@@ -6080,6 +6097,76 @@ const App = {
 
         hideLoading() {
             document.getElementById('loadingOverlay').classList.remove('active');
+        },
+
+        // ── Combobox: input con dropdown de opciones existentes + creación libre ──
+        // Uso: App.ui.attachCombobox(inputEl, () => ['op1','op2',...]);
+        // El input se decora con un panel flotante. Click/focus abre, escribir filtra,
+        // click en una opción la elige, "+ Crear X" cuando lo escrito no existe.
+        attachCombobox(input, getOptions) {
+            if (!input || input.dataset.comboboxAttached === '1') return;
+            input.dataset.comboboxAttached = '1';
+
+            // Envolver el input en .combobox-wrap
+            const wrap = document.createElement('div');
+            wrap.className = 'combobox-wrap';
+            input.parentNode.insertBefore(wrap, input);
+            wrap.appendChild(input);
+            input.classList.add('combobox-input');
+
+            const chev = document.createElement('span');
+            chev.className = 'combobox-chev';
+            chev.textContent = '▾';
+            wrap.appendChild(chev);
+
+            const panel = document.createElement('div');
+            panel.className = 'combobox-panel';
+            wrap.appendChild(panel);
+
+            const close = () => wrap.classList.remove('combobox-open');
+            const open = () => { wrap.classList.add('combobox-open'); render(); };
+            const render = () => {
+                const q = input.value.trim().toLowerCase();
+                const all = (typeof getOptions === 'function' ? getOptions() : getOptions) || [];
+                const filtered = q ? all.filter(o => (o || '').toLowerCase().includes(q)) : all;
+                const exact = all.some(o => (o || '').toLowerCase() === q);
+                const items = [];
+                if (q && !exact) {
+                    items.push(`<div class="combobox-item combobox-create" data-val="${escapeAttr(q)}">+ Crear "${escapeHtml(q)}"</div>`);
+                }
+                for (const o of filtered) {
+                    items.push(`<div class="combobox-item" data-val="${escapeAttr(o)}">${escapeHtml(o)}</div>`);
+                }
+                panel.innerHTML = items.length
+                    ? items.join('')
+                    : '<div class="combobox-empty">Sin opciones — escribe para crear una nueva</div>';
+            };
+
+            input.addEventListener('focus', open);
+            input.addEventListener('input', () => { render(); wrap.classList.add('combobox-open'); });
+            chev.addEventListener('mousedown', (e) => { e.preventDefault(); input.focus(); open(); });
+            // mousedown evita que el blur del input cierre el panel antes del click
+            panel.addEventListener('mousedown', (e) => {
+                const it = e.target.closest('.combobox-item');
+                if (!it) return;
+                e.preventDefault();
+                input.value = it.dataset.val || '';
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                close();
+                input.focus();
+            });
+            input.addEventListener('blur', () => setTimeout(close, 120));
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') close();
+                if (e.key === 'Enter')  { close(); }
+            });
+
+            // Helpers locales para escape
+            function escapeAttr(s) { return (s || '').toString().replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+            function escapeHtml(s) {
+                return (s || '').toString()
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
         },
 
         // ── Confirm genérico con botones personalizables ────────────────────
@@ -11087,11 +11174,21 @@ App.telas = {
         get('telaActiva').checked       = t ? this._isActive(t) : true;
         get('telaNotas').value          = t?.NOTAS || '';
 
-        // Datalists
-        const tipoDl = get('telaTipoList');
-        if (tipoDl) tipoDl.innerHTML = this._allTipos().map(x => `<option value="${x}">`).join('');
-        const provDl = get('telaProveedorList');
-        if (provDl) provDl.innerHTML = this._allProveedores().map(x => `<option value="${x}">`).join('');
+        // Combobox: dropdown con opciones existentes + "Crear nuevo" cuando lo escrito no encaja.
+        // Idempotente — si el modal se reabre, attach detecta dataset.comboboxAttached y no duplica.
+        App.ui.attachCombobox(get('telaTipo'), () => this._allTipos());
+        App.ui.attachCombobox(get('telaVariante'), () => {
+            // Variantes existentes para el TIPO actual (cambia dinámicamente)
+            const tipo = (get('telaTipo').value || '').trim().toUpperCase();
+            if (!tipo) return [];
+            return [...new Set(this._data
+                .filter(x => x.TIPO === tipo).map(x => x.VARIANTE).filter(Boolean))].sort();
+        });
+        App.ui.attachCombobox(get('telaProveedor'), () => this._allProveedores());
+        App.ui.attachCombobox(get('telaUbicacion'), () => {
+            const fromData = this._data.map(x => x.UBICACION).filter(Boolean);
+            return [...new Set(['cortador', 'tienda', ...fromData])].sort();
+        });
 
         get('telaModal').classList.add('active');
         setTimeout(() => get('telaTipo').focus(), 50);
