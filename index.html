@@ -2261,6 +2261,9 @@
                     <div class="bandeja" data-bandeja="esperandoTela" onclick="App.trajes.setBandeja('esperandoTela')">
                         &#x23F3; Esperando tela <span class="count" id="bdCount-esperandoTela">&mdash;</span>
                     </div>
+                    <div class="bandeja bandeja-warn" data-bandeja="pedirTela" onclick="App.trajes.setBandeja('pedirTela')">
+                        &#x1F4E6; Pedir tela <span class="count" id="bdCount-pedirTela">&mdash;</span>
+                    </div>
                     <div class="bandeja" data-bandeja="listos" onclick="App.trajes.setBandeja('listos')">
                         &#x2702;&#xFE0F; Listos para cortar <span class="count" id="bdCount-listos">&mdash;</span>
                     </div>
@@ -7496,17 +7499,20 @@ App.clientas = {
             const comentario   = (document.getElementById('nuevaComentario')?.value || '').trim();
 
             const valores = {
-                'Nº':        numId,
-                'NOMBRE':    nombre,
-                'TELÉFONO':  v('nuevaTelefono'),
-                'CORREO':    v('nuevaCorreo'),
-                'FERIA':     v('nuevaFeria'),
-                'MODELO':    v('nuevaModelo'),
-                'FICHA':     fichaUrl,
-                'TIPO TELA': v('nuevaTipoTela'),
-                'ADORNOS':   v('nuevaAdornos'),
-                'MEDIDAS':   medidas,
-                'ESTADO':    estado,
+                'Nº':            numId,
+                'NOMBRE':        nombre,
+                'TELÉFONO':      v('nuevaTelefono'),
+                'CORREO':        v('nuevaCorreo'),
+                'FERIA':         v('nuevaFeria'),
+                'MODELO':        v('nuevaModelo'),
+                'FICHA':         fichaUrl,
+                'TIPO TELA':     v('nuevaTipoTela'),
+                'ADORNOS':       v('nuevaAdornos'),
+                'MEDIDAS':       medidas,
+                'ESTADO':        estado,
+                // TELA RECIBIDA arranca en PENDIENTE: el traje entra en "Pedir tela"
+                // hasta que Pilar lo cambie a PEDIDA / RECIBIDA en el modal de editar.
+                'TELA RECIBIDA': 'PENDIENTE',
             };
 
             const row = targetRow;
@@ -7661,6 +7667,120 @@ App.trajes = {
         return 'esperandoTela';
     },
 
+    // ── Stock agregado por TELA (no por modelo) ───────────────────────────
+    // Para cada tela usada en trajes pendientes, suma la demanda total y la
+    // compara con el stock. Un traje hereda el estado de SU tela.
+    //
+    // Estado posible por tela:
+    //   'falta'   — demanda > stock (faltan metros, hay que pedir)
+    //   'umbral'  — restante < UMBRAL_ALERTA pero ≥ 0 (queda poco)
+    //   'ok'      — restante ≥ umbral
+    //   'unknown' — la tela no está en catálogo (no se puede calcular)
+    //
+    // Solo cuentan trajes con TELA RECIBIDA ≠ RECIBIDA y no entregados.
+    // Trajes con MODELO o TIPO TELA ausente / no encajan con catálogo se omiten
+    // (no se puede saber su demanda — silenciosos para no marcar falsos positivos).
+    _stockAggregate() {
+        const m = new Map();
+        if (!App.modelos?._data?.length || !App.telas?._data?.length) return m;
+        const modelosByName = new Map(
+            App.modelos._data.filter(x => x.NOMBRE).map(x => [x.NOMBRE.toLowerCase(), x])
+        );
+        for (const t of (this.data || [])) {
+            const telaRec  = (t[this.COL.telaRecibida]   || '').toUpperCase();
+            const trajeEnt = (t[this.COL.trajeEntregado] || '').toUpperCase();
+            if (trajeEnt === 'ENTREGADO') continue;
+            // Solo cuenta demanda si la tela aún NO se ha pedido (PENDIENTE o vacío).
+            // Si está PEDIDA, ya está en camino → no hay que volver a pedir.
+            // Si está RECIBIDA, ya está en mano → tampoco consume stock futuro.
+            // Si es INCIDENCIA, caso aparte (lo trata el flujo de revisión).
+            if (telaRec !== 'PENDIENTE' && telaRec !== '') continue;
+            // Parsear TIPO TELA "TIPO / VARIANTE"
+            const raw   = (t[this.COL.tipoTela] || '').trim();
+            const slash = raw.indexOf('/');
+            if (slash < 0) continue;
+            const tipo     = raw.substring(0, slash).trim().toUpperCase();
+            const variante = raw.substring(slash + 1).trim();
+            if (!tipo || !variante) continue;
+            // Buscar modelo y escandallo
+            const modeloNombre = (t[this.COL.modelo] || '').trim();
+            if (!modeloNombre) continue;
+            const modelo = modelosByName.get(modeloNombre.toLowerCase());
+            if (!modelo) continue;
+            const necesita = parseFloat(modelo.TELA_PPAL_M);
+            if (isNaN(necesita) || necesita <= 0) continue;
+            // Acumular en el mapa
+            const key = `${tipo}|${variante}`;
+            if (!m.has(key)) m.set(key, {
+                tipo, variante, demanda: 0, count: 0, trajeRowIndices: [],
+            });
+            const entry = m.get(key);
+            entry.demanda += necesita;
+            entry.count += 1;
+            entry.trajeRowIndices.push(t._rowIndex);
+        }
+        // Cruzar con stock real de cada tela del catálogo
+        for (const entry of m.values()) {
+            const tela = App.telas._data.find(x =>
+                x.TIPO === entry.tipo && x.VARIANTE === entry.variante);
+            if (!tela) { entry.status = 'unknown'; continue; }
+            entry.stock     = parseFloat(tela.STOCK_M) || 0;
+            entry.umbral    = parseFloat(tela.UMBRAL_ALERTA);
+            entry.proveedor = tela.PROVEEDOR || '';
+            const restante  = entry.stock - entry.demanda;
+            entry.restante  = restante;
+            entry.faltan    = Math.max(0, -restante);
+            if (restante < 0) entry.status = 'falta';
+            else if (!isNaN(entry.umbral) && restante < entry.umbral) entry.status = 'umbral';
+            else entry.status = 'ok';
+        }
+        return m;
+    },
+
+    /**
+     * Devuelve el entry agregado de la tela del traje, o null si:
+     *   • el traje ya tiene tela recibida o está entregado
+     *   • el TIPO TELA no encaja con el formato canónico
+     *   • la tela / modelo no encajan con catálogo
+     *   • el estado es 'ok' (no marcamos lo que va bien)
+     */
+    _stockStatusForTraje(t) {
+        if (!this._stockMap) return null;
+        const telaRec  = (t[this.COL.telaRecibida]   || '').toUpperCase();
+        const trajeEnt = (t[this.COL.trajeEntregado] || '').toUpperCase();
+        if (trajeEnt === 'ENTREGADO') return null;
+        // Solo "PENDIENTE" (o vacío como sinónimo) muestra el aviso de pedir.
+        // Una vez Pilar marca PEDIDA, el aviso desaparece.
+        if (telaRec !== 'PENDIENTE' && telaRec !== '') return null;
+        const raw   = (t[this.COL.tipoTela] || '').trim();
+        const slash = raw.indexOf('/');
+        if (slash < 0) return null;
+        const tipo     = raw.substring(0, slash).trim().toUpperCase();
+        const variante = raw.substring(slash + 1).trim();
+        if (!tipo || !variante) return null;
+        const entry = this._stockMap.get(`${tipo}|${variante}`);
+        if (!entry) return null;
+        if (entry.status === 'ok' || entry.status === 'unknown') return null;
+        return entry;
+    },
+
+    /** Asegura que los catálogos de Modelos y Telas estén cargados.
+     *  Fire-and-forget — al llegar, refresca la vista de Trajes si sigue activa. */
+    _ensureCatalogsLoaded() {
+        const refresh = () => {
+            const sec = document.getElementById('sec-trajes');
+            if (sec && sec.classList.contains('active')) this.filter();
+        };
+        if (App.modelos && App.modelos._data.length === 0) {
+            App.modelos.load().then(refresh)
+                .catch(e => console.warn('[trajes] modelos.load:', e.message));
+        }
+        if (App.telas && App.telas._data.length === 0) {
+            App.telas.load().then(refresh)
+                .catch(e => console.warn('[trajes] telas.load:', e.message));
+        }
+    },
+
     // Revisar es un filtro transversal — un traje "necesita revisión" si tiene
     // ESTADO=REVISAR/INCIDENCIA o cualquier campo del flujo marcado como INCIDENCIA.
     // Un traje puede estar simultáneamente "En taller" y "Revisar".
@@ -7687,15 +7807,16 @@ App.trajes = {
     _updateBandejaCounts() {
         const counts = {
             todos: this.data.length,
-            esperandoTela: 0, listos: 0, enCorte: 0, enTaller: 0,
+            esperandoTela: 0, pedirTela: 0, listos: 0, enCorte: 0, enTaller: 0,
             recibidos: 0, entregados: 0, revisar: 0,
         };
         for (const t of this.data) {
             const b = this._getBandeja(t);
             if (counts[b] !== undefined) counts[b]++;
-            // Revisar es transversal: un traje puede estar en su fase física Y
-            // además necesitar revisión. Se cuenta aparte.
+            // "Revisar" y "Pedir tela" son transversales: un traje puede estar en
+            // su fase física Y además aparecer aquí. Se cuentan aparte.
             if (this._needsRevisar(t)) counts.revisar++;
+            if (this._stockStatusForTraje(t)) counts.pedirTela++;
         }
         for (const [k, v] of Object.entries(counts)) {
             const el = document.getElementById('bdCount-' + k);
@@ -7709,6 +7830,8 @@ App.trajes = {
         try {
             this.data = await App.sheets.getListadoTrajes(forceRefresh);
             this._populateFilters();
+            // Asegura catálogos para el cálculo de stock agregado (no bloqueante)
+            this._ensureCatalogsLoaded();
             this.filter();
         } catch (err) {
             document.getElementById('trajesList').innerHTML =
@@ -7746,11 +7869,17 @@ App.trajes = {
         const q = (document.getElementById('trajeSearch')?.value || '').toLowerCase().trim();
         const bandeja = this._bandeja || 'todos';
 
+        // Recalcular el mapa agregado de stock — barato (~500 trajes max).
+        // Si los catálogos no están cargados, devuelve mapa vacío (no marca nada).
+        this._stockMap = this._stockAggregate();
+
         this.filtered = this.data.filter(t => {
-            // Bandeja activa. "revisar" es transversal (aplica sobre cualquier fase),
-            // el resto filtran por fase física del traje.
+            // Bandeja activa. "revisar" y "pedirTela" son transversales (aplican
+            // sobre cualquier fase física), el resto filtran por fase del traje.
             if (bandeja === 'revisar') {
                 if (!this._needsRevisar(t)) return false;
+            } else if (bandeja === 'pedirTela') {
+                if (!this._stockStatusForTraje(t)) return false;
             } else if (bandeja !== 'todos' && this._getBandeja(t) !== bandeja) {
                 return false;
             }
@@ -7990,8 +8119,27 @@ App.trajes = {
                 ? `<span style="font-size:12px;">${tallerVal}</span>`
                 : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
             const telaVal = (t[this.COL.tipoTela] || '').trim();
+            // Badge de stock agregado (📦 pedir / 🔻 stock bajo) — solo en trajes pendientes
+            // de tela y cuya tela+modelo encajan con catálogo. Tooltip con el detalle.
+            const stockEntry = this._stockStatusForTraje(t);
+            const stockBadge = stockEntry ? (() => {
+                const fmt = n => Number(Number(n).toFixed(2)).toString();
+                const provLabel = stockEntry.proveedor ? ` · proveedor ${stockEntry.proveedor}` : '';
+                if (stockEntry.status === 'falta') {
+                    const tooltip = `Faltan ${fmt(stockEntry.faltan)} m de ${stockEntry.tipo} ${stockEntry.variante}. ` +
+                                    `Demanda total ${fmt(stockEntry.demanda)} m vs stock ${fmt(stockEntry.stock)} m${provLabel}.`;
+                    return ` <span class="chip" style="background:#c62828; color:white; font-size:10px; cursor:help;" title="${tooltip.replace(/"/g,'&quot;')}">📦 pedir</span>`;
+                }
+                if (stockEntry.status === 'umbral') {
+                    const restante = stockEntry.stock - stockEntry.demanda;
+                    const tooltip = `Tras los pendientes quedarán ${fmt(restante)} m de ${stockEntry.tipo} ${stockEntry.variante} ` +
+                                    `(umbral: ${fmt(stockEntry.umbral)} m)${provLabel}.`;
+                    return ` <span class="chip" style="background:#f57c00; color:white; font-size:10px; cursor:help;" title="${tooltip.replace(/"/g,'&quot;')}">🔻 stock bajo</span>`;
+                }
+                return '';
+            })() : '';
             const telaCell = telaVal
-                ? `<span style="font-size:12px;">${telaVal}</span>`
+                ? `<span style="font-size:12px;">${telaVal}</span>${stockBadge}`
                 : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
 
             // Tres estados visuales del botón de corte:
@@ -9431,15 +9579,19 @@ App.trajes = {
             if (!this._proximaFila) await this._detectarProximaFila();
 
             const valores = {
-                'Nº':        this._proximaFila?.num || '',
-                'NOMBRE':    nombre,
-                'TELÉFONO':  (document.getElementById('nuevoTrajeTelefono')?.value || '').trim(),
-                'CORREO':    (document.getElementById('nuevoTrajeCorreo')?.value   || '').trim(),
-                'FERIA':     (document.getElementById('nuevoTrajeFeria')?.value    || '').trim(),
-                'MODELO':    (document.getElementById('nuevoTrajeModelo')?.value   || '').trim(),
-                'TIPO TELA': (document.getElementById('nuevoTrajeTipoTela')?.value || '').trim(),
-                'MEDIDAS':   (document.getElementById('nuevoTrajeMedidas')?.value  || '').trim(),
-                'ESTADO':    'CORRECTO',
+                'Nº':            this._proximaFila?.num || '',
+                'NOMBRE':        nombre,
+                'TELÉFONO':      (document.getElementById('nuevoTrajeTelefono')?.value || '').trim(),
+                'CORREO':        (document.getElementById('nuevoTrajeCorreo')?.value   || '').trim(),
+                'FERIA':         (document.getElementById('nuevoTrajeFeria')?.value    || '').trim(),
+                'MODELO':        (document.getElementById('nuevoTrajeModelo')?.value   || '').trim(),
+                'TIPO TELA':     (document.getElementById('nuevoTrajeTipoTela')?.value || '').trim(),
+                'MEDIDAS':       (document.getElementById('nuevoTrajeMedidas')?.value  || '').trim(),
+                'ESTADO':        'CORRECTO',
+                // TELA RECIBIDA arranca en PENDIENTE: si Pilar tiene tela disponible, lo cambia
+                // a PEDIDA o RECIBIDA en el modal de editar. Mientras esté PENDIENTE, el traje
+                // entra en el cálculo de "Pedir tela".
+                'TELA RECIBIDA': 'PENDIENTE',
             };
 
             // Leer cabeceras para saber el índice de columna exacto
