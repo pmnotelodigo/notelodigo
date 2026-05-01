@@ -7764,6 +7764,15 @@ App.trajes = {
         return entry;
     },
 
+    /** ¿Este traje urge pedir tela? — solo cuando la demanda agregada supera el stock.
+     *  Lo de "stock bajo" (umbral) no se cuenta aquí: es informativo en la fila pero
+     *  no entra en la bandeja "Pedir tela" ni en su contador. Así la bandeja queda
+     *  como indicador de URGENCIA real, no de "ojo, queda poco". */
+    _isPedirUrgente(t) {
+        const e = this._stockStatusForTraje(t);
+        return !!(e && e.status === 'falta');
+    },
+
     /** Asegura que los catálogos de Modelos y Telas estén cargados.
      *  Fire-and-forget — al llegar, refresca la vista de Trajes si sigue activa. */
     _ensureCatalogsLoaded() {
@@ -7816,7 +7825,9 @@ App.trajes = {
             // "Revisar" y "Pedir tela" son transversales: un traje puede estar en
             // su fase física Y además aparecer aquí. Se cuentan aparte.
             if (this._needsRevisar(t)) counts.revisar++;
-            if (this._stockStatusForTraje(t)) counts.pedirTela++;
+            // Bandeja "Pedir tela" solo cuenta lo URGENTE (status='falta'),
+            // no los "stock bajo" — esos quedan como aviso informativo en la fila.
+            if (this._isPedirUrgente(t)) counts.pedirTela++;
         }
         for (const [k, v] of Object.entries(counts)) {
             const el = document.getElementById('bdCount-' + k);
@@ -7879,7 +7890,7 @@ App.trajes = {
             if (bandeja === 'revisar') {
                 if (!this._needsRevisar(t)) return false;
             } else if (bandeja === 'pedirTela') {
-                if (!this._stockStatusForTraje(t)) return false;
+                if (!this._isPedirUrgente(t)) return false;
             } else if (bandeja !== 'todos' && this._getBandeja(t) !== bandeja) {
                 return false;
             }
@@ -8952,6 +8963,19 @@ App.trajes = {
                 this._updateStockBanner();
             });
         }
+
+        // El banner depende también de TELA RECIBIDA y TRAJE ENTREGADO:
+        // si pasa a PEDIDA / RECIBIDA / ENTREGADO, debe desaparecer al instante.
+        const telRecSel = document.getElementById('editTrajeTelRecibida');
+        if (telRecSel && !telRecSel.dataset.stockBannerWired) {
+            telRecSel.dataset.stockBannerWired = '1';
+            telRecSel.addEventListener('change', () => this._updateStockBanner());
+        }
+        const trajeEntSel = document.getElementById('editTrajeTrajeEntregado');
+        if (trajeEntSel && !trajeEntSel.dataset.stockBannerWired) {
+            trajeEntSel.dataset.stockBannerWired = '1';
+            trajeEntSel.addEventListener('change', () => this._updateStockBanner());
+        }
     },
 
     /** Recompone el hidden editTrajeTipoTela = "TIPO / VARIANTE" para que guardarEdicion lo lea. */
@@ -8991,10 +9015,21 @@ App.trajes = {
         chip.innerHTML = parts.join(' &nbsp;·&nbsp; ');
     },
 
-    /** Banner que cruza modelo + tela elegidos: stock vs metros requeridos. */
+    /** Banner que cruza modelo + tela elegidos: stock vs metros requeridos.
+     *  Solo aparece si el traje está en estado "pedir tela" — TELA RECIBIDA = PENDIENTE
+     *  (o vacío) y TRAJE ENTREGADO != ENTREGADO. En cualquier otro caso, oculto. */
     _updateStockBanner() {
         const banner = document.getElementById('editTrajeStockBanner');
         if (!banner) return;
+
+        // Filtro por estado: solo trajes pendientes de pedir tela.
+        const telaRec  = (document.getElementById('editTrajeTelRecibida')?.value     || '').toUpperCase().trim();
+        const trajeEnt = (document.getElementById('editTrajeTrajeEntregado')?.value || '').toUpperCase().trim();
+        const enPedir  = (telaRec === '' || telaRec === 'PENDIENTE') && trajeEnt !== 'ENTREGADO';
+        if (!enPedir) {
+            banner.style.display = 'none'; banner.innerHTML = ''; return;
+        }
+
         const nombreModelo = (document.getElementById('editTrajeModelo')?.value || '').trim();
         const tipo         = (document.getElementById('editTrajeTipoTelaTipo')?.value || '').trim().toUpperCase();
         const variante     = (document.getElementById('editTrajeTipoTelaVariante')?.value || '').trim();
