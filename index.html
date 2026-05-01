@@ -9015,89 +9015,108 @@ App.trajes = {
         chip.innerHTML = parts.join(' &nbsp;·&nbsp; ');
     },
 
-    /** Banner que cruza modelo + tela elegidos: stock vs metros requeridos.
-     *  Solo aparece si el traje está en estado "pedir tela" — TELA RECIBIDA = PENDIENTE
-     *  (o vacío) y TRAJE ENTREGADO != ENTREGADO. En cualquier otro caso, oculto. */
+    /** Banner del modal de editar traje. Usa el cálculo AGREGADO (mismo que la lista):
+     *  stock vs demanda total de TODOS los pendientes que comparten esa tela.
+     *  Solo aparece si el traje está en estado "pedir" (TELA RECIBIDA = PENDIENTE/vacío
+     *  y TRAJE ENTREGADO != ENTREGADO). Si modelo o tela no encajan con catálogo, sale
+     *  un aviso suave en lugar del cálculo. */
     _updateStockBanner() {
         const banner = document.getElementById('editTrajeStockBanner');
         if (!banner) return;
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+        const showInfo = (msg) => {
+            banner.style.display = 'block';
+            banner.style.background = '#fff3e0';
+            banner.style.color = '#7c3a00';
+            banner.innerHTML = msg;
+        };
+        const hide = () => { banner.style.display = 'none'; banner.innerHTML = ''; };
 
         // Filtro por estado: solo trajes pendientes de pedir tela.
         const telaRec  = (document.getElementById('editTrajeTelRecibida')?.value     || '').toUpperCase().trim();
         const trajeEnt = (document.getElementById('editTrajeTrajeEntregado')?.value || '').toUpperCase().trim();
         const enPedir  = (telaRec === '' || telaRec === 'PENDIENTE') && trajeEnt !== 'ENTREGADO';
-        if (!enPedir) {
-            banner.style.display = 'none'; banner.innerHTML = ''; return;
-        }
+        if (!enPedir) return hide();
 
         const nombreModelo = (document.getElementById('editTrajeModelo')?.value || '').trim();
         const tipo         = (document.getElementById('editTrajeTipoTelaTipo')?.value || '').trim().toUpperCase();
         const variante     = (document.getElementById('editTrajeTipoTelaVariante')?.value || '').trim();
+        if (!nombreModelo || !tipo || !variante) return hide();
 
-        // Sin modelo o sin tela completa → no banner
-        if (!nombreModelo || !tipo || !variante) {
-            banner.style.display = 'none'; banner.innerHTML = ''; return;
-        }
         const modelo = (App.modelos?._data || []).find(m =>
             m.NOMBRE && m.NOMBRE.toLowerCase() === nombreModelo.toLowerCase());
         const tela = (App.telas?._data || []).find(t =>
             t.TIPO === tipo && t.VARIANTE === variante);
-
-        // Si modelo o tela no están en catálogo → aviso suave
-        if (!modelo) {
-            banner.style.display = 'block';
-            banner.style.background = '#fff3e0';
-            banner.style.color = '#7c3a00';
-            banner.innerHTML = `&#x2139;&#xFE0F; No puedo calcular stock — el modelo no está en el catálogo.`;
-            return;
-        }
-        if (!tela) {
-            banner.style.display = 'block';
-            banner.style.background = '#fff3e0';
-            banner.style.color = '#7c3a00';
-            banner.innerHTML = `&#x2139;&#xFE0F; No puedo calcular stock — la tela "${tipo} / ${variante}" no está en el catálogo.`;
-            return;
-        }
+        if (!modelo) return showInfo(`&#x2139;&#xFE0F; No puedo calcular stock — el modelo no está en el catálogo.`);
+        if (!tela)   return showInfo(`&#x2139;&#xFE0F; No puedo calcular stock — la tela "${tipo} / ${variante}" no está en el catálogo.`);
 
         const necesita = parseFloat(modelo.TELA_PPAL_M);
-        const stock    = parseFloat(tela.STOCK_M);
-        const umbral   = parseFloat(tela.UMBRAL_ALERTA);
-        if (isNaN(necesita)) {
-            banner.style.display = 'block';
-            banner.style.background = '#fff3e0';
-            banner.style.color = '#7c3a00';
-            banner.innerHTML = `&#x2139;&#xFE0F; El modelo "${modelo.NOMBRE}" no tiene definido los metros de tela ppal en su escandallo.`;
-            return;
-        }
+        if (isNaN(necesita)) return showInfo(`&#x2139;&#xFE0F; El modelo "${modelo.NOMBRE}" no tiene definidos los metros de tela ppal en su escandallo.`);
 
-        const restante = (isNaN(stock) ? 0 : stock) - necesita;
-        const porPedir = Math.max(0, necesita - (isNaN(stock) ? 0 : stock));
-        const fmt = n => Number(n.toFixed(2)).toString();
+        // Recalcular el agregado fresco (lee los datos actuales de App.telas y App.trajes.data).
+        // Esto cubre el caso de stocks editados en Telas mientras el modal está abierto.
+        this._stockMap = this._stockAggregate();
+        const entry = this._stockMap.get(`${tipo}|${variante}`);
 
-        // Decidir si avisamos. Tres niveles:
-        //   1. ok        — restante ≥ umbral
-        //   2. tocando   — restante < umbral pero ≥ 0
-        //   3. faltan    — restante < 0
-        let bg = '#e8f5e9', fg = '#1b5e20', icon = '✅ OK', detail = '';
-        if (restante < 0) {
-            bg = '#ffebee'; fg = '#b71c1c';
-            icon = '⚠️ Faltan tela';
-            detail = `No tienes suficiente. Pide al menos <strong>${fmt(porPedir)} m</strong> al proveedor (${tela.PROVEEDOR || 'sin proveedor asignado'}).`;
-        } else if (!isNaN(umbral) && restante < umbral) {
-            bg = '#fff8e1'; fg = '#7c3a00';
-            icon = '\u{1F53B} Atención';
-            detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>, por debajo del umbral (${fmt(umbral)} m). Considera pedir al proveedor (${tela.PROVEEDOR || 'sin proveedor asignado'}).`;
+        // Si la tela no aparece en el agregado (caso raro: este traje no estaba contado
+        // por alguna razón), caemos a un cálculo per-traje básico para no quedarnos sin info.
+        const stock  = parseFloat(tela.STOCK_M);
+        const umbral = parseFloat(tela.UMBRAL_ALERTA);
+        const proveedor = tela.PROVEEDOR || 'sin proveedor asignado';
+
+        let bg, fg, icon, summary, detail;
+        if (entry) {
+            // Caso normal: cálculo agregado
+            const demanda = entry.demanda;
+            const restante = entry.stock - demanda;
+            const otros = Math.max(0, entry.count - 1);
+            const otrosLabel = otros === 0
+                ? 'solo este traje'
+                : `${entry.count} trajes pendientes (este + ${otros} más)`;
+            if (entry.status === 'falta') {
+                bg = '#ffebee'; fg = '#b71c1c'; icon = '⚠️ Faltan tela';
+                detail = `Demanda total <strong>${fmt(demanda)} m</strong> entre ${otrosLabel} > stock ${fmt(entry.stock)} m. ` +
+                         `Pide al menos <strong>${fmt(entry.faltan)} m</strong> al proveedor (${proveedor}).`;
+            } else if (entry.status === 'umbral') {
+                bg = '#fff8e1'; fg = '#7c3a00'; icon = '🔻 Atención';
+                detail = `Demanda total <strong>${fmt(demanda)} m</strong> entre ${otrosLabel}. ` +
+                         `Tras todos quedarán <strong>${fmt(restante)} m</strong>, por debajo del umbral (${fmt(entry.umbral)} m). ` +
+                         `Considera pedir al proveedor (${proveedor}).`;
+            } else {
+                bg = '#e8f5e9'; fg = '#1b5e20'; icon = '✅ OK';
+                detail = `Demanda total <strong>${fmt(demanda)} m</strong> entre ${otrosLabel}. ` +
+                         `Tras todos quedarán <strong>${fmt(restante)} m</strong>.`;
+            }
+            summary =
+                `Stock: <strong>${fmt(entry.stock)} m</strong> &nbsp;·&nbsp; ` +
+                `Demanda total: <strong>${fmt(demanda)} m</strong>` +
+                (!isNaN(entry.umbral) ? ` &nbsp;·&nbsp; Umbral: ${fmt(entry.umbral)} m` : '') +
+                ` &nbsp;·&nbsp; Este traje: ${fmt(necesita)} m`;
         } else {
-            detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>.`;
+            // Fallback: per-traje (debería ser raro)
+            const restante = (isNaN(stock) ? 0 : stock) - necesita;
+            const porPedir = Math.max(0, necesita - (isNaN(stock) ? 0 : stock));
+            if (restante < 0) {
+                bg = '#ffebee'; fg = '#b71c1c'; icon = '⚠️ Faltan tela';
+                detail = `No hay suficiente para este traje. Pide al menos <strong>${fmt(porPedir)} m</strong> al proveedor (${proveedor}).`;
+            } else if (!isNaN(umbral) && restante < umbral) {
+                bg = '#fff8e1'; fg = '#7c3a00'; icon = '🔻 Atención';
+                detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>, por debajo del umbral (${fmt(umbral)} m).`;
+            } else {
+                bg = '#e8f5e9'; fg = '#1b5e20'; icon = '✅ OK';
+                detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>.`;
+            }
+            summary =
+                `Stock: <strong>${isNaN(stock) ? '?' : fmt(stock)} m</strong> &nbsp;·&nbsp; ` +
+                `Necesita: <strong>${fmt(necesita)} m</strong>` +
+                (umbral && !isNaN(umbral) ? ` &nbsp;·&nbsp; Umbral: ${fmt(umbral)} m` : '');
         }
+
         banner.style.display = 'block';
         banner.style.background = bg;
         banner.style.color = fg;
         banner.innerHTML =
-            `<strong>${icon}</strong> &nbsp;` +
-            `Stock: <strong>${isNaN(stock) ? '?' : fmt(stock)} m</strong> &nbsp;·&nbsp; ` +
-            `Necesita: <strong>${fmt(necesita)} m</strong>` +
-            (umbral && !isNaN(umbral) ? ` &nbsp;·&nbsp; Umbral: ${fmt(umbral)} m` : '') +
+            `<strong>${icon}</strong> &nbsp;${summary}` +
             `<br><span style="font-size:11px;">${detail}</span>`;
     },
 
@@ -12142,8 +12161,14 @@ App.ui.navigateTo = function(sectionId) {
     if (sectionId === 'clientas' && App.clientas.data.length === 0) {
         App.clientas.load();
     }
-    if (sectionId === 'trajes' && App.trajes.data.length === 0) {
-        App.trajes.load();
+    if (sectionId === 'trajes') {
+        if (App.trajes.data.length === 0) {
+            App.trajes.load();
+        } else {
+            // Datos ya cargados — solo refrescar el cálculo de stock por si Pilar
+            // tocó el stock en la sección Telas y ha vuelto aquí.
+            App.trajes.filter();
+        }
     }
     if (sectionId === 'corte') {
         // Si el caller (ej. Trajes→shortcut) va a gestionar la carga manualmente,
