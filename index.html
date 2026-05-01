@@ -1888,12 +1888,18 @@
                             </div>
                             <div class="form-group" style="margin:0;">
                                 <label>Modelo</label>
-                                <input type="text" class="form-input" id="fichaModelo">
+                                <input type="text" class="form-input" id="fichaModelo" autocomplete="off">
                             </div>
                             <div class="form-group" style="margin:0;">
                                 <label>Tipo de tela</label>
-                                <input type="text" class="form-input" id="fichaTipoTela">
+                                <input type="text" class="form-input" id="fichaTipoTelaTipo" placeholder="BAMBULA" autocomplete="off">
                             </div>
+                            <div class="form-group" style="margin:0;">
+                                <label>Variante / color</label>
+                                <input type="text" class="form-input" id="fichaTipoTelaVariante" placeholder="rosa" autocomplete="off">
+                            </div>
+                            <!-- Hidden combinado "TIPO / VARIANTE" que lee el guardado -->
+                            <input type="hidden" id="fichaTipoTela">
                         </div>
                         <div class="form-group" style="margin-top:14px;">
                             <label>Adornos</label>
@@ -6463,9 +6469,28 @@ App.clientas = {
         document.getElementById('fichaCorreo').value = c[this.COL.correo] || '';
         document.getElementById('fichaFeria').value = c[this.COL.feria] || '';
         document.getElementById('fichaModelo').value = c[this.COL.modelo] || '';
-        document.getElementById('fichaTipoTela').value = c[this.COL.tipoTela] || '';
+        document.getElementById('fichaTipoTela').value = c[this.COL.tipoTela] || '';   // hidden combinado
+        // Sub-comboboxes de tela: parsear "TIPO / VARIANTE" o dejar todo en variante (legacy)
+        const tipoTelaRaw = (c[this.COL.tipoTela] || '').toString().trim();
+        const slashIdx = tipoTelaRaw.indexOf('/');
+        if (slashIdx >= 0) {
+            document.getElementById('fichaTipoTelaTipo').value     = tipoTelaRaw.substring(0, slashIdx).trim();
+            document.getElementById('fichaTipoTelaVariante').value = tipoTelaRaw.substring(slashIdx + 1).trim();
+        } else {
+            document.getElementById('fichaTipoTelaTipo').value     = '';
+            document.getElementById('fichaTipoTelaVariante').value = tipoTelaRaw;
+        }
         document.getElementById('fichaAdornos').value = c[this.COL.adornos] || '';
         document.getElementById('fichaDocUrl').value = c[this.COL.ficha] || '';
+
+        // Asegurar catálogos cargados (no bloqueante) y attach combobox
+        if (App.modelos && App.modelos._data.length === 0) {
+            App.modelos.load().catch(e => console.warn('[ficha] modelos.load:', e.message));
+        }
+        if (App.telas && App.telas._data.length === 0) {
+            App.telas.load().catch(e => console.warn('[ficha] telas.load:', e.message));
+        }
+        this._attachFichaComboboxes();
 
         // Medidas — mostrar talla asignada + intentar parsear detalles
         const medVal = (c[this.COL.medidas] || '').trim();
@@ -6620,6 +6645,15 @@ App.clientas = {
     },
 
     async guardarFicha() {
+        // Sync defensivo del hidden TIPO TELA por si el usuario pulsó Guardar sin disparar change
+        const tipoIn = document.getElementById('fichaTipoTelaTipo');
+        const varIn  = document.getElementById('fichaTipoTelaVariante');
+        const hidIn  = document.getElementById('fichaTipoTela');
+        if (tipoIn && varIn && hidIn) {
+            const tipo = (tipoIn.value || '').trim();
+            const vari = (varIn.value || '').trim();
+            hidIn.value = (tipo && vari) ? `${tipo} / ${vari}` : (tipo || vari);
+        }
         if (!this.current) return;
         const btn = document.getElementById('btnGuardarFicha');
         // Fijar el ancho actual antes de cambiar el texto, evita artefacto visual por transition:all
@@ -7365,6 +7399,53 @@ App.clientas = {
         const banner = document.getElementById('nuevaDraftBanner');
         if (banner) banner.style.display = 'none';
         document.getElementById('nuevaClientaModal').classList.remove('active');
+    },
+
+    /** Idempotente: combobox de Modelo + cascada TIPO/VARIANTE en el modal de FICHA EXISTENTE.
+     *  Mismo patrón que el modal de nueva ficha pero apuntando a los IDs `ficha*`. */
+    _attachFichaComboboxes() {
+        const modeloInput = document.getElementById('fichaModelo');
+        const tipoInput   = document.getElementById('fichaTipoTelaTipo');
+        const varInput    = document.getElementById('fichaTipoTelaVariante');
+        if (!modeloInput || !tipoInput || !varInput) return;
+
+        App.ui.attachCombobox(modeloInput, () => {
+            const catalogo = (App.modelos?._data || [])
+                .filter(m => m.NOMBRE && App.modelos._isActive(m)).map(m => m.NOMBRE);
+            const enUso = [...new Set(
+                (App.trajes?.data || []).map(t => (t['MODELO'] || '').trim()).filter(Boolean)
+            )];
+            return [...new Set([...catalogo, ...enUso])].sort();
+        });
+        App.ui.attachCombobox(tipoInput, () => {
+            const tipos = (App.telas?._data || [])
+                .filter(t => t.TIPO && App.telas._isActive(t)).map(t => t.TIPO);
+            return [...new Set(tipos)].sort();
+        });
+        App.ui.attachCombobox(varInput, () => {
+            const tipo = (tipoInput.value || '').trim().toUpperCase();
+            if (!tipo) return [];
+            const variantes = (App.telas?._data || [])
+                .filter(t => t.TIPO === tipo && t.VARIANTE && App.telas._isActive(t))
+                .map(t => t.VARIANTE);
+            return [...new Set(variantes)].sort();
+        });
+
+        const sync = () => {
+            const tipo = (tipoInput.value || '').trim();
+            const vari = (varInput.value || '').trim();
+            const hidden = document.getElementById('fichaTipoTela');
+            if (!hidden) return;
+            hidden.value = (tipo && vari) ? `${tipo} / ${vari}` : (tipo || vari);
+        };
+        if (!tipoInput.dataset.changeWired) {
+            tipoInput.dataset.changeWired = '1';
+            tipoInput.addEventListener('change', () => { varInput.value = ''; sync(); });
+        }
+        if (!varInput.dataset.changeWired) {
+            varInput.dataset.changeWired = '1';
+            varInput.addEventListener('change', sync);
+        }
     },
 
     /** Idempotente: combobox de Modelo + cascada TIPO/VARIANTE en el modal de nueva ficha. */
