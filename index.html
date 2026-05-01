@@ -2460,36 +2460,53 @@
                     <!-- Contenido scrollable -->
                     <div style="flex:1; overflow-y:auto; min-height:0; padding-right:4px;">
 
-                        <!-- Traje: 3 cols en línea -->
-                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; padding-bottom:10px; border-bottom:1px solid var(--border-light); margin-bottom:10px;">
-                            <div class="form-group" style="margin:0;">
-                                <label style="font-size:11px;">Modelo</label>
-                                <input type="text" class="form-input" id="editTrajeModelo" placeholder="Sin decidir" style="font-size:12px;"
-                                       list="modeloSuggestions" autocomplete="off">
-                                <datalist id="modeloSuggestions"></datalist>
+                        <!-- Traje: fila 1 = modelo + talla, fila 2 = tipo tela + variante (cascada) -->
+                        <div style="padding-bottom:10px; border-bottom:1px solid var(--border-light); margin-bottom:10px;">
+                            <!-- Fila 1: modelo (más ancho) + talla -->
+                            <div style="display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label style="font-size:11px;">Modelo</label>
+                                    <input type="text" class="form-input" id="editTrajeModelo" placeholder="Sin decidir" style="font-size:12px;" autocomplete="off">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label style="font-size:11px;">Talla</label>
+                                    <select class="form-input" id="editTrajeMedidas" style="font-size:12px;">
+                                        <option value="">&mdash;</option>
+                                        <option value="T.32">T.32</option>
+                                        <option value="T.34">T.34</option>
+                                        <option value="T.36">T.36</option>
+                                        <option value="T.38">T.38</option>
+                                        <option value="T.40">T.40</option>
+                                        <option value="T.42">T.42</option>
+                                        <option value="T.44">T.44</option>
+                                        <option value="T.46">T.46</option>
+                                        <option value="T.48">T.48</option>
+                                        <option value="T.50">T.50</option>
+                                        <option value="T.52">T.52</option>
+                                        <option value="INCIDENCIA">INCIDENCIA</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="form-group" style="margin:0;">
-                                <label style="font-size:11px;">Tipo de tela</label>
-                                <input type="text" class="form-input" id="editTrajeTipoTela" style="font-size:12px;">
+
+                            <!-- Chip de info del modelo (se actualiza al elegir modelo) -->
+                            <div id="editTrajeEscandalloChip" style="display:none; margin-bottom:8px; padding:6px 10px; background:#fce4ec; border-radius:6px; font-size:11px; color:#555;"></div>
+
+                            <!-- Fila 2: tipo tela + variante (cascada) -->
+                            <div style="display:grid; grid-template-columns:1fr 2fr; gap:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label style="font-size:11px;">Tipo de tela</label>
+                                    <input type="text" class="form-input" id="editTrajeTipoTelaTipo" placeholder="BAMBULA" style="font-size:12px;" autocomplete="off">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label style="font-size:11px;">Variante</label>
+                                    <input type="text" class="form-input" id="editTrajeTipoTelaVariante" placeholder="rosa" style="font-size:12px;" autocomplete="off">
+                                </div>
                             </div>
-                            <div class="form-group" style="margin:0;">
-                                <label style="font-size:11px;">Talla</label>
-                                <select class="form-input" id="editTrajeMedidas" style="font-size:12px;">
-                                    <option value="">&mdash;</option>
-                                    <option value="T.32">T.32</option>
-                                    <option value="T.34">T.34</option>
-                                    <option value="T.36">T.36</option>
-                                    <option value="T.38">T.38</option>
-                                    <option value="T.40">T.40</option>
-                                    <option value="T.42">T.42</option>
-                                    <option value="T.44">T.44</option>
-                                    <option value="T.46">T.46</option>
-                                    <option value="T.48">T.48</option>
-                                    <option value="T.50">T.50</option>
-                                    <option value="T.52">T.52</option>
-                                    <option value="INCIDENCIA">INCIDENCIA</option>
-                                </select>
-                            </div>
+                            <!-- Hidden: valor combinado "TIPO / VARIANTE" que lee guardarEdicion -->
+                            <input type="hidden" id="editTrajeTipoTela">
+
+                            <!-- Banner de stock (se actualiza al cambiar modelo o tela) -->
+                            <div id="editTrajeStockBanner" style="display:none; margin-top:8px; padding:8px 10px; border-radius:6px; font-size:12px;"></div>
                         </div>
 
                         <!-- Adornos -->
@@ -8716,6 +8733,191 @@ App.trajes = {
         dl.innerHTML = modelos.map(m => `<option value="${m}">`).join('');
     },
 
+    // -------- Comboboxes del modal de editar (Modelo + cascada Tipo/Variante de tela) --------
+
+    /**
+     * Attach combobox a los 3 inputs del modal:
+     *   editTrajeModelo            → catálogo App.modelos (activos) + nombres en uso en el listado
+     *   editTrajeTipoTelaTipo      → tipos únicos de App.telas
+     *   editTrajeTipoTelaVariante  → variantes de App.telas filtradas por TIPO seleccionado
+     *
+     * Idempotente: la primera vez decora los inputs y enchufa los listeners de cambio.
+     * Las llamadas posteriores no duplican (App.ui.attachCombobox detecta dataset.comboboxAttached).
+     */
+    _attachEditModalComboboxes() {
+        const modeloInput = document.getElementById('editTrajeModelo');
+        const tipoInput   = document.getElementById('editTrajeTipoTelaTipo');
+        const varInput    = document.getElementById('editTrajeTipoTelaVariante');
+        if (!modeloInput || !tipoInput || !varInput) return;
+
+        // Modelo: activos del catálogo + modelos vivos en el listado (legacy/sugerencia)
+        App.ui.attachCombobox(modeloInput, () => {
+            const catalogo = (App.modelos?._data || [])
+                .filter(m => m.NOMBRE && App.modelos._isActive(m))
+                .map(m => m.NOMBRE);
+            const enUso = [...new Set(
+                this.data.map(t => (t[this.COL.modelo] || '').trim()).filter(Boolean)
+            )];
+            return [...new Set([...catalogo, ...enUso])].sort();
+        });
+
+        // Tipo de tela: tipos únicos del catálogo de telas (activas)
+        App.ui.attachCombobox(tipoInput, () => {
+            const tipos = (App.telas?._data || [])
+                .filter(t => t.TIPO && App.telas._isActive(t))
+                .map(t => t.TIPO);
+            return [...new Set(tipos)].sort();
+        });
+
+        // Variante: filtrada por el TIPO seleccionado en el otro combobox
+        App.ui.attachCombobox(varInput, () => {
+            const tipo = (tipoInput.value || '').trim().toUpperCase();
+            if (!tipo) return [];
+            const variantes = (App.telas?._data || [])
+                .filter(t => t.TIPO === tipo && t.VARIANTE && App.telas._isActive(t))
+                .map(t => t.VARIANTE);
+            return [...new Set(variantes)].sort();
+        });
+
+        // Listeners (instalar solo una vez por input — usamos un flag)
+        if (!modeloInput.dataset.changeWired) {
+            modeloInput.dataset.changeWired = '1';
+            modeloInput.addEventListener('change', () => {
+                this._updateEscandalloChip();
+                this._updateStockBanner();
+            });
+            modeloInput.addEventListener('input', () => this._updateEscandalloChip());
+        }
+        if (!tipoInput.dataset.changeWired) {
+            tipoInput.dataset.changeWired = '1';
+            tipoInput.addEventListener('change', () => {
+                // Al cambiar de TIPO, limpiar la variante (las opciones cambian)
+                varInput.value = '';
+                this._syncTipoTelaHidden();
+                this._updateStockBanner();
+            });
+        }
+        if (!varInput.dataset.changeWired) {
+            varInput.dataset.changeWired = '1';
+            varInput.addEventListener('change', () => {
+                this._syncTipoTelaHidden();
+                this._updateStockBanner();
+            });
+        }
+    },
+
+    /** Recompone el hidden editTrajeTipoTela = "TIPO / VARIANTE" para que guardarEdicion lo lea. */
+    _syncTipoTelaHidden() {
+        const tipo = (document.getElementById('editTrajeTipoTelaTipo')?.value || '').trim();
+        const vari = (document.getElementById('editTrajeTipoTelaVariante')?.value || '').trim();
+        const hidden = document.getElementById('editTrajeTipoTela');
+        if (!hidden) return;
+        if (tipo && vari) hidden.value = `${tipo} / ${vari}`;
+        else if (tipo)    hidden.value = tipo;
+        else              hidden.value = vari;  // legacy o solo variante
+    },
+
+    /** Pinta un mini-chip con info del modelo elegido (escandallo, tipo construcción). */
+    _updateEscandalloChip() {
+        const chip = document.getElementById('editTrajeEscandalloChip');
+        if (!chip) return;
+        const nombre = (document.getElementById('editTrajeModelo')?.value || '').trim();
+        if (!nombre || !App.modelos?._data?.length) {
+            chip.style.display = 'none'; chip.innerHTML = ''; return;
+        }
+        // Match exacto por nombre (case-insensitive)
+        const m = App.modelos._data.find(x =>
+            x.NOMBRE && x.NOMBRE.toLowerCase() === nombre.toLowerCase());
+        if (!m) {
+            chip.style.display = 'block';
+            chip.style.background = '#fff3e0';
+            chip.innerHTML = `&#x26A0;&#xFE0F; "${nombre}" no está en el catálogo de modelos. Crea la ficha en Modelos para tener escandallo.`;
+            return;
+        }
+        const parts = [];
+        if (m.TIPO_CONSTRUCCION) parts.push(`&#x1F50D; ${m.TIPO_CONSTRUCCION}`);
+        if (m.TELA_PPAL_M)       parts.push(`&#x1F9F5; ${m.TELA_PPAL_M} m de tela ppal`);
+        if (m.ADORNOS)           parts.push(`&#x2728; ${m.ADORNOS}`);
+        chip.style.display = 'block';
+        chip.style.background = '#fce4ec';
+        chip.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+    },
+
+    /** Banner que cruza modelo + tela elegidos: stock vs metros requeridos. */
+    _updateStockBanner() {
+        const banner = document.getElementById('editTrajeStockBanner');
+        if (!banner) return;
+        const nombreModelo = (document.getElementById('editTrajeModelo')?.value || '').trim();
+        const tipo         = (document.getElementById('editTrajeTipoTelaTipo')?.value || '').trim().toUpperCase();
+        const variante     = (document.getElementById('editTrajeTipoTelaVariante')?.value || '').trim();
+
+        // Sin modelo o sin tela completa → no banner
+        if (!nombreModelo || !tipo || !variante) {
+            banner.style.display = 'none'; banner.innerHTML = ''; return;
+        }
+        const modelo = (App.modelos?._data || []).find(m =>
+            m.NOMBRE && m.NOMBRE.toLowerCase() === nombreModelo.toLowerCase());
+        const tela = (App.telas?._data || []).find(t =>
+            t.TIPO === tipo && t.VARIANTE === variante);
+
+        // Si modelo o tela no están en catálogo → aviso suave
+        if (!modelo) {
+            banner.style.display = 'block';
+            banner.style.background = '#fff3e0';
+            banner.style.color = '#7c3a00';
+            banner.innerHTML = `&#x2139;&#xFE0F; No puedo calcular stock — el modelo no está en el catálogo.`;
+            return;
+        }
+        if (!tela) {
+            banner.style.display = 'block';
+            banner.style.background = '#fff3e0';
+            banner.style.color = '#7c3a00';
+            banner.innerHTML = `&#x2139;&#xFE0F; No puedo calcular stock — la tela "${tipo} / ${variante}" no está en el catálogo.`;
+            return;
+        }
+
+        const necesita = parseFloat(modelo.TELA_PPAL_M);
+        const stock    = parseFloat(tela.STOCK_M);
+        const umbral   = parseFloat(tela.UMBRAL_ALERTA);
+        if (isNaN(necesita)) {
+            banner.style.display = 'block';
+            banner.style.background = '#fff3e0';
+            banner.style.color = '#7c3a00';
+            banner.innerHTML = `&#x2139;&#xFE0F; El modelo "${modelo.NOMBRE}" no tiene definido los metros de tela ppal en su escandallo.`;
+            return;
+        }
+
+        const restante = (isNaN(stock) ? 0 : stock) - necesita;
+        const porPedir = Math.max(0, necesita - (isNaN(stock) ? 0 : stock));
+        const fmt = n => Number(n.toFixed(2)).toString();
+
+        // Decidir si avisamos. Tres niveles:
+        //   1. ok        — restante ≥ umbral
+        //   2. tocando   — restante < umbral pero ≥ 0
+        //   3. faltan    — restante < 0
+        let bg = '#e8f5e9', fg = '#1b5e20', icon = '✅ OK', detail = '';
+        if (restante < 0) {
+            bg = '#ffebee'; fg = '#b71c1c';
+            icon = '⚠️ Faltan tela';
+            detail = `No tienes suficiente. Pide al menos <strong>${fmt(porPedir)} m</strong> al proveedor (${tela.PROVEEDOR || 'sin proveedor asignado'}).`;
+        } else if (!isNaN(umbral) && restante < umbral) {
+            bg = '#fff8e1'; fg = '#7c3a00';
+            icon = '\u{1F53B} Atención';
+            detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>, por debajo del umbral (${fmt(umbral)} m). Considera pedir al proveedor (${tela.PROVEEDOR || 'sin proveedor asignado'}).`;
+        } else {
+            detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>.`;
+        }
+        banner.style.display = 'block';
+        banner.style.background = bg;
+        banner.style.color = fg;
+        banner.innerHTML =
+            `<strong>${icon}</strong> &nbsp;` +
+            `Stock: <strong>${isNaN(stock) ? '?' : fmt(stock)} m</strong> &nbsp;·&nbsp; ` +
+            `Necesita: <strong>${fmt(necesita)} m</strong>` +
+            (umbral && !isNaN(umbral) ? ` &nbsp;·&nbsp; Umbral: ${fmt(umbral)} m` : '') +
+            `<br><span style="font-size:11px;">${detail}</span>`;
+    },
+
     // -------- Editar traje --------
 
     _editRowIndex: null,
@@ -8747,9 +8949,39 @@ App.trajes = {
 
         // Campos del traje
         set('editTrajeModelo',   t[this.COL.modelo]);
-        set('editTrajeTipoTela', t[this.COL.tipoTela]);
+        set('editTrajeTipoTela', t[this.COL.tipoTela]);   // hidden — valor combinado
+        // Sub-comboboxes de tela: parsear "TIPO / VARIANTE" si encaja, si no dejar todo en VARIANTE
+        const tipoTelaRaw = (t[this.COL.tipoTela] || '').toString().trim();
+        const slashIdx = tipoTelaRaw.indexOf('/');
+        if (slashIdx >= 0) {
+            set('editTrajeTipoTelaTipo',     tipoTelaRaw.substring(0, slashIdx).trim());
+            set('editTrajeTipoTelaVariante', tipoTelaRaw.substring(slashIdx + 1).trim());
+        } else {
+            set('editTrajeTipoTelaTipo',     '');
+            set('editTrajeTipoTelaVariante', tipoTelaRaw);  // legacy: todo en variante
+        }
         set('editTrajeMedidas',  t[this.COL.medidas]);
         set('editTrajeAdornos',  t['ADORNOS'] || '');
+
+        // Catálogos de modelos y telas: cargar fire-and-forget si están vacíos.
+        // Cuando completen, refrescamos chip y banner por si el modal sigue abierto.
+        const refreshAfterLoad = () => {
+            if (!document.getElementById('editTrajeModal').classList.contains('active')) return;
+            this._updateEscandalloChip();
+            this._updateStockBanner();
+        };
+        if (App.modelos && App.modelos._data.length === 0) {
+            App.modelos.load().then(refreshAfterLoad)
+                .catch(e => console.warn('[showEditModal] App.modelos.load:', e.message));
+        }
+        if (App.telas && App.telas._data.length === 0) {
+            App.telas.load().then(refreshAfterLoad)
+                .catch(e => console.warn('[showEditModal] App.telas.load:', e.message));
+        }
+        // Combobox: idempotente — no duplica decoradores si ya están attached
+        this._attachEditModalComboboxes();
+        this._updateEscandalloChip();
+        this._updateStockBanner();
 
         // Campos de estado
         // ESTADO: normalizamos (trim + uppercase) y si viene vacío usamos CORRECTO por defecto.
@@ -8778,9 +9010,6 @@ App.trajes = {
         // Calcular Estado automáticamente y colorear todos los selects
         this._recalcEstado();
         this._styleAllSelects();
-
-        // Poblar datalist de modelos (sugerencias de ORDEN DE CORTE + modelos en uso)
-        this._populateModeloSuggestions();
 
         // Botones de mensajes a la clienta (plantillas WhatsApp/Gmail) — evaluados contra este traje
         if (App.mensajes && typeof App.mensajes.renderBotones === 'function') {
@@ -8892,6 +9121,10 @@ App.trajes = {
         btn.style.transition = 'none';
         btn.disabled = true;
         btn.textContent = 'Guardando...';
+
+        // Sincronizar el hidden TIPO TELA por si el usuario pulsó Guardar sin
+        // que se haya disparado 'change' en los sub-comboboxes.
+        if (typeof this._syncTipoTelaHidden === 'function') this._syncTipoTelaHidden();
 
         try {
             const sheetId = App.settings.get('listadoId');
