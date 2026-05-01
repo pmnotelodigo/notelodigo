@@ -2076,13 +2076,19 @@
                             </div>
                             <div class="form-group" style="margin:0;">
                                 <label>Modelo <span style="color:var(--warning); font-size:11px;">(opcional)</span></label>
-                                <input type="text" class="form-input" id="nuevaModelo" placeholder="Ej: ALBA/MADISON"
-                                       list="modeloSuggestions" autocomplete="off">
+                                <input type="text" class="form-input" id="nuevaModelo"
+                                       placeholder="Elige del catálogo o escribe uno nuevo" autocomplete="off">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label>Tipo de tela</label>
+                                <input type="text" class="form-input" id="nuevaTipoTelaTipo" placeholder="BAMBULA" autocomplete="off">
                             </div>
                             <div class="form-group" style="margin:0; grid-column:1/3;">
-                                <label>Tela</label>
-                                <input type="text" class="form-input" id="nuevaTipoTela">
+                                <label>Variante / color</label>
+                                <input type="text" class="form-input" id="nuevaTipoTelaVariante" placeholder="rosa" autocomplete="off">
                             </div>
+                            <!-- Hidden: valor combinado "TIPO / VARIANTE" que lee crearClienta -->
+                            <input type="hidden" id="nuevaTipoTela">
                             <div class="form-group" style="margin:0; grid-column:1/3;">
                                 <label>Adornos</label>
                                 <input type="text" class="form-input" id="nuevaAdornos" placeholder="Ej: VOLANTE ENCAJE, CINTUR&Oacute;N BORDADO...">
@@ -2333,76 +2339,8 @@
 
             </div>
 
-            <!-- NUEVO TRAJE MODAL -->
-            <div class="modal-overlay" id="nuevoTrajeModal">
-                <div class="modal" style="max-width:620px; width:95%;">
-                    <h2>+ Nuevo traje</h2>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
-
-                        <!-- Nº detectado automáticamente -->
-                        <div class="form-group" style="margin:0; grid-column:1/3;">
-                            <small id="nuevoTrajeNumInfo" style="color:var(--primary); font-weight:600; font-size:13px;"></small>
-                        </div>
-
-                        <!-- Datos de la clienta -->
-                        <div class="form-group" style="margin:0; grid-column:1/3;">
-                            <label>Nombre de la clienta *</label>
-                            <input type="text" class="form-input" id="nuevoTrajeNombre" placeholder="Ej: Mar&iacute;a Garc&iacute;a">
-                        </div>
-                        <div class="form-group" style="margin:0;">
-                            <label>Tel&eacute;fono</label>
-                            <input type="tel" class="form-input" id="nuevoTrajeTelefono" placeholder="Ej: 612 345 678">
-                        </div>
-                        <div class="form-group" style="margin:0;">
-                            <label>Correo</label>
-                            <input type="email" class="form-input" id="nuevoTrajeCorreo" placeholder="Ej: maria@correo.com">
-                        </div>
-                        <div class="form-group" style="margin:0;">
-                            <label>Feria</label>
-                            <input type="text" class="form-input" id="nuevoTrajeFeria" placeholder="Ej: SEVILLA 2026">
-                        </div>
-
-                        <!-- Datos del traje -->
-                        <div class="form-group" style="margin:0; grid-column:1/3; border-top:1px solid var(--border-light); padding-top:12px; margin-top:2px;">
-                            <label style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px;">Traje</label>
-                        </div>
-                        <div class="form-group" style="margin:0;">
-                            <label>Modelo <span style="color:var(--warning); font-size:11px;">(opcional)</span></label>
-                            <input type="text" class="form-input" id="nuevoTrajeModelo" placeholder="Dejar vac&iacute;o si a&uacute;n sin decidir"
-                                   list="modeloSuggestions" autocomplete="off">
-                            <small>Sin modelo &rarr; badge naranja hasta asignarlo.</small>
-                        </div>
-                        <div class="form-group" style="margin:0;">
-                            <label>Tipo de tela</label>
-                            <input type="text" class="form-input" id="nuevoTrajeTipoTela">
-                        </div>
-                        <div class="form-group" style="margin:0;">
-                            <label>Talla / MEDIDAS</label>
-                            <select class="form-input" id="nuevoTrajeMedidas">
-                                <option value="">&mdash; Selecciona talla &mdash;</option>
-                                <option value="T.32">T.32</option>
-                                <option value="T.34">T.34</option>
-                                <option value="T.36">T.36</option>
-                                <option value="T.38">T.38</option>
-                                <option value="T.40">T.40</option>
-                                <option value="T.42">T.42</option>
-                                <option value="T.44">T.44</option>
-                                <option value="T.46">T.46</option>
-                                <option value="T.48">T.48</option>
-                                <option value="T.50">T.50</option>
-                            </select>
-                            <small>Se usar&aacute; al enviar a Orden de Corte para marcar la talla correspondiente.</small>
-                        </div>
-
-                    </div>
-                    <div class="modal-actions">
-                        <button class="btn btn-secondary" onclick="App.trajes.closeNuevoModal()">Cancelar</button>
-                        <button class="btn btn-primary" onclick="App.trajes.crearTraje()" id="btnCrearTraje">
-                            Crear traje
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <!-- (Modal "Nuevo traje" eliminado: regla de negocio — los trajes solo
+                 se crean desde la ficha de cliente, nunca directamente desde Trajes.) -->
 
             <!-- MODAL: Confirmación genérica (App.ui.confirmDialog) -->
             <!-- z-index:2000 para que quede por encima de cualquier otro modal (edit, nuevo, etc) -->
@@ -7001,7 +6939,15 @@ App.clientas = {
 
         this.switchNuevaTab('nueva-basicos');
         document.getElementById('nuevaNumInfo').textContent = 'Calculando siguiente Nº...';
-        App.trajes._populateModeloSuggestions();
+        // Asegurar catálogos para los comboboxes (no bloqueante)
+        if (App.modelos && App.modelos._data.length === 0) {
+            App.modelos.load().catch(e => console.warn('[clientas] modelos.load:', e.message));
+        }
+        if (App.telas && App.telas._data.length === 0) {
+            App.telas.load().catch(e => console.warn('[clientas] telas.load:', e.message));
+        }
+        // Decorar inputs de modelo + cascada tela como combobox
+        this._attachNuevaFichaComboboxes();
         document.getElementById('nuevaClientaModal').classList.add('active');
 
         // Comprobar si hay un borrador guardado y mostrar banner de recuperación
@@ -7421,9 +7367,67 @@ App.clientas = {
         document.getElementById('nuevaClientaModal').classList.remove('active');
     },
 
+    /** Idempotente: combobox de Modelo + cascada TIPO/VARIANTE en el modal de nueva ficha. */
+    _attachNuevaFichaComboboxes() {
+        const modeloInput = document.getElementById('nuevaModelo');
+        const tipoInput   = document.getElementById('nuevaTipoTelaTipo');
+        const varInput    = document.getElementById('nuevaTipoTelaVariante');
+        if (!modeloInput || !tipoInput || !varInput) return;
+
+        App.ui.attachCombobox(modeloInput, () => {
+            const catalogo = (App.modelos?._data || [])
+                .filter(m => m.NOMBRE && App.modelos._isActive(m)).map(m => m.NOMBRE);
+            const enUso = [...new Set(
+                (App.trajes?.data || []).map(t => (t['MODELO'] || '').trim()).filter(Boolean)
+            )];
+            return [...new Set([...catalogo, ...enUso])].sort();
+        });
+
+        App.ui.attachCombobox(tipoInput, () => {
+            const tipos = (App.telas?._data || [])
+                .filter(t => t.TIPO && App.telas._isActive(t)).map(t => t.TIPO);
+            return [...new Set(tipos)].sort();
+        });
+
+        App.ui.attachCombobox(varInput, () => {
+            const tipo = (tipoInput.value || '').trim().toUpperCase();
+            if (!tipo) return [];
+            const variantes = (App.telas?._data || [])
+                .filter(t => t.TIPO === tipo && t.VARIANTE && App.telas._isActive(t))
+                .map(t => t.VARIANTE);
+            return [...new Set(variantes)].sort();
+        });
+
+        const sync = () => {
+            const tipo = (tipoInput.value || '').trim();
+            const vari = (varInput.value || '').trim();
+            const hidden = document.getElementById('nuevaTipoTela');
+            if (!hidden) return;
+            hidden.value = (tipo && vari) ? `${tipo} / ${vari}` : (tipo || vari);
+        };
+        if (!tipoInput.dataset.changeWired) {
+            tipoInput.dataset.changeWired = '1';
+            tipoInput.addEventListener('change', () => { varInput.value = ''; sync(); });
+        }
+        if (!varInput.dataset.changeWired) {
+            varInput.dataset.changeWired = '1';
+            varInput.addEventListener('change', sync);
+        }
+    },
+
     async crearClienta() {
         const nombre = document.getElementById('nuevaNombre').value.trim();
         if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
+
+        // Sync defensivo del hidden TIPO TELA
+        const tipoIn = document.getElementById('nuevaTipoTelaTipo');
+        const varIn  = document.getElementById('nuevaTipoTelaVariante');
+        const hidIn  = document.getElementById('nuevaTipoTela');
+        if (tipoIn && varIn && hidIn) {
+            const tipo = (tipoIn.value || '').trim();
+            const vari = (varIn.value || '').trim();
+            hidIn.value = (tipo && vari) ? `${tipo} / ${vari}` : (tipo || vari);
+        }
 
         const btn = document.getElementById('btnCrearClienta');
         btn.disabled = true;
@@ -8678,58 +8682,10 @@ App.trajes = {
         }
     },
 
-    // -------- Nuevo traje --------
-
-    showNuevoModal() {
-        ['nuevoTrajeNombre','nuevoTrajeTelefono','nuevoTrajeCorreo',
-         'nuevoTrajeFeria','nuevoTrajeModelo','nuevoTrajeTipoTela',
-         'nuevoTrajeMedidas'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-        });
-        const info = document.getElementById('nuevoTrajeNumInfo');
-        if (info) info.textContent = 'Buscando siguiente Nº...';
-        this._populateModeloSuggestions();
-        document.getElementById('nuevoTrajeModal').classList.add('active');
-        this._detectarProximaFila();
-    },
-
-    async _detectarProximaFila() {
-        const sheetId = App.settings.get('listadoId');
-        const tab = App.seasons?.getTab() || '2026';
-        const infoEl = document.getElementById('nuevoTrajeNumInfo');
-        try {
-            const rows = await App.sheets.readRange(sheetId, `${tab}!A1:H1000`);
-            if (!rows.length) { this._proximaFila = null; return; }
-            const hdr       = rows[0];
-            const idxNum    = hdr.indexOf('Nº');
-            const idxNombre = hdr.indexOf('NOMBRE');
-            const idxModelo = hdr.indexOf('MODELO');
-            const idxTela   = hdr.indexOf('TIPO TELA');
-            for (let i = 1; i < rows.length; i++) {
-                const row = rows[i];
-                const num  = (row[idxNum]    || '').trim();
-                const nom  = (row[idxNombre] || '').trim();
-                const mod  = (row[idxModelo] || '').trim();
-                const tel  = (row[idxTela]   || '').trim();
-                if (num && !nom && !mod && !tel) {
-                    this._proximaFila = { rowIndex: i + 1, num };
-                    if (infoEl) infoEl.innerHTML =
-                        `Se asignar&aacute; el <strong>N&ordm; ${num}</strong> (fila ${i + 1})`;
-                    return;
-                }
-            }
-            this._proximaFila = null;
-            if (infoEl) infoEl.textContent = '⚠️ Sin filas pre-asignadas. Se añadirá al final.';
-        } catch (e) {
-            this._proximaFila = null;
-            if (infoEl) infoEl.textContent = 'No se pudo detectar el Nº automáticamente.';
-        }
-    },
-
-    closeNuevoModal() {
-        document.getElementById('nuevoTrajeModal').classList.remove('active');
-    },
+    // -------- (Modal "Nuevo traje" eliminado por regla de negocio: los trajes
+    //          solo se crean desde la ficha de cliente. Funciones showNuevoModal,
+    //          closeNuevoModal, _attachNuevoTrajeComboboxes, _detectarProximaFila
+    //          y crearTraje quitadas.) ----------------------------------------
 
     // ─── Auto-date handlers ───────────────────────────────────────────────────
     _todayISO() {
@@ -9619,93 +9575,6 @@ App.trajes = {
         }
     },
 
-    async crearTraje() {
-        const nombre = (document.getElementById('nuevoTrajeNombre')?.value || '').trim();
-        if (!nombre) { App.toast.show('El nombre de la clienta es obligatorio', 'error'); return; }
-
-        const btn = document.getElementById('btnCrearTraje');
-        btn.disabled = true;
-        btn.textContent = 'Creando...';
-
-        try {
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            if (!this._proximaFila) await this._detectarProximaFila();
-
-            const valores = {
-                'Nº':            this._proximaFila?.num || '',
-                'NOMBRE':        nombre,
-                'TELÉFONO':      (document.getElementById('nuevoTrajeTelefono')?.value || '').trim(),
-                'CORREO':        (document.getElementById('nuevoTrajeCorreo')?.value   || '').trim(),
-                'FERIA':         (document.getElementById('nuevoTrajeFeria')?.value    || '').trim(),
-                'MODELO':        (document.getElementById('nuevoTrajeModelo')?.value   || '').trim(),
-                'TIPO TELA':     (document.getElementById('nuevoTrajeTipoTela')?.value || '').trim(),
-                'MEDIDAS':       (document.getElementById('nuevoTrajeMedidas')?.value  || '').trim(),
-                'ESTADO':        'CORRECTO',
-                // TELA RECIBIDA arranca en PENDIENTE: si Pilar tiene tela disponible, lo cambia
-                // a PEDIDA o RECIBIDA en el modal de editar. Mientras esté PENDIENTE, el traje
-                // entra en el cálculo de "Pedir tela".
-                'TELA RECIBIDA': 'PENDIENTE',
-            };
-
-            // Leer cabeceras para saber el índice de columna exacto
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
-            const hdr = headers[0] || [];
-
-            // Determinar la fila destino y el Nº
-            let targetRow;
-            if (this._proximaFila) {
-                // Fila pre-numerada encontrada en el sheet
-                targetRow = this._proximaFila.rowIndex;
-                if (!valores['Nº']) valores['Nº'] = this._proximaFila.num;
-            } else {
-                // Sin pre-numeración: buscar la primera fila vacía tras los datos
-                // Leer la columna NOMBRE completa para saber cuántas filas hay
-                const idxNombre = hdr.indexOf('NOMBRE');
-                const colLetraNombre = String.fromCharCode(65 + (idxNombre >= 0 ? idxNombre : 1));
-                const colData = await App.sheets.readRange(sheetId, `${tab}!${colLetraNombre}1:${colLetraNombre}1000`);
-                // Contar filas con valor (fila 1 = cabecera)
-                let lastDataRow = 1;
-                for (let i = 1; i < colData.length; i++) {
-                    if ((colData[i][0] || '').trim()) lastDataRow = i + 1; // +1 porque readRange empieza en fila 1
-                }
-                targetRow = lastDataRow + 1;
-
-                // Auto-generar Nº correlativo
-                const idxNum = hdr.indexOf('Nº');
-                if (idxNum >= 0) {
-                    const colLetraNum = String.fromCharCode(65 + idxNum);
-                    const numData = await App.sheets.readRange(sheetId, `${tab}!${colLetraNum}2:${colLetraNum}${lastDataRow}`);
-                    const maxNum = numData.reduce((max, r) => {
-                        const n = parseInt((r[0] || '').replace(/\D/g, ''), 10);
-                        return isNaN(n) ? max : Math.max(max, n);
-                    }, 0);
-                    valores['Nº'] = String(maxNum + 1).padStart(3, '0');
-                }
-            }
-
-            // Escribir celda a celda en la fila destino
-            for (const [colName, value] of Object.entries(valores)) {
-                const idx = hdr.indexOf(colName);
-                if (idx === -1) continue;
-                const letter = String.fromCharCode(65 + idx);
-                await App.sheets.updateCell(sheetId, `${tab}!${letter}${targetRow}`, value);
-            }
-
-            await App.sheets.invalidateListadoCache();
-            this._proximaFila = null;
-            App.toast.show(`Traje de "${nombre}" creado`, 'success');
-            this.closeNuevoModal();
-            // Refrescar también clientas si ya están cargadas
-            if (App.clientas.data.length > 0) await App.clientas.load(true);
-            await this.load(true);
-        } catch (err) {
-            App.toast.show('Error al crear traje: ' + err.message, 'error');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Crear traje';
-        }
-    },
 };
 
 /* ==========================================================
