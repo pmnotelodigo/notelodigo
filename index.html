@@ -2348,6 +2348,28 @@
             <!-- (Modal "Nuevo traje" eliminado: regla de negocio — los trajes solo
                  se crean desde la ficha de cliente, nunca directamente desde Trajes.) -->
 
+            <!-- PEDIDO PROVEEDOR MODAL -->
+            <div class="modal-overlay" id="pedidoProveedorModal">
+                <div class="modal" style="max-width:680px; width:95%; display:flex; flex-direction:column; max-height:92vh;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; flex-shrink:0;">
+                        <div>
+                            <h3 style="margin:0; font-size:16px;">&#x1F4E6; Pedido a proveedor</h3>
+                            <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="pedidoProveedorSubtitle"></div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" onclick="App.trajes.cerrarPedidoProveedor()">&#x2715; Cerrar</button>
+                    </div>
+                    <!-- Aviso de redondeo (siempre visible) -->
+                    <div style="background:#fff8e1; border-left:3px solid #f57c00; padding:8px 12px; border-radius:4px; font-size:11px; color:#7c3a00; margin-bottom:12px; flex-shrink:0;">
+                        <strong>Cómo se calculan los metros a pedir:</strong>
+                        &nbsp;Flamentex → múltiplos de <strong>10 m</strong> (regla "10 m por traje").
+                        &nbsp;TELATER → múltiplos de <strong>50 m</strong> (rollos).
+                        &nbsp;Siempre se redondea al alza para cubrir la demanda.
+                    </div>
+                    <!-- Bloques por proveedor (se rellenan dinámicamente) -->
+                    <div style="flex:1; overflow-y:auto; min-height:0;" id="pedidoProveedorContent"></div>
+                </div>
+            </div>
+
             <!-- MODAL: Confirmación genérica (App.ui.confirmDialog) -->
             <!-- z-index:2000 para que quede por encima de cualquier otro modal (edit, nuevo, etc) -->
             <div class="modal-overlay" id="confirmModal" style="z-index:2000;">
@@ -2788,6 +2810,14 @@
                 <!-- Tabla agrupada por TIPO -->
                 <div id="telasContent">
                     <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+
+                <!-- Aviso informativo: reglas de redondeo al pedir -->
+                <div style="margin-top:14px; padding:8px 12px; background:#fff8e1; border-left:3px solid #f57c00; border-radius:4px; font-size:11px; color:#7c3a00;">
+                    <strong>ⓘ Reglas de redondeo al pedir tela:</strong>
+                    Flamentex → múltiplos de <strong>10 m</strong> (regla "10 m por traje").
+                    TELATER → múltiplos de <strong>50 m</strong> (rollos).
+                    Siempre se redondea al alza para cubrir la demanda.
                 </div>
             </div>
 
@@ -7849,6 +7879,213 @@ App.trajes = {
         return entry;
     },
 
+    // ─── Pedido al proveedor ──────────────────────────────────────────────
+
+    /** Reglas de redondeo por proveedor para los metros a pedir. */
+    _roundingForProveedor(prov) {
+        const p = (prov || '').toUpperCase().trim();
+        if (p === 'TELATER') return 50;     // rollos de 50 m
+        return 10;                          // Flamentex y resto: múltiplos de 10
+    },
+    _ceilToMultiple(value, mult) {
+        if (!mult || mult <= 0) return Math.ceil(value);
+        return Math.ceil(value / mult) * mult;
+    },
+
+    /** Construye el desglose de pedido agrupado por PROVEEDOR → tela.
+     *  Solo entra demanda agregada urgente (status='falta'). */
+    _buildPedidoDesglose() {
+        const map = this._stockAggregate();
+        const porProv = {};   // { 'FLAMENTEX': { telas:[{tipo,variante,demanda,roundedM,trajeRowIndices}], rounding } , ... }
+        for (const entry of map.values()) {
+            if (entry.status !== 'falta') continue;
+            const prov = entry.proveedor || '— sin proveedor —';
+            const provKey = prov.toUpperCase();
+            if (!porProv[provKey]) {
+                porProv[provKey] = {
+                    nombre: prov,
+                    rounding: this._roundingForProveedor(prov),
+                    telas: [],
+                    trajeRowIndices: new Set(),
+                };
+            }
+            const block = porProv[provKey];
+            // Para Flamentex la regla real es "10 m por traje" sumado, así que redondeamos
+            // sobre la demanda total (suma de escandallos) al múltiplo de 10 superior.
+            // Para TELATER lo importante es cubrir el faltante con un rollo, así que
+            // redondeamos sobre el faltante al múltiplo de 50 superior.
+            const baseM = (block.rounding === 50) ? entry.faltan : entry.demanda;
+            const roundedM = this._ceilToMultiple(baseM, block.rounding);
+            block.telas.push({
+                tipo: entry.tipo,
+                variante: entry.variante,
+                demanda: entry.demanda,
+                faltan: entry.faltan,
+                stock: entry.stock,
+                roundedM: roundedM,
+                count: entry.count,
+                trajeRowIndices: entry.trajeRowIndices.slice(),
+            });
+            entry.trajeRowIndices.forEach(idx => block.trajeRowIndices.add(idx));
+        }
+        // Ordenar telas por tipo+variante dentro de cada bloque
+        for (const k of Object.keys(porProv)) {
+            porProv[k].telas.sort((a, b) =>
+                (a.tipo + ' ' + a.variante).localeCompare(b.tipo + ' ' + b.variante));
+            porProv[k].trajeRowIndices = [...porProv[k].trajeRowIndices];
+        }
+        return porProv;
+    },
+
+    /** Texto WhatsApp para un proveedor (un solo mensaje). */
+    _buildWhatsappText(provBlock) {
+        const fecha = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+        const lines = [];
+        lines.push(`📦 Pedido de telas — ${fecha}`);
+        lines.push('');
+        lines.push(provBlock.nombre);
+        let total = 0;
+        for (const t of provBlock.telas) {
+            const sufijo = (provBlock.rounding === 50) ? ' (rollo)' : '';
+            lines.push(`• ${t.roundedM} m · ${t.tipo} / ${t.variante}${sufijo}`);
+            total += t.roundedM;
+        }
+        lines.push('');
+        lines.push(`Total: ${total} m`);
+        return lines.join('\n');
+    },
+
+    abrirPedidoProveedor() {
+        const desglose = this._buildPedidoDesglose();
+        const provKeys = Object.keys(desglose).sort();
+        const subtitle = document.getElementById('pedidoProveedorSubtitle');
+        const content  = document.getElementById('pedidoProveedorContent');
+        if (!content) return;
+        if (provKeys.length === 0) {
+            App.toast.show('No hay trajes con tela urgente que pedir.', 'info');
+            return;
+        }
+        const totalTrajes = provKeys.reduce((acc, k) => acc + desglose[k].trajeRowIndices.length, 0);
+        if (subtitle) subtitle.textContent = `${totalTrajes} traje${totalTrajes !== 1 ? 's' : ''} agrupados en ${provKeys.length} proveedor${provKeys.length !== 1 ? 'es' : ''}`;
+
+        // Cache en memoria para que las acciones del modal lean el desglose actual
+        this._pedidoActual = desglose;
+
+        const blocks = provKeys.map(k => {
+            const b = desglose[k];
+            const filas = b.telas.map(t =>
+                `<tr>
+                    <td style="padding:4px 8px; font-size:12px;"><strong>${t.tipo}</strong> / ${t.variante}</td>
+                    <td style="padding:4px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${t.count} traje${t.count !== 1 ? 's' : ''}</td>
+                    <td style="padding:4px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${Number(t.demanda.toFixed(2))} m demanda</td>
+                    <td style="padding:4px 8px; font-size:13px; font-weight:700; color:#c2185b; text-align:right;">${t.roundedM} m a pedir</td>
+                </tr>`
+            ).join('');
+            const totalPedido = b.telas.reduce((s, t) => s + t.roundedM, 0);
+            const escKey = k.replace(/'/g, "\\'");
+            const wa = this._buildWhatsappText(b);
+            // Usamos textarea para que el copy funcione bien en todos los navegadores
+            return `
+            <div class="card" style="padding:12px; margin-bottom:14px;">
+                <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px;">
+                    <strong style="font-size:14px;">${b.nombre}</strong>
+                    <span style="font-size:11px; color:var(--text-muted);">redondeo a múltiplos de ${b.rounding} m · total <strong style="color:#c2185b;">${totalPedido} m</strong></span>
+                </div>
+                <table style="width:100%; border-collapse:collapse; margin-bottom:10px;">${filas}</table>
+                <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px;">Mensaje listo para WhatsApp:</label>
+                <textarea readonly id="pedidoWA-${escKey}"
+                          style="width:100%; min-height:96px; font-family:monospace; font-size:12px; padding:8px; border:1px solid var(--border); border-radius:4px; resize:vertical;">${wa}</textarea>
+                <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+                    <button class="btn btn-secondary btn-sm" onclick="App.trajes.copiarPedidoProveedor('${escKey}')">
+                        📋 Copiar al portapapeles
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="App.trajes.marcarProveedorComoPedida('${escKey}')"
+                            id="btnMarcarPedida-${escKey}">
+                        ✅ Marcar como PEDIDA (${b.trajeRowIndices.length} traje${b.trajeRowIndices.length !== 1 ? 's' : ''})
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+        content.innerHTML = blocks;
+        document.getElementById('pedidoProveedorModal').classList.add('active');
+    },
+
+    cerrarPedidoProveedor() {
+        document.getElementById('pedidoProveedorModal').classList.remove('active');
+        this._pedidoActual = null;
+    },
+
+    async copiarPedidoProveedor(provKey) {
+        const block = this._pedidoActual?.[provKey];
+        if (!block) return;
+        const text = this._buildWhatsappText(block);
+        try {
+            await navigator.clipboard.writeText(text);
+            App.toast.show(`Mensaje de ${block.nombre} copiado`, 'success', 2500);
+        } catch (err) {
+            // Fallback: seleccionar el textarea
+            const ta = document.getElementById(`pedidoWA-${provKey}`);
+            if (ta) { ta.select(); document.execCommand('copy'); App.toast.show(`Mensaje copiado`, 'success', 2500); }
+            else App.toast.show('No se pudo copiar al portapapeles. Selecciona y copia a mano.', 'warning', 4000);
+        }
+    },
+
+    /** Marca todos los trajes del proveedor como TELA RECIBIDA = PEDIDA en batch. */
+    async marcarProveedorComoPedida(provKey) {
+        const block = this._pedidoActual?.[provKey];
+        if (!block) return;
+        const rowIndices = block.trajeRowIndices || [];
+        if (!rowIndices.length) return;
+
+        const confirma = await App.ui.confirmDialog({
+            title: '¿Marcar como PEDIDA?',
+            message: `Vas a marcar <strong>${rowIndices.length} traje${rowIndices.length !== 1 ? 's' : ''}</strong> de <strong>${block.nombre}</strong> como TELA RECIBIDA = PEDIDA. Desaparecerán de la bandeja "Pedir tela".`,
+            actions: [
+                { label: '✅ Sí, marcar PEDIDA', value: 'ok',  style: 'primary' },
+                { label: 'Cancelar',             value: null, style: 'secondary' },
+            ],
+        });
+        if (confirma !== 'ok') return;
+
+        const btn = document.getElementById(`btnMarcarPedida-${provKey}`);
+        if (btn) { btn.disabled = true; btn.textContent = 'Marcando...'; }
+        try {
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = headers[0] || [];
+            const idxTelaRec = hdr.indexOf('TELA RECIBIDA');
+            if (idxTelaRec < 0) throw new Error('Columna TELA RECIBIDA no encontrada en el LISTADO.');
+            const colLetter = String.fromCharCode(65 + idxTelaRec);
+
+            const updates = rowIndices.map(rowIndex => ({
+                range: `${tab}!${colLetter}${rowIndex}`,
+                values: [['PEDIDA']],
+            }));
+            await App.sheets.batchWriteRanges(sheetId, updates);
+
+            // Actualizar caches en memoria
+            for (const rowIndex of rowIndices) {
+                const t  = this.data.find(r => r._rowIndex === rowIndex);
+                const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+                if (t)  t['TELA RECIBIDA']  = 'PEDIDA';
+                if (tc) tc['TELA RECIBIDA'] = 'PEDIDA';
+            }
+
+            App.toast.show(`${rowIndices.length} traje${rowIndices.length !== 1 ? 's' : ''} marcado${rowIndices.length !== 1 ? 's' : ''} como PEDIDA`, 'success');
+            // Quitar el bloque del modal y refrescar lista
+            delete this._pedidoActual[provKey];
+            const remaining = Object.keys(this._pedidoActual || {});
+            if (!remaining.length) this.cerrarPedidoProveedor();
+            else this.abrirPedidoProveedor();  // re-render con los proveedores que quedan
+            this.filter();  // recalcular bandeja "Pedir tela"
+        } catch (err) {
+            console.error('[marcarProveedorComoPedida]', err);
+            App.toast.show('Error: ' + err.message, 'error', 6000);
+            if (btn) { btn.disabled = false; btn.textContent = '✅ Marcar como PEDIDA'; }
+        }
+    },
+
     /** ¿Este traje urge pedir tela? — solo cuando la demanda agregada supera el stock.
      *  Lo de "stock bajo" (umbral) no se cuenta aquí: es informativo en la fila pero
      *  no entra en la bandeja "Pedir tela" ni en su contador. Así la bandeja queda
@@ -8305,6 +8542,26 @@ App.trajes = {
         </tr>`;
 
         let html = '';
+
+        // ── Banner de bandeja "Pedir tela": botón para generar el pedido al proveedor ──
+        if (this._bandeja === 'pedirTela' && this.filtered.length > 0) {
+            html += `<div class="card" style="margin-bottom:16px; padding:12px 16px; background:#fce4ec; border-left:3px solid #c2185b;">
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:180px;">
+                        <div style="font-weight:600; font-size:13px; color:#880e4f;">
+                            &#x1F4E6; Generar pedido al proveedor
+                        </div>
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                            Agrupa por proveedor, suma metros con redondeo y genera el texto para WhatsApp.
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="font-size:13px; padding:8px 14px;"
+                            onclick="App.trajes.abrirPedidoProveedor()">
+                        &#x1F4E6; Generar pedido
+                    </button>
+                </div>
+            </div>`;
+        }
 
         // ── Banner de bandeja "Listos para cortar": atajo para generar órdenes ──
         // Muestra un botón por modelo que envía todos los trajes listos de ese
