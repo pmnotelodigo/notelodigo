@@ -1652,6 +1652,10 @@
                 <span class="nav-icon">&#x1F4D0;</span>
                 <span class="nav-label">Modelos</span>
             </div>
+            <div class="nav-item" data-section="telas" onclick="App.ui.navigateTo('telas')">
+                <span class="nav-icon">&#x1F9F5;</span>
+                <span class="nav-label">Telas</span>
+            </div>
             <div class="nav-item" data-section="talleres" onclick="App.ui.navigateTo('talleres')">
                 <span class="nav-icon">&#x1F3ED;</span>
                 <span class="nav-label">Vista por taller</span>
@@ -2744,6 +2748,116 @@
                         </button>
                         <button class="btn btn-secondary" onclick="App.modelos.closeModal()">Cancelar</button>
                         <button class="btn btn-primary" onclick="App.modelos.save()" id="btnModeloSave">
+                            Guardar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Telas (catálogo + stock) -->
+            <div class="section" id="sec-telas">
+
+                <!-- Toolbar -->
+                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <input type="text" class="form-input" id="telasSearch"
+                               placeholder="&#x1F50D; Buscar por tipo o variante..."
+                               style="flex:1; min-width:180px; max-width:280px; margin:0;"
+                               oninput="App.telas.filter()">
+                        <select class="form-input" id="telasTipoFiltro"
+                                style="max-width:160px; margin:0; font-size:12px;"
+                                onchange="App.telas.filter()">
+                            <option value="">Todos los tipos</option>
+                        </select>
+                        <select class="form-input" id="telasProveedorFiltro"
+                                style="max-width:160px; margin:0; font-size:12px;"
+                                onchange="App.telas.filter()">
+                            <option value="">Todos los proveedores</option>
+                        </select>
+                        <select class="form-input" id="telasEstadoFiltro"
+                                style="max-width:180px; margin:0; font-size:12px;"
+                                onchange="App.telas.filter()">
+                            <option value="activas">Solo activas</option>
+                            <option value="bajas">Bajo umbral</option>
+                            <option value="sin_stock">Sin stock (0 m)</option>
+                            <option value="todas">Todas</option>
+                            <option value="inactivas">Solo inactivas</option>
+                        </select>
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.telas.load(true)"
+                                    title="Recargar datos desde Google Sheets">
+                                &#x21BB; Actualizar
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="App.telas.openModal()">
+                                &plus; Nueva tela
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="telasCount"></div>
+                </div>
+
+                <!-- Tabla agrupada por TIPO -->
+                <div id="telasContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+            </div>
+
+            <!-- TELA EDIT MODAL -->
+            <div class="modal-overlay" id="telaModal">
+                <div class="modal" style="max-width:640px; width:95%;">
+                    <h2 id="telaModalTitle">Nueva tela</h2>
+                    <input type="hidden" id="telaOriginalKey" value="">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                        <div class="form-group" style="margin:0;">
+                            <label>Tipo *</label>
+                            <input type="text" class="form-input" id="telaTipo"
+                                   list="telaTipoList" placeholder="BAMBULA">
+                            <datalist id="telaTipoList"></datalist>
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Variante *</label>
+                            <input type="text" class="form-input" id="telaVariante" placeholder="rosa palo">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Proveedor</label>
+                            <input type="text" class="form-input" id="telaProveedor"
+                                   list="telaProveedorList" placeholder="TELATER">
+                            <datalist id="telaProveedorList"></datalist>
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Ubicación</label>
+                            <select class="form-input" id="telaUbicacion">
+                                <option value="">— sin definir —</option>
+                                <option value="cortador">cortador</option>
+                                <option value="tienda">tienda</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Stock actual (m)</label>
+                            <input type="number" step="0.5" class="form-input" id="telaStockM" placeholder="0">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Umbral de alerta (m)</label>
+                            <input type="number" step="0.5" class="form-input" id="telaUmbralAlerta" placeholder="10">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>
+                                <input type="checkbox" id="telaActiva" checked> Activa
+                            </label>
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Notas</label>
+                            <textarea class="form-input" id="telaNotas" rows="2"
+                                      placeholder="Mínimos de pedido, observaciones..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-danger btn-sm" onclick="App.telas.markInactive()"
+                                id="btnTelaMarkInactive" style="display:none; margin-right:auto;">
+                            Marcar inactiva
+                        </button>
+                        <button class="btn btn-secondary" onclick="App.telas.closeModal()">Cancelar</button>
+                        <button class="btn btn-primary" onclick="App.telas.save()" id="btnTelaSave">
                             Guardar
                         </button>
                     </div>
@@ -5902,6 +6016,7 @@ const App = {
             trajes:     { title: 'Trajes',            subtitle: 'Seguimiento de produccion' },
             corte:      { title: 'Corte',             subtitle: 'Orden de corte por modelo' },
             modelos:    { title: 'Modelos',           subtitle: 'Catálogo y escandallos' },
+            telas:      { title: 'Telas',             subtitle: 'Catálogo y stock' },
             talleres:   { title: 'Vista por taller',  subtitle: 'Distribucion por taller' },
             ajustes:    { title: 'Ajustes',           subtitle: 'Configuracion del sistema' },
         },
@@ -10667,6 +10782,394 @@ App.modelos = {
 };
 
 /* ==========================================================
+   TELAS — catálogo + stock por tela (TIPO + VARIANTE)
+   Lee/escribe el tab TELAS del Sheet ESCANDALLOS_<NOMBRE>.
+   ========================================================== */
+App.telas = {
+    HEADERS: ['TIPO','VARIANTE','PROVEEDOR','STOCK_M','UMBRAL_ALERTA','UBICACION','ACTIVA','NOTAS'],
+    TAB: 'TELAS',
+    _data: [],
+    _filtered: [],
+    _collapsed: new Set(),  // Tipos colapsados en la vista
+
+    // ── Carga ─────────────────────────────────────────────────────────────
+    async load(forceRefresh = false) {
+        const contentEl = document.getElementById('telasContent');
+        if (contentEl) {
+            contentEl.innerHTML =
+                '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando telas…</p></div>';
+        }
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) {
+                this._data = [];
+                if (contentEl) contentEl.innerHTML =
+                    '<div class="alert alert-warning" style="margin:20px;">' +
+                    'No hay <code>ESCANDALLOS_ID</code> configurado para esta temporada. ' +
+                    'Ve a Ajustes → Temporadas y enlaza el Sheet de escandallos.</div>';
+                return;
+            }
+            const range = `${this.TAB}!A2:H`;
+            const rows = await App.sheets.readRange(sheetId, range);
+            this._data = rows.map((r, i) => this._parseRow(r, i + 2));
+            this._populateFilters();
+            this.filter();
+        } catch (err) {
+            console.error('[telas.load]', err);
+            if (contentEl) contentEl.innerHTML =
+                `<div class="alert alert-danger" style="margin:20px;">Error cargando telas: ${err.message}</div>`;
+        }
+    },
+
+    _parseRow(r, rowIndex) {
+        const cell = i => (r[i] || '').toString().trim();
+        return {
+            TIPO:           cell(0),
+            VARIANTE:       cell(1),
+            PROVEEDOR:      cell(2),
+            STOCK_M:        cell(3),
+            UMBRAL_ALERTA:  cell(4),
+            UBICACION:      cell(5),
+            ACTIVA:         cell(6),
+            NOTAS:          cell(7),
+            _rowIndex:      rowIndex,
+        };
+    },
+
+    _serializeRow(t) {
+        return [
+            t.TIPO || '', t.VARIANTE || '', t.PROVEEDOR || '',
+            t.STOCK_M || '', t.UMBRAL_ALERTA || '',
+            t.UBICACION || '', t.ACTIVA || '', t.NOTAS || '',
+        ];
+    },
+
+    _isActive(t) {
+        const v = (t.ACTIVA || '').toString().toUpperCase().trim();
+        return !['FALSE','NO','0','INACTIVA'].includes(v);
+    },
+
+    _isLowStock(t) {
+        const stock = parseFloat(t.STOCK_M);
+        const umbral = parseFloat(t.UMBRAL_ALERTA);
+        if (isNaN(stock) || isNaN(umbral)) return false;
+        return stock <= umbral;
+    },
+
+    _stockNum(t) {
+        const v = parseFloat(t.STOCK_M);
+        return isNaN(v) ? 0 : v;
+    },
+
+    // ── Catálogos derivados (para datalists y filtros) ────────────────────
+    _allTipos() {
+        return [...new Set(this._data.map(t => t.TIPO).filter(Boolean))].sort();
+    },
+
+    _allProveedores() {
+        return [...new Set(this._data.map(t => t.PROVEEDOR).filter(Boolean))].sort();
+    },
+
+    _populateFilters() {
+        const tipoSel = document.getElementById('telasTipoFiltro');
+        const provSel = document.getElementById('telasProveedorFiltro');
+        if (tipoSel) {
+            const prev = tipoSel.value;
+            const tipos = this._allTipos();
+            tipoSel.innerHTML = '<option value="">Todos los tipos</option>' +
+                tipos.map(t => `<option value="${t}"${t === prev ? ' selected' : ''}>${t}</option>`).join('');
+        }
+        if (provSel) {
+            const prev = provSel.value;
+            const provs = this._allProveedores();
+            provSel.innerHTML = '<option value="">Todos los proveedores</option>' +
+                provs.map(p => `<option value="${p}"${p === prev ? ' selected' : ''}>${p}</option>`).join('');
+        }
+    },
+
+    // ── Filtrado ──────────────────────────────────────────────────────────
+    filter() {
+        const q = (document.getElementById('telasSearch')?.value || '').toLowerCase().trim();
+        const tipoFiltro = (document.getElementById('telasTipoFiltro')?.value || '').trim();
+        const provFiltro = (document.getElementById('telasProveedorFiltro')?.value || '').trim();
+        const estadoFiltro = (document.getElementById('telasEstadoFiltro')?.value || 'activas');
+
+        const valid = this._data.filter(t => t.TIPO && t.VARIANTE);
+        this._filtered = valid.filter(t => {
+            if (tipoFiltro && t.TIPO !== tipoFiltro) return false;
+            if (provFiltro && t.PROVEEDOR !== provFiltro) return false;
+            if (q) {
+                const hay = `${t.TIPO} ${t.VARIANTE}`.toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            const active = this._isActive(t);
+            if (estadoFiltro === 'activas'   && !active) return false;
+            if (estadoFiltro === 'inactivas' && active) return false;
+            if (estadoFiltro === 'bajas'     && (!active || !this._isLowStock(t))) return false;
+            if (estadoFiltro === 'sin_stock' && (!active || this._stockNum(t) > 0)) return false;
+            return true;
+        });
+        this._render();
+    },
+
+    // ── Render: tabla agrupada por TIPO ───────────────────────────────────
+    _render() {
+        const container = document.getElementById('telasContent');
+        const countEl = document.getElementById('telasCount');
+        if (!container) return;
+        if (countEl) {
+            const bajas = this._filtered.filter(t => this._isLowStock(t)).length;
+            countEl.innerHTML = `${this._filtered.length} tela${this._filtered.length !== 1 ? 's' : ''}` +
+                (bajas ? ` <span style="color:#c2185b; font-weight:600;">· ${bajas} bajo umbral</span>` : '');
+        }
+        if (!this._filtered.length) {
+            container.innerHTML =
+                '<div class="empty-state" style="padding:40px;">' +
+                '<p style="margin-bottom:12px;">No hay telas que coincidan con los filtros.</p>' +
+                '<button class="btn btn-primary btn-sm" onclick="App.telas.openModal()">+ Nueva tela</button>' +
+                '</div>';
+            return;
+        }
+
+        // Agrupar por TIPO
+        const groups = {};
+        for (const t of this._filtered) {
+            (groups[t.TIPO] ||= []).push(t);
+        }
+        const tipos = Object.keys(groups).sort();
+
+        const styles = `
+            <style>
+                .telas-table { width:100%; border-collapse:collapse; background:white; border-radius:8px; overflow:hidden; }
+                .telas-table th, .telas-table td { padding:8px 10px; border-bottom:1px solid #eee; text-align:left; vertical-align:middle; font-size:13px; }
+                .telas-table th { background:#fafafa; font-weight:600; color:#555; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+                .telas-group-header { background:#fce4ec; cursor:pointer; user-select:none; font-weight:600; }
+                .telas-group-header:hover { background:#f8bbd0; }
+                .telas-row-low { background:#fff8e1; }
+                .telas-row-inactive { opacity:0.55; }
+                .telas-stock-input { width:80px; padding:4px 6px; border:1px solid #ddd; border-radius:4px; font-size:13px; text-align:right; }
+                .telas-stock-input:focus { outline:none; border-color:#c2185b; box-shadow:0 0 0 2px rgba(194,24,91,0.15); }
+                .telas-stock-input.saving { border-color:#aaa; background:#f5f5f5; }
+                .telas-stock-input.saved  { border-color:#4caf50; }
+                .telas-stock-input.error  { border-color:#f44336; background:#ffebee; }
+                .telas-low-badge { background:#c2185b; color:white; padding:2px 6px; border-radius:10px; font-size:10px; font-weight:600; }
+                .telas-edit-btn { color:#888; cursor:pointer; padding:2px 6px; border-radius:4px; }
+                .telas-edit-btn:hover { background:#f0f0f0; color:#c2185b; }
+            </style>
+        `;
+
+        const headerRow = `
+            <thead>
+                <tr>
+                    <th style="width:24%;">Variante</th>
+                    <th style="width:14%;">Proveedor</th>
+                    <th style="width:12%; text-align:right;">Stock (m)</th>
+                    <th style="width:12%; text-align:right;">Umbral</th>
+                    <th style="width:14%;">Ubicación</th>
+                    <th style="width:14%;">Estado</th>
+                    <th style="width:60px;"></th>
+                </tr>
+            </thead>
+        `;
+
+        const groupsHtml = tipos.map(tipo => {
+            const rows = groups[tipo];
+            const isCollapsed = this._collapsed.has(tipo);
+            const escTipo = tipo.replace(/'/g, "\\'");
+            const arrow = isCollapsed ? '▸' : '▾';
+            const headerTr = `
+                <tr class="telas-group-header" onclick="App.telas._toggleGroup('${escTipo}')">
+                    <td colspan="7">${arrow} ${tipo} <span style="opacity:0.7; font-weight:400;">(${rows.length})</span></td>
+                </tr>
+            `;
+            if (isCollapsed) return headerTr;
+            const dataRows = rows.map(t => this._renderRow(t)).join('');
+            return headerTr + dataRows;
+        }).join('');
+
+        container.innerHTML = styles +
+            `<table class="telas-table">${headerRow}<tbody>${groupsHtml}</tbody></table>`;
+    },
+
+    _renderRow(t) {
+        const escKey = `${t.TIPO}|${t.VARIANTE}`.replace(/'/g, "\\'");
+        const active = this._isActive(t);
+        const low = this._isLowStock(t);
+        const cls = !active ? 'telas-row-inactive' : (low ? 'telas-row-low' : '');
+        const stockVal = t.STOCK_M || '0';
+        const umbralVal = t.UMBRAL_ALERTA || '';
+        const ubic = t.UBICACION || '—';
+        const estadoBadge = !active
+            ? '<span class="chip" style="background:#999; color:white; font-size:10px;">inactiva</span>'
+            : (low
+                ? '<span class="telas-low-badge">&#x1F53B; baja</span>'
+                : '<span style="color:#4caf50; font-size:11px;">&check; ok</span>');
+        return `
+            <tr class="${cls}" data-tipo="${t.TIPO}" data-variante="${t.VARIANTE}">
+                <td><strong>${t.VARIANTE}</strong></td>
+                <td>${t.PROVEEDOR || '—'}</td>
+                <td style="text-align:right;">
+                    <input type="number" step="0.5" class="telas-stock-input"
+                           value="${stockVal}"
+                           onchange="App.telas._onStockInputChange(event, '${escKey}')"
+                           onblur="App.telas._onStockBlur(event, '${escKey}')"
+                           onkeydown="App.telas._onStockKeydown(event)">
+                </td>
+                <td style="text-align:right; color:#888;">${umbralVal || '—'}</td>
+                <td>${ubic}</td>
+                <td>${estadoBadge}</td>
+                <td><span class="telas-edit-btn" onclick="App.telas.openModal('${escKey}')" title="Editar">&#x270F;&#xFE0F;</span></td>
+            </tr>
+        `;
+    },
+
+    _toggleGroup(tipo) {
+        if (this._collapsed.has(tipo)) this._collapsed.delete(tipo);
+        else this._collapsed.add(tipo);
+        this._render();
+    },
+
+    // ── Stock inline edit ─────────────────────────────────────────────────
+    _onStockKeydown(e) {
+        if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+    },
+    _onStockInputChange(e, key) { /* triggered on Enter or pressing arrows; we save on blur */ },
+    async _onStockBlur(e, key) {
+        const newVal = e.target.value.trim();
+        const [tipo, variante] = key.split('|');
+        const t = this._data.find(x => x.TIPO === tipo && x.VARIANTE === variante);
+        if (!t) return;
+        if ((t.STOCK_M || '') === newVal) return;  // sin cambio real
+        const input = e.target;
+        input.classList.add('saving');
+        input.disabled = true;
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+            t.STOCK_M = newVal;
+            const range = `${this.TAB}!D${t._rowIndex}`;
+            await App.sheets.writeRange(sheetId, range, [[newVal]]);
+            input.classList.remove('saving');
+            input.classList.add('saved');
+            App.toast.show(`Stock ${tipo} ${variante}: ${newVal} m`, 'success', 2000);
+            // Re-render tras 400 ms para refrescar badge low/ok si cambió de lado del umbral
+            setTimeout(() => { input.classList.remove('saved'); this.filter(); }, 600);
+        } catch (err) {
+            console.error('[telas.stockBlur]', err);
+            input.classList.remove('saving');
+            input.classList.add('error');
+            App.toast.show('Error guardando stock: ' + err.message, 'error', 5000);
+            // Revertir visualmente
+            setTimeout(() => { input.classList.remove('error'); this.filter(); }, 1500);
+        } finally {
+            input.disabled = false;
+        }
+    },
+
+    // ── Modal: abrir / cerrar ─────────────────────────────────────────────
+    openModal(key) {
+        const get = id => document.getElementById(id);
+        get('telaOriginalKey').value = key || '';
+        const editing = !!key;
+        let t = null;
+        if (editing) {
+            const [tipo, variante] = key.split('|');
+            t = this._data.find(x => x.TIPO === tipo && x.VARIANTE === variante);
+        }
+        get('telaModalTitle').textContent = editing ? `Editar ${t?.TIPO} · ${t?.VARIANTE}` : 'Nueva tela';
+        get('btnTelaMarkInactive').style.display = editing && this._isActive(t || {}) ? 'inline-flex' : 'none';
+
+        get('telaTipo').value           = t?.TIPO || '';
+        get('telaVariante').value       = t?.VARIANTE || '';
+        get('telaProveedor').value      = t?.PROVEEDOR || '';
+        get('telaStockM').value         = t?.STOCK_M || '';
+        get('telaUmbralAlerta').value   = t?.UMBRAL_ALERTA || '10';
+        get('telaUbicacion').value      = t?.UBICACION || '';
+        get('telaActiva').checked       = t ? this._isActive(t) : true;
+        get('telaNotas').value          = t?.NOTAS || '';
+
+        // Datalists
+        const tipoDl = get('telaTipoList');
+        if (tipoDl) tipoDl.innerHTML = this._allTipos().map(x => `<option value="${x}">`).join('');
+        const provDl = get('telaProveedorList');
+        if (provDl) provDl.innerHTML = this._allProveedores().map(x => `<option value="${x}">`).join('');
+
+        get('telaModal').classList.add('active');
+        setTimeout(() => get('telaTipo').focus(), 50);
+    },
+
+    closeModal() {
+        document.getElementById('telaModal').classList.remove('active');
+    },
+
+    // ── Guardar (crear o editar) ──────────────────────────────────────────
+    async save() {
+        const get = id => document.getElementById(id);
+        const btn = get('btnTelaSave');
+        btn.disabled = true; btn.textContent = 'Guardando...';
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+
+            const tipo = get('telaTipo').value.trim().toUpperCase();
+            const variante = get('telaVariante').value.trim();
+            if (!tipo) { App.toast.show('Tipo es obligatorio', 'error'); return; }
+            if (!variante) { App.toast.show('Variante es obligatoria', 'error'); return; }
+
+            const original = get('telaOriginalKey').value;
+            const newKey = `${tipo}|${variante}`;
+            // Comprobar duplicado (solo si es nuevo o cambió la clave)
+            if ((!original || original !== newKey) &&
+                this._data.some(x => `${x.TIPO}|${x.VARIANTE}` === newKey)) {
+                App.toast.show(`Ya existe la tela ${tipo} · ${variante}`, 'error');
+                return;
+            }
+
+            const t = {
+                TIPO:          tipo,
+                VARIANTE:      variante,
+                PROVEEDOR:     get('telaProveedor').value.trim(),
+                STOCK_M:       get('telaStockM').value.trim(),
+                UMBRAL_ALERTA: get('telaUmbralAlerta').value.trim(),
+                UBICACION:     get('telaUbicacion').value,
+                ACTIVA:        get('telaActiva').checked ? 'TRUE' : 'FALSE',
+                NOTAS:         get('telaNotas').value.trim(),
+            };
+            const row = this._serializeRow(t);
+
+            if (original) {
+                const [oTipo, oVar] = original.split('|');
+                const existing = this._data.find(x => x.TIPO === oTipo && x.VARIANTE === oVar);
+                if (!existing) throw new Error(`No se encontró la tela original.`);
+                const range = `${this.TAB}!A${existing._rowIndex}:H${existing._rowIndex}`;
+                await App.sheets.writeRange(sheetId, range, [row]);
+            } else {
+                await App.sheets.appendRows(sheetId, `${this.TAB}!A:H`, [row]);
+            }
+
+            App.toast.show('Tela guardada', 'success');
+            this.closeModal();
+            await this.load(true);
+        } catch (err) {
+            console.error('[telas.save]', err);
+            App.toast.show('Error: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Guardar';
+        }
+    },
+
+    async markInactive() {
+        const get = id => document.getElementById(id);
+        const original = get('telaOriginalKey').value;
+        if (!original) return;
+        const [tipo, variante] = original.split('|');
+        if (!confirm(`¿Marcar "${tipo} · ${variante}" como inactiva? Dejará de aparecer en los selectores pero no se borrará.`)) return;
+        get('telaActiva').checked = false;
+        await this.save();
+    },
+};
+
+/* ==========================================================
    TALLERES — Phase 5
    Vista agrupada por taller. Comparte la fuente de datos con
    App.trajes (App.sheets.getListadoTrajes → cache de 5 min).
@@ -11142,6 +11645,9 @@ App.ui.navigateTo = function(sectionId) {
     }
     if (sectionId === 'modelos') {
         App.modelos.load();
+    }
+    if (sectionId === 'telas') {
+        App.telas.load();
     }
     if (sectionId === 'ajustes') {
         // Actualizar estado de sesión al entrar en Ajustes
