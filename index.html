@@ -2823,13 +2823,38 @@
                     <div class="empty-state"><div class="spinner spinner-lg"></div></div>
                 </div>
 
-                <!-- Aviso informativo: reglas de redondeo al pedir -->
-                <div style="margin-top:14px; padding:8px 12px; background:#fff8e1; border-left:3px solid #f57c00; border-radius:4px; font-size:11px; color:#7c3a00;">
-                    <strong>ⓘ Reglas de redondeo al pedir tela:</strong>
-                    Flamentex → múltiplos de <strong>10 m</strong> (regla "10 m por traje").
-                    TELATER → múltiplos de <strong>50 m</strong> (rollos).
-                    Siempre se redondea al alza para cubrir la demanda.
-                </div>
+                <!-- Aviso informativo: reglas del stock dinámico -->
+                <details style="margin-top:14px; padding:8px 12px; background:#fff8e1; border-left:3px solid #f57c00; border-radius:4px; font-size:12px; color:#7c3a00;">
+                    <summary style="cursor:pointer; font-weight:600;">ⓘ Cómo funciona el stock automático (haz click para ver las reglas)</summary>
+                    <div style="margin-top:8px; line-height:1.6;">
+                        <strong>Cuándo cambia el stock automáticamente:</strong>
+                        <ul style="margin:4px 0 8px 18px; padding:0;">
+                            <li>Al marcar un traje como <strong>TELA RECIBIDA = RECIBIDA</strong> → se <strong>suma</strong> al stock lo que se pidió en el pedido al proveedor.</li>
+                            <li>Al marcar un traje como <strong>CORTE = RECOGIDO</strong> → se <strong>resta</strong> del stock lo que ha consumido el cortador.</li>
+                            <li>Si deshaces un estado, la app revierte el movimiento automáticamente (devuelve los metros al stock o los vuelve a quitar).</li>
+                        </ul>
+
+                        <strong>Una RECEPCION por pedido, no por traje:</strong>
+                        Si un pedido tiene varios trajes, el stock se suma <strong>una sola vez</strong> (cuando llega el primero a RECIBIDA). Los demás trajes no añaden al stock — la tela ya está contada. Y solo se revierte el stock si <strong>todos</strong> los trajes del pedido salen de RECIBIDA.
+
+                        <p style="margin:8px 0 4px;"><strong>Reglas de redondeo al pedir al proveedor:</strong></p>
+                        <ul style="margin:4px 0 8px 18px; padding:0;">
+                            <li><strong>Flamentex</strong> → múltiplos de 10 m (regla "10 m por traje").</li>
+                            <li><strong>TELATER</strong> → múltiplos de 50 m (rollos).</li>
+                            <li>Siempre se redondea al alza para cubrir la demanda. Tú puedes editar los metros antes de generar el WhatsApp.</li>
+                        </ul>
+
+                        <strong>Retales al cortar:</strong>
+                        Cuando se corta un traje y sobran metros (lo pedido − el escandallo), la app te pregunta si quieres <strong>conservar el retal en stock</strong> para reaprovecharlo o si <strong>no es aprovechable</strong> (descartarlo). Si descartas, se consume el lote entero. Si conservas, solo se consume el escandallo.
+
+                        <strong>Cuándo TIENES que tocar el stock a mano:</strong>
+                        <ul style="margin:4px 0 0 18px; padding:0;">
+                            <li>Al inicio de temporada, cargando los stocks reales como punto de partida.</li>
+                            <li>Si te llega tela por otro canal (regalo, recuperada, error de inventario).</li>
+                            <li>Para hacer correcciones puntuales si la realidad física no encaja con la app.</li>
+                        </ul>
+                    </div>
+                </details>
             </div>
 
             <!-- TELA EDIT MODAL -->
@@ -10168,6 +10193,12 @@ App.trajes = {
 
     /** RESTA stock al consumir el traje en el cortador (CORTE = RECOGIDO).
      *  Resta `modelo.TELA_PPAL_M` (escandallo) del stock y crea CONSUMO_TRAJE.
+     *
+     *  Si el proveedor es "de lote" (Flamentex y similares — NO TELATER) y hay sobrante
+     *  per-traje (pedido_por_traje − escandallo > 0), pregunta a Pilar si conserva el
+     *  retal en stock o lo descarta. Si descarta, se consume el lote entero (no queda
+     *  retal en stock para ese traje).
+     *
      *  Idempotente: si ya hay CONSUMO vivo para este traje, silencioso. */
     async _stockRestaPorConsumo({ traje, tipo, variante, numTraje }) {
         // Idempotencia: ¿ya existe un CONSUMO vivo de este traje?
@@ -10194,7 +10225,68 @@ App.trajes = {
         }
         const tela = (App.telas?._data || []).find(t => t.TIPO === tipo && t.VARIANTE === variante);
         const proveedor = tela?.PROVEEDOR || '';
-        const nuevoStock = await App.telas.updateStock(tipo, variante, -escandallo);
+
+        // ── Aviso al cortar: SIEMPRE mostramos un diálogo informativo o de decisión. ─────
+        // Reglas:
+        //   1. Si hay SOBRANTE per-traje (pedido > escandallo) → diálogo keep/discard.
+        //      Aplica tanto a TELATER (rollo) como a Flamentex (lote). Pilar decide.
+        //      Default si cierra con X = keep (conservar — no destruimos info).
+        //   2. Si NO hay sobrante (sin pedido previo, o escandallo ≥ pedido) → diálogo
+        //      informativo de solo confirmación (consumes el escandallo, sin retal).
+        let metrosAConsumir = escandallo;
+        let notaExtra = '';
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+
+        const found = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
+        let metrosPorTraje = null;
+        let sobrante = 0;
+        if (found?.recepcion) {
+            const metrosPedido = Number(found.recepcion.METROS) || 0;
+            const trajesDelPedido = App.movimientos._parseTrajesCsv(found.pedido.TRAJE_NUM).length || 1;
+            metrosPorTraje = metrosPedido / trajesDelPedido;
+            sobrante = +(metrosPorTraje - escandallo).toFixed(2);
+        }
+
+        const baseMsg =
+            `Has cortado el traje <strong>Nº&nbsp;${numTraje}</strong> (modelo <strong>${modelo.NOMBRE}</strong>).<br><br>` +
+            (metrosPorTraje != null
+                ? `· Pediste <strong>${fmt(metrosPorTraje)} m</strong> de <strong>${tipo} / ${variante}</strong> a <strong>${proveedor || 'sin proveedor'}</strong> para este traje.<br>`
+                : `· Tela: <strong>${tipo} / ${variante}</strong> (sin pedido previo registrado).<br>`) +
+            `· Escandallo del modelo: <strong>${fmt(escandallo)} m</strong>.`;
+
+        if (sobrante > 0) {
+            // Hay retal: preguntamos siempre, sea TELATER o lote
+            const answer = await App.ui.confirmDialog({
+                title: '✂️ Corte registrado · ¿Qué hacer con el retal?',
+                message:
+                    `${baseMsg}<br>` +
+                    `· Sobran <strong>${fmt(sobrante)} m</strong> de retal.<br><br>` +
+                    `¿Conservar el retal en stock para reaprovecharlo, o no es aprovechable?`,
+                actions: [
+                    { label: `✅ Conservar ${fmt(sobrante)} m en stock`, value: 'keep',    style: 'primary' },
+                    { label: 'No es aprovechable (consumir todo)',       value: 'discard', style: 'secondary' },
+                ],
+            });
+            if (answer === 'discard') {
+                metrosAConsumir = metrosPorTraje;
+                notaExtra = ` · retal de ${fmt(sobrante)} m descartado (no reaprovechable)`;
+            } else {
+                notaExtra = ` · retal de ${fmt(sobrante)} m conservado en stock`;
+            }
+        } else {
+            // Sin retal: aviso informativo de solo confirmación
+            await App.ui.confirmDialog({
+                title: '✂️ Corte registrado',
+                message:
+                    `${baseMsg}<br><br>` +
+                    `Se consumirán <strong>${fmt(escandallo)} m</strong> del stock. Sin retal sobrante.`,
+                actions: [
+                    { label: '✅ Entendido', value: 'ok', style: 'primary' },
+                ],
+            });
+        }
+
+        const nuevoStock = await App.telas.updateStock(tipo, variante, -metrosAConsumir);
         if (nuevoStock === null) {
             App.toast.show(`Tela ${tipo}/${variante} no está en catálogo, no se pudo restar el consumo.`, 'warning', 5000);
             return false;
@@ -10204,13 +10296,13 @@ App.trajes = {
             TIPO:           App.movimientos.TIPOS.CONSUMO,
             TELA_TIPO:      tipo,
             TELA_VARIANTE:  variante,
-            METROS:         -escandallo,
+            METROS:         -metrosAConsumir,
             TRAJE_NUM:      numTraje,
             PROVEEDOR:      proveedor,
-            NOTAS:          `[CON:${consumoId}] consumo escandallo ${escandallo} m del modelo ${modelo.NOMBRE} (nuevo: ${nuevoStock} m)`,
+            NOTAS:          `[CON:${consumoId}] consumo ${metrosAConsumir} m del modelo ${modelo.NOMBRE} (escandallo ${escandallo} m, nuevo: ${nuevoStock} m)${notaExtra}`,
         });
         App.toast.show(
-            `<strong>Consumo registrado</strong><br>−${escandallo} m de <strong>${tipo}/${variante}</strong> (corte del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
+            `<strong>Consumo registrado</strong><br>−${metrosAConsumir} m de <strong>${tipo}/${variante}</strong> (corte del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>${notaExtra ? '<br><span style="font-size:11px; opacity:0.85;">' + notaExtra.replace(/^ · /, '') + '</span>' : ''}`,
             'warning', 0
         );
         return true;
