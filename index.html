@@ -11524,48 +11524,53 @@ App.movimientos = {
         return { recepcionadosVivos, reversados };
     },
 
-    /** Busca un PEDIDO_PROVEEDOR PENDIENTE de recepción para una tela, donde el traje
-     *  numTraje aparezca en TRAJE_NUM (CSV). "Pendiente" = no tiene RECEPCION viva.
-     *  Compara números de traje tolerando padding ("1" === "001"). */
-    async findOpenPedido(tipo, variante, numTraje) {
+    /** Encuentra el PEDIDO_PROVEEDOR MÁS RECIENTE que contenga al traje en TRAJE_NUM.
+     *  Devuelve `{ pedido, recepcionada: bool }` o null si el traje no aparece en ningún pedido.
+     *  Lookup por proximidad temporal: solo el más reciente cuenta (los anteriores están
+     *  obsoletos para este traje). */
+    async _findLatestPedidoForTraje(tipo, variante, numTraje) {
         const all = await this.loadAll();
         const { recepcionadosVivos } = this._vivosFromAll(all);
         const pedidos = all
             .filter(m => m.TIPO === this.TIPOS.PEDIDO &&
                          m.TELA_TIPO === tipo &&
                          m.TELA_VARIANTE === variante)
-            .reverse();
+            .reverse();   // más reciente al más antiguo
         for (const p of pedidos) {
-            const id = this.extractPedidoId(p.NOTAS);
-            if (!id || recepcionadosVivos.has(id)) continue;
             const trajes = this._parseTrajesCsv(p.TRAJE_NUM);
-            if (numTraje && trajes.some(n => this._numMatch(n, numTraje))) return { ...p, pedidoId: id };
+            if (numTraje && trajes.some(n => this._numMatch(n, numTraje))) {
+                const id = this.extractPedidoId(p.NOTAS);
+                if (!id) continue;
+                return {
+                    pedido: { ...p, pedidoId: id },
+                    recepcionada: recepcionadosVivos.has(id),
+                    all,
+                };
+            }
         }
         return null;
     },
 
-    /** Busca un PEDIDO_PROVEEDOR con RECEPCION VIVA para una tela, donde el traje aparezca.
-     *  Compara números de traje tolerando padding. */
+    /** Busca un PEDIDO_PROVEEDOR PENDIENTE de recepción para una tela y traje.
+     *  Solo el PEDIDO MÁS RECIENTE del traje cuenta — si está recepcionado, devuelve null
+     *  (el traje ya está cubierto, no hay nada que abrir). Esto evita que pedidos
+     *  antiguos sin recepcionar "atrapen" futuras recibidas. */
+    async findOpenPedido(tipo, variante, numTraje) {
+        const found = await this._findLatestPedidoForTraje(tipo, variante, numTraje);
+        if (!found) return null;
+        if (found.recepcionada) return null;   // el más reciente ya está recepcionado
+        return found.pedido;
+    },
+
+    /** Busca el PEDIDO recepcionado vivo más reciente del traje. Devuelve {pedido, recepcion}. */
     async findRecepcionedPedido(tipo, variante, numTraje) {
-        const all = await this.loadAll();
-        const { recepcionadosVivos } = this._vivosFromAll(all);
-        const pedidos = all
-            .filter(m => m.TIPO === this.TIPOS.PEDIDO &&
-                         m.TELA_TIPO === tipo &&
-                         m.TELA_VARIANTE === variante)
-            .reverse();
-        for (const p of pedidos) {
-            const id = this.extractPedidoId(p.NOTAS);
-            if (!id || !recepcionadosVivos.has(id)) continue;
-            const trajes = this._parseTrajesCsv(p.TRAJE_NUM);
-            if (numTraje && trajes.some(n => this._numMatch(n, numTraje))) {
-                const recepcion = all.slice().reverse().find(m =>
-                    m.TIPO === this.TIPOS.RECEPCION &&
-                    this.extractRefId(m.NOTAS) === id);
-                return { pedido: { ...p, pedidoId: id }, recepcion };
-            }
-        }
-        return null;
+        const found = await this._findLatestPedidoForTraje(tipo, variante, numTraje);
+        if (!found || !found.recepcionada) return null;
+        const id = found.pedido.pedidoId;
+        const recepcion = found.all.slice().reverse().find(m =>
+            m.TIPO === this.TIPOS.RECEPCION &&
+            this.extractRefId(m.NOTAS) === id);
+        return { pedido: found.pedido, recepcion };
     },
 };
 
