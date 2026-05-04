@@ -2477,6 +2477,9 @@
                     <!-- Contenido scrollable -->
                     <div style="flex:1; overflow-y:auto; min-height:0; padding-right:4px;">
 
+                        <!-- Banner de motivos de revisión (oculto si no aplica) -->
+                        <div id="editTrajeRevisarBanner" style="display:none; margin-bottom:10px; padding:8px 12px; background:#fff3e0; border-left:3px solid #f57c00; border-radius:4px; font-size:12px; color:#7c3a00; line-height:1.5;"></div>
+
                         <!-- Traje: fila 1 = modelo + talla, fila 2 = tipo tela + variante (cascada) -->
                         <div style="padding-bottom:10px; border-bottom:1px solid var(--border-light); margin-bottom:10px;">
                             <!-- Fila 1: modelo (más ancho) + talla -->
@@ -2786,8 +2789,27 @@
                             </div>
                         </div>
                         <div class="form-group" style="margin:0; grid-column:1/3;">
-                            <label>Foto (URL de Drive — opcional)</label>
-                            <input type="text" class="form-input mono" id="modeloFotoUrl" placeholder="https://drive.google.com/...">
+                            <label>Foto del modelo</label>
+                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                                <input type="file" id="modeloFotoFile" accept="image/*" capture="environment"
+                                       style="display:none;"
+                                       onchange="App.modelos.uploadFoto(this)">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnModeloFotoUpload"
+                                        onclick="document.getElementById('modeloFotoFile').click()">
+                                    &#x1F4F7; Subir foto
+                                </button>
+                                <button type="button" class="btn btn-danger btn-sm" id="btnModeloFotoRemove"
+                                        onclick="App.modelos.removeFoto()" style="display:none;">
+                                    Quitar foto
+                                </button>
+                                <span style="font-size:11px; color:var(--text-muted);">
+                                    Se sube a Drive y se hace pública con enlace.
+                                </span>
+                            </div>
+                            <div id="modeloFotoPreview" style="margin-bottom:8px;"></div>
+                            <input type="text" class="form-input mono" id="modeloFotoUrl"
+                                   placeholder="https://drive.google.com/... (o pega URL manualmente)"
+                                   style="font-size:11px;">
                         </div>
                         <div class="form-group" style="margin:0;">
                             <label>
@@ -3758,6 +3780,57 @@ const App = {
             return this._fetch(url, {
                 method: 'PATCH',
                 body: JSON.stringify({ trashed: true }),
+            });
+        },
+
+        /** Upload a binary File to Drive using multipart upload. Returns {id, name, ...}. */
+        async uploadDriveFile(file, parentFolderId) {
+            const metadata = {
+                name: file.name,
+                mimeType: file.type || 'application/octet-stream',
+            };
+            if (parentFolderId) metadata.parents = [parentFolderId];
+
+            // Construct multipart body manually because we mix JSON metadata + binary content.
+            const boundary = '-------314159265358979323846';
+            const delimiter = `\r\n--${boundary}\r\n`;
+            const closeDelim = `\r\n--${boundary}--`;
+
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const base64 = reader.result.split(',')[1];
+                    const body =
+                        delimiter +
+                        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+                        JSON.stringify(metadata) +
+                        delimiter +
+                        `Content-Type: ${metadata.mimeType}\r\n` +
+                        'Content-Transfer-Encoding: base64\r\n\r\n' +
+                        base64 +
+                        closeDelim;
+                    try {
+                        const url = 'https://www.googleapis.com/upload/drive/v3/files'
+                                  + '?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType';
+                        const res = await this._fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+                            body,
+                        });
+                        resolve(res);
+                    } catch (e) { reject(e); }
+                };
+                reader.onerror = () => reject(reader.error);
+                reader.readAsDataURL(file);
+            });
+        },
+
+        /** Make a Drive file publicly readable (anyone with link). */
+        async makeDriveFilePublic(fileId) {
+            const url = `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?supportsAllDrives=true`;
+            return this._fetch(url, {
+                method: 'POST',
+                body: JSON.stringify({ role: 'reader', type: 'anyone' }),
             });
         },
 
@@ -8590,6 +8663,29 @@ App.trajes = {
         return false;
     },
 
+    /** Devuelve la lista de motivos por los que un traje está en revisión.
+     *  Cada elemento es un objeto { campo, valor, etiqueta } legible para humanos. */
+    _motivosRevisar(t) {
+        const motivos = [];
+        const estado   = this._estadoEfectivo(t);
+        const tela     = (t[this.COL.telaRecibida]   || '').toUpperCase().trim();
+        const corte    = (t[this.COL.corte]          || '').toUpperCase().trim();
+        const trajeRec = (t[this.COL.trajeRecibido]  || '').toUpperCase().trim();
+        const trajeEnt = (t[this.COL.trajeEntregado] || '').toUpperCase().trim();
+
+        if (estado === 'REVISAR')   motivos.push({ campo: 'ESTADO',          valor: 'REVISAR' });
+        if (estado === 'INCIDENCIA') motivos.push({ campo: 'ESTADO',          valor: 'INCIDENCIA' });
+        if (tela === 'INCIDENCIA')   motivos.push({ campo: 'TELA RECIBIDA',   valor: 'INCIDENCIA' });
+        if (corte === 'INCIDENCIA')  motivos.push({ campo: 'CORTE',           valor: 'INCIDENCIA' });
+        if (trajeRec === 'INCIDENCIA') motivos.push({ campo: 'TRAJE RECIBIDO',  valor: 'INCIDENCIA' });
+        if (trajeEnt === 'INCIDENCIA') motivos.push({ campo: 'TRAJE ENTREGADO', valor: 'INCIDENCIA' });
+        if (this._isEstancado(t)) {
+            const dias = this._diasSinCambio(t);
+            motivos.push({ campo: 'ESTANCAMIENTO', valor: `${dias} días sin modificarse` });
+        }
+        return motivos;
+    },
+
     setBandeja(name) {
         this._bandeja = name || 'todos';
         // Actualizar clase active en los botones
@@ -10035,6 +10131,28 @@ App.trajes = {
         // Calcular Estado automáticamente y colorear todos los selects
         this._recalcEstado();
         this._styleAllSelects();
+
+        // Banner de motivos de revisión (si aplica)
+        const banner = document.getElementById('editTrajeRevisarBanner');
+        if (banner) {
+            const motivos = this._motivosRevisar(t);
+            if (motivos.length === 0) {
+                banner.style.display = 'none';
+                banner.innerHTML = '';
+            } else {
+                const items = motivos.map(m =>
+                    `<li><strong>${m.campo}</strong>: ${m.valor}</li>`).join('');
+                const fechaMod = (t[this.COL.fechaUltimaMod] || '').toString().trim();
+                const fechaInfo = fechaMod
+                    ? `<div style="margin-top:6px; font-size:11px; opacity:0.85;">Última modificación registrada: <strong>${fechaMod}</strong></div>`
+                    : `<div style="margin-top:6px; font-size:11px; opacity:0.85;">Sin fecha de última modificación registrada.</div>`;
+                banner.innerHTML =
+                    `<div style="font-weight:600;">⚠️ Este traje está en revisión por:</div>` +
+                    `<ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>` +
+                    fechaInfo;
+                banner.style.display = 'block';
+            }
+        }
 
         // Botones de mensajes a la clienta (plantillas WhatsApp/Gmail) — evaluados contra este traje
         if (App.mensajes && typeof App.mensajes.renderBotones === 'function') {
@@ -12402,6 +12520,16 @@ App.modelos = {
         get('modeloAdornos').value          = m?.ADORNOS || '';
         get('modeloPrecio').value           = m?.PRECIO_EUR || '';
         get('modeloFotoUrl').value          = m?.FOTO_URL || '';
+        this._renderFotoPreview(m?.FOTO_URL || '');
+        // Cuando cambian la URL a mano, refrescar preview
+        const urlInput = get('modeloFotoUrl');
+        if (urlInput && !urlInput._previewBound) {
+            urlInput.addEventListener('input', e => this._renderFotoPreview(e.target.value.trim()));
+            urlInput._previewBound = true;
+        }
+        // Reset del input file por si quedó algo de un modal anterior
+        const fileInput = get('modeloFotoFile');
+        if (fileInput) fileInput.value = '';
         get('modeloNotas').value            = m?.NOTAS || '';
         get('modeloActivo').checked         = m ? this._isActive(m) : true;
 
@@ -12534,6 +12662,111 @@ App.modelos = {
         if (!confirm(`¿Marcar "${original}" como inactivo? El modelo dejará de aparecer en la vista por defecto pero no se borrará.`)) return;
         get('modeloActivo').checked = false;
         await this.save();
+    },
+
+    // ── Foto: subida a Drive ──────────────────────────────────────────────
+    _fotosFolderId: null,        // cache de la carpeta FOTOS_MODELOS_<NOMBRE>
+    _fotosFolderSeason: null,    // temporada para la que está cacheada
+
+    /** Localiza/crea la carpeta FOTOS_MODELOS_<NOMBRE> dentro de TEMPORADA_<NOMBRE>/.
+     *  Devuelve el id de la carpeta. Cachea por temporada actual. */
+    async _ensureFotosFolder() {
+        const season = App.settings.get('currentSeason') || '';
+        if (this._fotosFolderId && this._fotosFolderSeason === season) {
+            return this._fotosFolderId;
+        }
+        const fichasFolderId = App.settings.get('fichasFolderId');
+        if (!fichasFolderId) {
+            throw new Error('No hay FICHAS_FOLDER_ID configurado. Ve a Ajustes → Temporadas.');
+        }
+        // El padre de FICHAS_FOLDER_ID es TEMPORADA_<NOMBRE>/
+        const meta = await App.sheets.getDriveFileMetadata(fichasFolderId);
+        const tempFolderId = meta.parents?.[0];
+        if (!tempFolderId) {
+            throw new Error('No se pudo localizar la carpeta de la temporada actual.');
+        }
+        const folderName = `FOTOS_MODELOS_${season || 'GLOBAL'}`;
+        let folder = await App.sheets.findChildFolder(tempFolderId, folderName);
+        if (!folder) {
+            folder = await App.sheets.createDriveFolder(folderName, tempFolderId);
+        }
+        this._fotosFolderId = folder.id;
+        this._fotosFolderSeason = season;
+        return folder.id;
+    },
+
+    /** Construye una URL pública de thumbnail de Drive a partir del fileId. */
+    _thumbUrl(fileId) {
+        return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+    },
+
+    /** Pinta la previsualización de la foto (si hay URL) en el modal. */
+    _renderFotoPreview(url) {
+        const preview = document.getElementById('modeloFotoPreview');
+        const removeBtn = document.getElementById('btnModeloFotoRemove');
+        if (!preview) return;
+        if (url) {
+            preview.innerHTML =
+                `<img src="${url}" alt="preview" ` +
+                `style="max-width:100%; max-height:160px; border-radius:6px; border:1px solid var(--border);" ` +
+                `onerror="this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='block');">` +
+                `<div style="display:none; font-size:11px; color:var(--text-muted); margin-top:4px;">` +
+                `(no se pudo cargar la imagen — ¿la URL es pública?)</div>`;
+            if (removeBtn) removeBtn.style.display = 'inline-flex';
+        } else {
+            preview.innerHTML = '';
+            if (removeBtn) removeBtn.style.display = 'none';
+        }
+    },
+
+    /** Quitar foto: limpia URL y preview (no borra el archivo de Drive). */
+    removeFoto() {
+        const get = id => document.getElementById(id);
+        get('modeloFotoUrl').value = '';
+        this._renderFotoPreview('');
+    },
+
+    /** Orquesta upload: file → Drive → permiso público → URL thumbnail → preview. */
+    async uploadFoto(fileInput) {
+        const file = fileInput?.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            App.toast.show('El archivo debe ser una imagen', 'error');
+            return;
+        }
+        const get = id => document.getElementById(id);
+        const btn = get('btnModeloFotoUpload');
+        const originalText = btn?.textContent;
+        try {
+            if (btn) { btn.disabled = true; btn.textContent = 'Subiendo...'; }
+
+            // 1) Carpeta destino (cache la primera vez)
+            const folderId = await this._ensureFotosFolder();
+
+            // 2) Renombrar para que sea identificable (modelo + timestamp + extensión)
+            const nombre = (get('modeloNombre').value || 'modelo').trim().replace(/[^\w\-]+/g, '_') || 'modelo';
+            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+            const renamed = new File([file], `${nombre}_${ts}.${ext}`, { type: file.type });
+
+            // 3) Subir a Drive
+            const uploaded = await App.sheets.uploadDriveFile(renamed, folderId);
+            // 4) Hacer pública (anyone with link)
+            await App.sheets.makeDriveFilePublic(uploaded.id);
+            // 5) Construir URL thumbnail y guardar en el campo
+            const url = this._thumbUrl(uploaded.id);
+            get('modeloFotoUrl').value = url;
+            this._renderFotoPreview(url);
+
+            App.toast.show('Foto subida ✔', 'success');
+        } catch (err) {
+            console.error('[modelos.uploadFoto]', err);
+            App.toast.show('Error subiendo foto: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = originalText || '📷 Subir foto'; }
+            // Reset input para que el usuario pueda volver a elegir el mismo archivo si quiere
+            if (fileInput) fileInput.value = '';
+        }
     },
 };
 
