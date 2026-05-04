@@ -649,6 +649,15 @@
         .toast.success { border-left-color: var(--success); }
         .toast.error { border-left-color: var(--danger); }
         .toast.warning { border-left-color: var(--warning); }
+        .toast.persistent { padding-right: 36px; max-width: 460px; box-shadow: 0 6px 24px rgba(0,0,0,0.18); border-left-width: 6px; }
+        .toast .toast-close {
+            position: absolute; top: 6px; right: 8px;
+            width: 22px; height: 22px; line-height: 20px;
+            text-align: center; cursor: pointer; user-select: none;
+            font-weight: 700; color: var(--text-muted); border-radius: 4px;
+        }
+        .toast .toast-close:hover { background: rgba(0,0,0,0.06); color: var(--text); }
+        .toast.persistent { position: relative; }
         @keyframes slideIn {
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
@@ -6003,19 +6012,38 @@ const App = {
        TOAST — Notification system
        ------------------------------------------------------- */
     toast: {
+        /**
+         * Muestra un toast.
+         * @param {string} message  Texto (admite HTML básico)
+         * @param {string} type     'info' | 'success' | 'error' | 'warning'
+         * @param {number} duration  Milisegundos antes de auto-cerrar. Pasa 0 para que sea
+         *                           PERSISTENTE (queda hasta que el usuario lo cierre con ✕).
+         */
         show(message, type = 'info', duration = 4000) {
             const container = document.getElementById('toastContainer');
             const el = document.createElement('div');
-            el.className = `toast ${type}`;
+            const persistent = duration === 0;
+            el.className = `toast ${type}${persistent ? ' persistent' : ''}`;
             const icon = type === 'success' ? '&#x2705;' :
                          type === 'error' ? '&#x274C;' :
                          type === 'warning' ? '&#x26A0;&#xFE0F;' : '&#x2139;&#xFE0F;';
-            el.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+            const closeBtn = persistent
+                ? `<span class="toast-close" title="Cerrar" role="button">&times;</span>`
+                : '';
+            el.innerHTML = `<span>${icon}</span><span style="flex:1;">${message}</span>${closeBtn}`;
+            if (persistent) {
+                el.querySelector('.toast-close')?.addEventListener('click', () => {
+                    el.style.animation = 'slideOut 0.3s ease forwards';
+                    setTimeout(() => el.remove(), 300);
+                });
+            }
             container.appendChild(el);
-            setTimeout(() => {
-                el.style.animation = 'slideOut 0.3s ease forwards';
-                setTimeout(() => el.remove(), 300);
-            }, duration);
+            if (!persistent) {
+                setTimeout(() => {
+                    el.style.animation = 'slideOut 0.3s ease forwards';
+                    setTimeout(() => el.remove(), 300);
+                }, duration);
+            }
         },
     },
 
@@ -10015,107 +10043,204 @@ App.trajes = {
         }
     },
 
-    /** Stock dinámico: detecta transiciones de TELA RECIBIDA y aplica los movimientos
-     *  correspondientes (suma o reverso). En la fase 3 se añadirá CORTE = RECOGIDO.
+    /** Stock dinámico: detecta transiciones que afectan al stock y aplica los movimientos.
      *
-     *  Reglas:
-     *    - * → RECIBIDA: si hay un PEDIDO sin RECEPCION viva donde el traje aparezca,
-     *      sumar METROS al stock y crear RECEPCION con [REF:<id>] que apunta al pedido.
-     *      La RECEPCION es del PEDIDO, no del traje individual — solo se suma una vez
-     *      aunque varios trajes del pedido pasen a RECIBIDA.
-     *      Si no hay pedido pendiente (la tela ya estaba disponible), silencioso.
-     *    - RECIBIDA → otro: solo se REVIERTE el stock si NINGÚN otro traje del pedido
-     *      sigue como RECIBIDA. Mientras quede al menos uno, asumimos que la tela sí
-     *      llegó y solo cambia el estado individual (no se toca stock).
+     *  Tres tipos de eventos:
+     *    1. * → TELA RECIBIDA: suma stock + RECEPCION (una vez por pedido).
+     *    2. RECIBIDA → otro: revierte solo si era el último RECIBIDA del pedido.
+     *    3. * → CORTE = RECOGIDO: resta escandallo del stock + CONSUMO_TRAJE (por traje).
+     *    4. RECOGIDO → otro: revierte el CONSUMO de ese traje.
+     *
+     *  Devuelve true si tocó el stock al menos una vez.
      */
     async _aplicarMovimientosStock(rowIndex, antes, despues) {
         const traje = this.data.find(r => r._rowIndex === rowIndex);
-        if (!traje) return;
-
-        const oldTela = (antes['TELA RECIBIDA']  || '').toUpperCase().trim();
-        const newTela = (despues['TELA RECIBIDA']|| '').toUpperCase().trim();
+        if (!traje) return false;
 
         // Parsear TIPO/VARIANTE de la tela del traje
         const raw = (traje[this.COL.tipoTela] || '').trim();
         const slash = raw.indexOf('/');
-        if (slash < 0) return;  // legacy o sin tela canónica → no podemos automatizar
+        if (slash < 0) return false;  // legacy o sin tela canónica → no podemos automatizar
         const tipo     = raw.substring(0, slash).trim().toUpperCase();
         const variante = raw.substring(slash + 1).trim();
-        if (!tipo || !variante) return;
+        if (!tipo || !variante) return false;
 
         const numTraje = (traje[this.COL.num] || '').toString().trim();
+        const ctx = { traje, tipo, variante, numTraje };
 
-        // ── Transición * → RECIBIDA ────────────────────────────────────────────
+        let tocoStock = false;
+
+        // ── Transiciones de TELA RECIBIDA ─────────────────────────────────────
+        const oldTela = (antes['TELA RECIBIDA']  || '').toUpperCase().trim();
+        const newTela = (despues['TELA RECIBIDA']|| '').toUpperCase().trim();
         if (newTela === 'RECIBIDA' && oldTela !== 'RECIBIDA') {
-            const pedido = await App.movimientos.findOpenPedido(tipo, variante, numTraje);
-            if (!pedido) {
-                // Puede que el pedido ya esté recepcionado (otro traje del lote lo abrió).
-                // Comprobar para decidir si es "silencioso ok" o "no había pedido".
-                const existing = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
-                if (existing) {
-                    console.info(`[stock] Traje ${numTraje} marcado RECIBIDA — el pedido del lote ya estaba recepcionado por otro traje, no se suma stock.`);
-                } else {
-                    console.info(`[stock] Traje ${numTraje} marcado RECIBIDA sin pedido previo — no se suma stock (caso "tela ya disponible").`);
-                }
-                return;
-            }
-            const metros = pedido.METROS;
-            const nuevoStock = await App.telas.updateStock(tipo, variante, +metros);
-            if (nuevoStock === null) {
-                App.toast.show(`Tela ${tipo}/${variante} no está en catálogo, no se pudo sumar al stock.`, 'warning', 5000);
-                return;
-            }
-            await App.movimientos.append({
-                TIPO:           App.movimientos.TIPOS.RECEPCION,
-                TELA_TIPO:      tipo,
-                TELA_VARIANTE:  variante,
-                METROS:         metros,
-                TRAJE_NUM:      pedido.TRAJE_NUM,   // todos los trajes del pedido (no solo este)
-                PROVEEDOR:      pedido.PROVEEDOR,
-                NOTAS:          `[REF:${pedido.pedidoId}] +${metros} m al stock (nuevo: ${nuevoStock} m) · disparado por traje ${numTraje}`,
-            });
-            App.toast.show(`+${metros} m de ${tipo}/${variante} al stock (nuevo: ${nuevoStock} m)`, 'success', 4000);
-            return true;
+            if (await this._stockSumaPorRecepcion(ctx)) tocoStock = true;
+        } else if (oldTela === 'RECIBIDA' && newTela !== 'RECIBIDA') {
+            if (await this._stockReversoRecepcion(ctx)) tocoStock = true;
         }
 
-        // ── Transición RECIBIDA → otro: revertir solo si era el último ─────────
-        if (oldTela === 'RECIBIDA' && newTela !== 'RECIBIDA') {
-            const found = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
-            if (!found || !found.recepcion) {
-                console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero no hay RECEPCION viva del pedido — sin acción.`);
-                return;
-            }
-            // Comprobar si quedan otros trajes del MISMO pedido aún en RECIBIDA.
-            // Comparamos Nº de traje tolerando padding ("1" === "001").
-            const trajesPedido = App.movimientos._parseTrajesCsv(found.pedido.TRAJE_NUM);
-            const otrosRecibidos = trajesPedido.filter(n => {
-                if (App.movimientos._numMatch(n, numTraje)) return false;  // este traje ya está saliendo
-                const t = this.data.find(r =>
-                    App.movimientos._numMatch(r[this.COL.num], n));
-                return t && (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'RECIBIDA';
-            });
-            if (otrosRecibidos.length > 0) {
-                console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero quedan ${otrosRecibidos.length} traje(s) del mismo pedido en RECIBIDA — no se revierte stock.`);
-                App.toast.show(`Cambio de estado en traje ${numTraje} aplicado. Stock no se modifica (otros trajes del pedido siguen en RECIBIDA).`, 'info', 4500);
-                return;
-            }
-            // Era el último → revertir
-            const metros = found.recepcion.METROS;
-            const nuevoStock = await App.telas.updateStock(tipo, variante, -metros);
-            if (nuevoStock === null) return;
-            await App.movimientos.append({
-                TIPO:           App.movimientos.TIPOS.REVERSO,
-                TELA_TIPO:      tipo,
-                TELA_VARIANTE:  variante,
-                METROS:         -metros,
-                TRAJE_NUM:      found.pedido.TRAJE_NUM,
-                PROVEEDOR:      found.recepcion.PROVEEDOR,
-                NOTAS:          `[REF:${found.pedido.pedidoId}] reverso recepción · -${metros} m al stock (nuevo: ${nuevoStock} m) · ningún traje del pedido sigue en RECIBIDA`,
-            });
-            App.toast.show(`Revertida recepción de ${metros} m de ${tipo}/${variante} (nuevo: ${nuevoStock} m)`, 'warning', 5000);
-            return true;
+        // ── Transiciones de CORTE ─────────────────────────────────────────────
+        const oldCorte = (antes['CORTE'] || '').toUpperCase().trim();
+        const newCorte = (despues['CORTE']|| '').toUpperCase().trim();
+        if (newCorte === 'RECOGIDO' && oldCorte !== 'RECOGIDO') {
+            if (await this._stockRestaPorConsumo(ctx)) tocoStock = true;
+        } else if (oldCorte === 'RECOGIDO' && newCorte !== 'RECOGIDO') {
+            if (await this._stockReversoConsumo(ctx)) tocoStock = true;
         }
-        return false;
+
+        return tocoStock;
+    },
+
+    /** SUMA stock al recibir tela del proveedor (RECEPCION). Devuelve true si tocó. */
+    async _stockSumaPorRecepcion({ tipo, variante, numTraje }) {
+        const pedido = await App.movimientos.findOpenPedido(tipo, variante, numTraje);
+        if (!pedido) {
+            const existing = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
+            if (existing) {
+                console.info(`[stock] Traje ${numTraje} marcado RECIBIDA — el pedido del lote ya estaba recepcionado por otro traje, no se suma stock.`);
+            } else {
+                console.info(`[stock] Traje ${numTraje} marcado RECIBIDA sin pedido previo — no se suma stock (caso "tela ya disponible").`);
+            }
+            return false;
+        }
+        const metros = pedido.METROS;
+        const nuevoStock = await App.telas.updateStock(tipo, variante, +metros);
+        if (nuevoStock === null) {
+            App.toast.show(`Tela ${tipo}/${variante} no está en catálogo, no se pudo sumar al stock.`, 'warning', 5000);
+            return false;
+        }
+        await App.movimientos.append({
+            TIPO:           App.movimientos.TIPOS.RECEPCION,
+            TELA_TIPO:      tipo,
+            TELA_VARIANTE:  variante,
+            METROS:         metros,
+            TRAJE_NUM:      pedido.TRAJE_NUM,
+            PROVEEDOR:      pedido.PROVEEDOR,
+            NOTAS:          `[REF:${pedido.pedidoId}] +${metros} m al stock (nuevo: ${nuevoStock} m) · disparado por traje ${numTraje}`,
+        });
+        App.toast.show(
+            `<strong>Stock actualizado</strong><br>+${metros} m de <strong>${tipo}/${variante}</strong><br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
+            'success', 0
+        );
+        return true;
+    },
+
+    /** REVERSO de RECEPCION: solo cuando ningún otro traje del pedido sigue en RECIBIDA. */
+    async _stockReversoRecepcion({ tipo, variante, numTraje }) {
+        const found = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
+        if (!found || !found.recepcion) {
+            console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero no hay RECEPCION viva del pedido — sin acción.`);
+            return false;
+        }
+        const trajesPedido = App.movimientos._parseTrajesCsv(found.pedido.TRAJE_NUM);
+        const otrosRecibidos = trajesPedido.filter(n => {
+            if (App.movimientos._numMatch(n, numTraje)) return false;
+            const t = this.data.find(r =>
+                App.movimientos._numMatch(r[this.COL.num], n));
+            return t && (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'RECIBIDA';
+        });
+        if (otrosRecibidos.length > 0) {
+            console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero quedan ${otrosRecibidos.length} traje(s) del mismo pedido en RECIBIDA — no se revierte stock.`);
+            App.toast.show(
+                `<strong>Stock no modificado</strong><br>Otros trajes del mismo pedido siguen en RECIBIDA, así que la tela del lote sigue en stock.`,
+                'info', 0
+            );
+            return false;
+        }
+        const metros = found.recepcion.METROS;
+        const nuevoStock = await App.telas.updateStock(tipo, variante, -metros);
+        if (nuevoStock === null) return false;
+        await App.movimientos.append({
+            TIPO:           App.movimientos.TIPOS.REVERSO,
+            TELA_TIPO:      tipo,
+            TELA_VARIANTE:  variante,
+            METROS:         -metros,
+            TRAJE_NUM:      found.pedido.TRAJE_NUM,
+            PROVEEDOR:      found.recepcion.PROVEEDOR,
+            NOTAS:          `[REF:${found.pedido.pedidoId}] reverso recepción · -${metros} m al stock (nuevo: ${nuevoStock} m) · ningún traje del pedido sigue en RECIBIDA`,
+        });
+        App.toast.show(
+            `<strong>Revertida recepción</strong><br>−${metros} m de <strong>${tipo}/${variante}</strong><br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
+            'warning', 0
+        );
+        return true;
+    },
+
+    /** RESTA stock al consumir el traje en el cortador (CORTE = RECOGIDO).
+     *  Resta `modelo.TELA_PPAL_M` (escandallo) del stock y crea CONSUMO_TRAJE.
+     *  Idempotente: si ya hay CONSUMO vivo para este traje, silencioso. */
+    async _stockRestaPorConsumo({ traje, tipo, variante, numTraje }) {
+        // Idempotencia: ¿ya existe un CONSUMO vivo de este traje?
+        const existing = await App.movimientos.findOpenConsumo(tipo, variante, numTraje);
+        if (existing) {
+            console.info(`[stock] Traje ${numTraje} ya tiene CONSUMO vivo — no se resta otra vez.`);
+            return false;
+        }
+        const modeloNombre = (traje[this.COL.modelo] || '').trim();
+        if (!modeloNombre) {
+            console.info(`[stock] Traje ${numTraje} sin MODELO — no se puede calcular consumo.`);
+            return false;
+        }
+        const modelo = (App.modelos?._data || []).find(m =>
+            m.NOMBRE && m.NOMBRE.toLowerCase() === modeloNombre.toLowerCase());
+        if (!modelo) {
+            console.info(`[stock] Modelo "${modeloNombre}" no en catálogo — no se resta stock.`);
+            return false;
+        }
+        const escandallo = parseFloat(modelo.TELA_PPAL_M);
+        if (isNaN(escandallo) || escandallo <= 0) {
+            console.info(`[stock] Modelo "${modeloNombre}" sin TELA_PPAL_M definido — no se resta stock.`);
+            return false;
+        }
+        const tela = (App.telas?._data || []).find(t => t.TIPO === tipo && t.VARIANTE === variante);
+        const proveedor = tela?.PROVEEDOR || '';
+        const nuevoStock = await App.telas.updateStock(tipo, variante, -escandallo);
+        if (nuevoStock === null) {
+            App.toast.show(`Tela ${tipo}/${variante} no está en catálogo, no se pudo restar el consumo.`, 'warning', 5000);
+            return false;
+        }
+        const consumoId = `${Date.now()}-c`;
+        await App.movimientos.append({
+            TIPO:           App.movimientos.TIPOS.CONSUMO,
+            TELA_TIPO:      tipo,
+            TELA_VARIANTE:  variante,
+            METROS:         -escandallo,
+            TRAJE_NUM:      numTraje,
+            PROVEEDOR:      proveedor,
+            NOTAS:          `[CON:${consumoId}] consumo escandallo ${escandallo} m del modelo ${modelo.NOMBRE} (nuevo: ${nuevoStock} m)`,
+        });
+        App.toast.show(
+            `<strong>Consumo registrado</strong><br>−${escandallo} m de <strong>${tipo}/${variante}</strong> (corte del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
+            'warning', 0
+        );
+        return true;
+    },
+
+    /** REVERSO de CONSUMO_TRAJE: cuando se deshace CORTE = RECOGIDO. */
+    async _stockReversoConsumo({ tipo, variante, numTraje }) {
+        const consumo = await App.movimientos.findOpenConsumo(tipo, variante, numTraje);
+        if (!consumo) {
+            console.info(`[stock] Traje ${numTraje} sale de RECOGIDO pero no hay CONSUMO vivo — sin acción.`);
+            return false;
+        }
+        // METROS del consumo es negativo (lo guardamos así). Para revertir, sumamos el valor absoluto.
+        const metrosAbs = Math.abs(Number(consumo.METROS) || 0);
+        const nuevoStock = await App.telas.updateStock(tipo, variante, +metrosAbs);
+        if (nuevoStock === null) return false;
+        await App.movimientos.append({
+            TIPO:           App.movimientos.TIPOS.REVERSO,
+            TELA_TIPO:      tipo,
+            TELA_VARIANTE:  variante,
+            METROS:         +metrosAbs,
+            TRAJE_NUM:      numTraje,
+            PROVEEDOR:      consumo.PROVEEDOR,
+            NOTAS:          `[REF:${consumo.consumoId}] reverso consumo · +${metrosAbs} m al stock (nuevo: ${nuevoStock} m) · CORTE deshecho del traje ${numTraje}`,
+        });
+        App.toast.show(
+            `<strong>Revertido consumo</strong><br>+${metrosAbs} m de <strong>${tipo}/${variante}</strong> (CORTE deshecho del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
+            'warning', 0
+        );
+        return true;
     },
 
 };
@@ -11505,6 +11630,37 @@ App.movimientos = {
     extractRefId(notas) {
         const m = (notas || '').match(/^\[REF:([^\]]+)\]/);
         return m ? m[1] : null;
+    },
+
+    /** Extrae el ID de un CONSUMO_TRAJE — formato `[CON:<id>] ...`. */
+    extractConsumoId(notas) {
+        const m = (notas || '').match(/^\[CON:([^\]]+)\]/);
+        return m ? m[1] : null;
+    },
+
+    /** Busca un CONSUMO_TRAJE vivo (sin REVERSO posterior) para un traje específico
+     *  y una tela. Devuelve el movimiento + consumoId, o null. */
+    async findOpenConsumo(tipo, variante, numTraje) {
+        const all = await this.loadAll();
+        const reversados = new Set();
+        for (const m of all) {
+            if (m.TIPO !== this.TIPOS.REVERSO) continue;
+            const ref = this.extractRefId(m.NOTAS);
+            if (ref) reversados.add(ref);
+        }
+        // Recorrer del más reciente al más antiguo
+        const consumos = all
+            .filter(m => m.TIPO === this.TIPOS.CONSUMO &&
+                         m.TELA_TIPO === tipo &&
+                         m.TELA_VARIANTE === variante)
+            .reverse();
+        for (const c of consumos) {
+            if (!this._numMatch(c.TRAJE_NUM, numTraje)) continue;
+            const id = this.extractConsumoId(c.NOTAS);
+            if (!id || reversados.has(id)) continue;
+            return { ...c, consumoId: id };
+        }
+        return null;
     },
 
     /** Calcula los IDs de pedidos con RECEPCION VIVA (con RECEPCION + sin REVERSO posterior). */
