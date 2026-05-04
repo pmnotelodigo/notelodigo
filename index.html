@@ -2270,10 +2270,12 @@
                     <div class="bandeja active" data-bandeja="todos" onclick="App.trajes.setBandeja('todos')">
                         &#x1F4CB; Todos <span class="count" id="bdCount-todos">&mdash;</span>
                     </div>
-                    <div class="bandeja" data-bandeja="esperandoTela" onclick="App.trajes.setBandeja('esperandoTela')">
+                    <div class="bandeja" data-bandeja="esperandoTela" onclick="App.trajes.setBandeja('esperandoTela')"
+                         title="Sin tela en mano todavía (PENDIENTE + PEDIDA). El traje no se puede cortar hasta que llegue.">
                         &#x23F3; Esperando tela <span class="count" id="bdCount-esperandoTela">&mdash;</span>
                     </div>
-                    <div class="bandeja bandeja-warn" data-bandeja="pedirTela" onclick="App.trajes.setBandeja('pedirTela')">
+                    <div class="bandeja bandeja-warn" data-bandeja="pedirTela" onclick="App.trajes.setBandeja('pedirTela')"
+                         title="Urge pedir al proveedor: la demanda agregada de esta tela supera el stock disponible.">
                         &#x1F4E6; Pedir tela <span class="count" id="bdCount-pedirTela">&mdash;</span>
                     </div>
                     <div class="bandeja" data-bandeja="listos" onclick="App.trajes.setBandeja('listos')">
@@ -8124,9 +8126,13 @@ App.trajes = {
                 const n = (t[this.COL.num] || '').toString().trim();
                 if (n) numByRow.set(t._rowIndex, n);
             });
-            const movimientos = telasConfirmadas.map(t => {
+            // Cada movimiento PEDIDO lleva un ID único en NOTAS como prefijo "[PED:<id>]".
+            // Eso permite, cuando llegue la RECEPCION, enlazar y saber qué pedido se cierra.
+            const ahora = Date.now();
+            const movimientos = telasConfirmadas.map((t, i) => {
                 const trajesCSV = t.trajeRowIndices
                     .map(idx => numByRow.get(idx)).filter(Boolean).join(',');
+                const pedidoId = `${ahora}-${i}`;
                 return {
                     TIPO:           App.movimientos.TIPOS.PEDIDO,
                     TELA_TIPO:      t.tipo,
@@ -8134,7 +8140,7 @@ App.trajes = {
                     METROS:         t.confirmedM,
                     TRAJE_NUM:      trajesCSV,
                     PROVEEDOR:      block.nombre,
-                    NOTAS:          `${t.count} traje${t.count !== 1 ? 's' : ''} · demanda ${Number(t.demanda.toFixed(2))} m`,
+                    NOTAS:          `[PED:${pedidoId}] ${t.count} traje${t.count !== 1 ? 's' : ''} · demanda ${Number(t.demanda.toFixed(2))} m`,
                 };
             });
             try { await App.movimientos.appendBatch(movimientos); }
@@ -9964,6 +9970,15 @@ App.trajes = {
                 App.talleres.filter();
             }
 
+            // ── Stock dinámico: si TELA RECIBIDA o CORTE cambiaron, aplicar movimientos
+            // de stock automáticamente. No bloqueamos el resto del flujo si falla (try/catch).
+            try {
+                await this._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
+            } catch (e) {
+                console.error('[stock] Error aplicando movimientos:', e);
+                App.toast.show('⚠ El traje se guardó pero el stock no se pudo actualizar: ' + e.message, 'warning', 6000);
+            }
+
             // ── Auto-sugerencia: si detectamos una transición clave, mostramos un banner
             // persistente arriba a la derecha con botones Gmail/WhatsApp. Hacemos esto en lugar
             // de window.open() automático porque tras los await el navegador descarta el gesto del
@@ -9989,6 +10004,98 @@ App.trajes = {
             btn.textContent = 'Guardar cambios';
             btn.style.width = '';
             btn.style.transition = '';
+        }
+    },
+
+    /** Stock dinámico: detecta transiciones de TELA RECIBIDA y aplica los movimientos
+     *  correspondientes (suma o reverso). En la fase 3 se añadirá CORTE = RECOGIDO.
+     *
+     *  Reglas:
+     *    - * → RECIBIDA: busca PEDIDO_PROVEEDOR pendiente para esa tela donde el traje
+     *      esté en TRAJE_NUM csv. Si lo encuentra, suma METROS al stock + crea RECEPCION
+     *      con [REF:<id>] que apunta al pedido. Si NO hay pedido pendiente, silencioso
+     *      (caso "ya tenía la tela antes de pedir").
+     *    - RECIBIDA → otro: busca el RECEPCION asociado al traje, resta y crea REVERSO.
+     */
+    async _aplicarMovimientosStock(rowIndex, antes, despues) {
+        const traje = this.data.find(r => r._rowIndex === rowIndex);
+        if (!traje) return;
+
+        const oldTela = (antes['TELA RECIBIDA']  || '').toUpperCase().trim();
+        const newTela = (despues['TELA RECIBIDA']|| '').toUpperCase().trim();
+
+        // Parsear TIPO/VARIANTE de la tela del traje
+        const raw = (traje[this.COL.tipoTela] || '').trim();
+        const slash = raw.indexOf('/');
+        if (slash < 0) return;  // legacy o sin tela canónica → no podemos automatizar
+        const tipo     = raw.substring(0, slash).trim().toUpperCase();
+        const variante = raw.substring(slash + 1).trim();
+        if (!tipo || !variante) return;
+
+        const numTraje = (traje[this.COL.num] || '').toString().trim();
+
+        // Transición * → RECIBIDA
+        if (newTela === 'RECIBIDA' && oldTela !== 'RECIBIDA') {
+            const pedido = await App.movimientos.findOpenPedido(tipo, variante, numTraje);
+            if (!pedido) {
+                console.info(`[stock] Traje ${numTraje} marcado RECIBIDA sin pedido previo — no se suma stock (caso "tela ya disponible").`);
+                return;
+            }
+            const metros = pedido.METROS;
+            const nuevoStock = await App.telas.updateStock(tipo, variante, +metros);
+            if (nuevoStock === null) {
+                App.toast.show(`Tela ${tipo}/${variante} no está en catálogo, no se pudo sumar al stock.`, 'warning', 5000);
+                return;
+            }
+            // Registrar RECEPCION enlazada al PEDIDO
+            await App.movimientos.append({
+                TIPO:           App.movimientos.TIPOS.RECEPCION,
+                TELA_TIPO:      tipo,
+                TELA_VARIANTE:  variante,
+                METROS:         metros,
+                TRAJE_NUM:      numTraje,
+                PROVEEDOR:      pedido.PROVEEDOR,
+                NOTAS:          `[REF:${pedido.pedidoId}] +${metros} m al stock (nuevo: ${nuevoStock} m)`,
+            });
+            App.toast.show(`+${metros} m de ${tipo}/${variante} al stock (nuevo: ${nuevoStock} m)`, 'success', 4000);
+            return;
+        }
+
+        // Transición RECIBIDA → otro: revertir si hay RECEPCION del traje
+        if (oldTela === 'RECIBIDA' && newTela !== 'RECIBIDA') {
+            const all = await App.movimientos.loadAll();
+            // Última RECEPCION para este traje y tela, sin REVERSO posterior
+            const reversados = new Set();
+            for (const m of all) {
+                if (m.TIPO !== App.movimientos.TIPOS.REVERSO) continue;
+                const ref = App.movimientos.extractRefId(m.NOTAS);
+                if (ref) reversados.add(ref);
+            }
+            const recepcion = all.slice().reverse().find(m =>
+                m.TIPO === App.movimientos.TIPOS.RECEPCION &&
+                m.TELA_TIPO === tipo &&
+                m.TELA_VARIANTE === variante &&
+                String(m.TRAJE_NUM).trim() === numTraje &&
+                !reversados.has(App.movimientos.extractRefId(m.NOTAS) || '')
+            );
+            if (!recepcion) {
+                console.info(`[stock] No hay RECEPCION pendiente para revertir (traje ${numTraje}).`);
+                return;
+            }
+            const metros = recepcion.METROS;
+            const nuevoStock = await App.telas.updateStock(tipo, variante, -metros);
+            if (nuevoStock === null) return;
+            const refId = App.movimientos.extractRefId(recepcion.NOTAS) || '';
+            await App.movimientos.append({
+                TIPO:           App.movimientos.TIPOS.REVERSO,
+                TELA_TIPO:      tipo,
+                TELA_VARIANTE:  variante,
+                METROS:         -metros,
+                TRAJE_NUM:      numTraje,
+                PROVEEDOR:      recepcion.PROVEEDOR,
+                NOTAS:          `[REF:${refId}] reverso recepción · -${metros} m al stock (nuevo: ${nuevoStock} m)`,
+            });
+            App.toast.show(`Revertida recepción de ${metros} m de ${tipo}/${variante} (nuevo: ${nuevoStock} m)`, 'warning', 5000);
         }
     },
 
@@ -11325,6 +11432,64 @@ App.movimientos = {
         const rows = movimientos.map(m => this._toRow(m));
         await App.sheets.appendRows(sheetId, `${this.TAB}!A:I`, rows);
     },
+
+    /** Lee todos los movimientos del Sheet (datos crudos). */
+    async loadAll() {
+        const sheetId = App.settings.get('escandallosId');
+        if (!sheetId) return [];
+        const rows = await App.sheets.readRange(sheetId, `${this.TAB}!A2:I`).catch(() => []);
+        return rows.map((r, i) => ({
+            FECHA:          (r[0] || '').toString(),
+            TIPO:           (r[1] || '').toString().trim(),
+            TELA_TIPO:      (r[2] || '').toString().trim(),
+            TELA_VARIANTE:  (r[3] || '').toString().trim(),
+            METROS:         parseFloat(r[4]) || 0,
+            TRAJE_NUM:      (r[5] || '').toString().trim(),
+            PROVEEDOR:      (r[6] || '').toString().trim(),
+            USUARIO:        (r[7] || '').toString().trim(),
+            NOTAS:          (r[8] || '').toString(),
+            _rowIndex:      i + 2,
+        }));
+    },
+
+    /** Extrae el ID de un PEDIDO_PROVEEDOR de la columna NOTAS — formato `[PED:<id>] ...`. */
+    extractPedidoId(notas) {
+        const m = (notas || '').match(/^\[PED:([^\]]+)\]/);
+        return m ? m[1] : null;
+    },
+
+    /** Extrae el ID referenciado en RECEPCION/REVERSO — formato `[REF:<id>] ...`. */
+    extractRefId(notas) {
+        const m = (notas || '').match(/^\[REF:([^\]]+)\]/);
+        return m ? m[1] : null;
+    },
+
+    /** Busca un PEDIDO_PROVEEDOR pendiente de recepción para una tela, donde el traje
+     *  numTraje aparezca en TRAJE_NUM (CSV). "Pendiente" = no existe ya un movimiento
+     *  RECEPCION con el mismo PEDIDO_ID. Devuelve el movimiento o null. */
+    async findOpenPedido(tipo, variante, numTraje) {
+        const all = await this.loadAll();
+        const recepcionados = new Set();
+        for (const m of all) {
+            if (m.TIPO !== this.TIPOS.RECEPCION) continue;
+            const ref = this.extractRefId(m.NOTAS);
+            if (ref) recepcionados.add(ref);
+        }
+        // Recorrer PEDIDO_PROVEEDOR del más reciente al más antiguo
+        const pedidos = all
+            .filter(m => m.TIPO === this.TIPOS.PEDIDO &&
+                         m.TELA_TIPO === tipo &&
+                         m.TELA_VARIANTE === variante)
+            .reverse();
+        for (const p of pedidos) {
+            const id = this.extractPedidoId(p.NOTAS);
+            if (!id || recepcionados.has(id)) continue;
+            // ¿El traje está en la lista del pedido?
+            const trajes = (p.TRAJE_NUM || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (numTraje && trajes.includes(String(numTraje).trim())) return { ...p, pedidoId: id };
+        }
+        return null;
+    },
 };
 
 /* ==========================================================
@@ -12040,6 +12205,26 @@ App.telas = {
         if (!confirm(`¿Marcar "${tipo} · ${variante}" como inactiva? Dejará de aparecer en los selectores pero no se borrará.`)) return;
         get('telaActiva').checked = false;
         await this.save();
+    },
+
+    /** API: aplica un delta al STOCK_M de una tela. Útil para automatizaciones
+     *  (suma al recibir tela, resta al cortar, ajustes manuales). Devuelve el nuevo stock.
+     *  Si la tela no existe en catálogo, devuelve null y no escribe nada. */
+    async updateStock(tipo, variante, deltaM) {
+        if (!tipo || !variante || !deltaM) return null;
+        // Asegurar datos en cache
+        if (!this._data?.length) await this.load();
+        const tela = this._data.find(t => t.TIPO === tipo && t.VARIANTE === variante);
+        if (!tela) return null;
+        const sheetId = App.settings.get('escandallosId');
+        if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+        const stockActual = parseFloat(tela.STOCK_M) || 0;
+        const stockNuevo  = Math.max(0, stockActual + Number(deltaM));   // no permitimos stock negativo
+        const range = `${this.TAB}!D${tela._rowIndex}`;
+        await App.sheets.writeRange(sheetId, range, [[stockNuevo]]);
+        // Refresh cache local
+        tela.STOCK_M = String(stockNuevo);
+        return stockNuevo;
     },
 };
 
