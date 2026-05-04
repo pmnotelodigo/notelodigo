@@ -2480,6 +2480,9 @@
                         <!-- Banner de motivos de revisión (oculto si no aplica) -->
                         <div id="editTrajeRevisarBanner" style="display:none; margin-bottom:10px; padding:8px 12px; background:#fff3e0; border-left:3px solid #f57c00; border-radius:4px; font-size:12px; color:#7c3a00; line-height:1.5;"></div>
 
+                        <!-- Timeline de hitos del traje (resumen visual de las 4 fechas) -->
+                        <div id="editTrajeTimeline" style="display:none; margin-bottom:10px;"></div>
+
                         <!-- Traje: fila 1 = modelo + talla, fila 2 = tipo tela + variante (cascada) -->
                         <div style="padding-bottom:10px; border-bottom:1px solid var(--border-light); margin-bottom:10px;">
                             <!-- Fila 1: modelo (más ancho) + talla -->
@@ -2587,6 +2590,14 @@
                                             <option value="RECOGIDO">RECOGIDO</option>
                                             <option value="INCIDENCIA">INCIDENCIA</option>
                                         </select>
+                                    </div>
+                                    <div class="form-group" style="margin:0 0 4px;">
+                                        <label style="font-size:10px; color:var(--text-muted);">Fecha enviado a corte <span style="font-size:9px;">(auto)</span></label>
+                                        <input type="date" class="form-input" id="editTrajeFechaEnviadoCorte" style="font-size:11px;">
+                                    </div>
+                                    <div class="form-group" style="margin:0 0 4px;">
+                                        <label style="font-size:10px; color:var(--text-muted);">Fecha recogido del cortador <span style="font-size:9px;">(auto)</span></label>
+                                        <input type="date" class="form-input" id="editTrajeFechaRecogidoCorte" style="font-size:11px;">
                                     </div>
                                     <textarea id="editTrajeNotaCorte" class="form-input" rows="2" style="font-size:13px; resize:vertical; margin:0;" placeholder="Nota…"></textarea>
                                 </div>
@@ -6410,7 +6421,10 @@ App.clientas = {
         num: 'Nº', nombre: 'NOMBRE', telefono: 'TELÉFONO', feria: 'FERIA',
         correo: 'CORREO', modelo: 'MODELO', ficha: 'FICHA', tipoTela: 'TIPO TELA',
         estado: 'ESTADO', medidas: 'MEDIDAS', telaRecibida: 'TELA RECIBIDA',
-        corte: 'CORTE', taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
+        corte: 'CORTE',
+        fechaEnviadoCorte:  'FECHA ENVIADO CORTE',
+        fechaRecogidoCorte: 'FECHA RECOGIDO CORTE',
+        taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
         trajeRecibido: 'TRAJE RECIBIDO', fechaRecibido: 'FECHA RECIBIDO',
         trajeEntregado: 'TRAJE ENTREGADO', adornos: 'ADORNOS',
     },
@@ -7877,7 +7891,10 @@ App.trajes = {
         num: 'Nº', nombre: 'NOMBRE', feria: 'FERIA',
         modelo: 'MODELO', tipoTela: 'TIPO TELA',
         estado: 'ESTADO', medidas: 'MEDIDAS', telaRecibida: 'TELA RECIBIDA',
-        corte: 'CORTE', taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
+        corte: 'CORTE',
+        fechaEnviadoCorte:  'FECHA ENVIADO CORTE',
+        fechaRecogidoCorte: 'FECHA RECOGIDO CORTE',
+        taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
         trajeRecibido: 'TRAJE RECIBIDO', fechaRecibido: 'FECHA RECIBIDO',
         trajeEntregado: 'TRAJE ENTREGADO',
         fechaUltimaMod: 'FECHA ULTIMA MOD',
@@ -8704,6 +8721,97 @@ App.trajes = {
             motivos.push({ campo: 'ESTANCAMIENTO', valor: `${dias} días sin modificarse` });
         }
         return motivos;
+    },
+
+    /** Renderiza el mini-timeline de los 4 hitos del traje en el modal de edición.
+     *  Hitos: enviado al cortador → recogido del cortador → mandado al taller → recibido del taller. */
+    _renderTimeline(t) {
+        const cont = document.getElementById('editTrajeTimeline');
+        if (!cont) return;
+        const hitos = [
+            { label: 'Enviado al cortador',  fecha: (t[this.COL.fechaEnviadoCorte]  || '').toString().trim() },
+            { label: 'Recogido del cortador',fecha: (t[this.COL.fechaRecogidoCorte] || '').toString().trim() },
+            { label: 'Mandado al taller',    fecha: (t[this.COL.fechaEntregaTaller] || '').toString().trim() },
+            { label: 'Recibido del taller',  fecha: (t[this.COL.fechaRecibido]      || '').toString().trim() },
+        ];
+
+        // Si todas las fechas están vacías, no mostramos el timeline (traje recién creado)
+        if (hitos.every(h => !h.fecha)) {
+            cont.style.display = 'none';
+            cont.innerHTML = '';
+            return;
+        }
+
+        // Calcular días en cada fase: el día siguiente al hito es el inicio de la fase, hasta el siguiente hito (o hoy si pendiente)
+        const hoy = new Date();
+        const parseFecha = (s) => {
+            if (!s) return null;
+            // Acepta dd/mm/yyyy o yyyy-mm-dd
+            let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+            m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+            return null;
+        };
+        const dias = (a, b) => {
+            if (!a || !b) return null;
+            return Math.round((b - a) / (1000 * 60 * 60 * 24));
+        };
+
+        const items = hitos.map((h, i) => {
+            const fechaParsed = parseFecha(h.fecha);
+            const completed = !!h.fecha;
+            // Días desde este hito hasta el siguiente hito completado, o hasta hoy si es el último completado
+            let extra = '';
+            if (completed) {
+                let siguiente = null;
+                for (let j = i + 1; j < hitos.length; j++) {
+                    const f = parseFecha(hitos[j].fecha);
+                    if (f) { siguiente = f; break; }
+                }
+                const finFase = siguiente || hoy;
+                const d = dias(fechaParsed, finFase);
+                if (d != null && d >= 0) {
+                    extra = siguiente
+                        ? ` <span style="font-size:10px; color:var(--text-muted);">(${d}d)</span>`
+                        : ` <span style="font-size:10px; color:#1976d2;">(${d}d hasta hoy)</span>`;
+                }
+            }
+            const icon  = completed ? '✓' : '○';
+            const color = completed ? '#388e3c' : '#bdbdbd';
+            const bg    = completed ? '#e8f5e9' : '#f5f5f5';
+            const fechaTxt = h.fecha
+                ? `<span style="font-size:11px; color:#1b5e20; font-weight:500;">${h.fecha}</span>${extra}`
+                : `<span style="font-size:10px; color:var(--text-muted);">pendiente</span>`;
+            return (
+                `<div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:0;">` +
+                `<div style="width:24px; height:24px; border-radius:50%; background:${bg}; color:${color}; ` +
+                `display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px;">${icon}</div>` +
+                `<div style="font-size:10px; color:#444; margin-top:3px; text-align:center; line-height:1.2;">${h.label}</div>` +
+                `<div style="margin-top:2px; text-align:center; line-height:1.2;">${fechaTxt}</div>` +
+                `</div>`
+            );
+        });
+
+        // Conectores entre hitos: línea horizontal coloreada según si ambos extremos están completados
+        const connectors = [];
+        for (let i = 0; i < hitos.length - 1; i++) {
+            const filled = hitos[i].fecha && hitos[i + 1].fecha;
+            connectors.push(
+                `<div style="flex:0 0 16px; height:2px; align-self:flex-start; margin-top:11px; background:${filled ? '#81c784' : '#e0e0e0'};"></div>`
+            );
+        }
+        // Intercalar items con conectores
+        const html = items.map((it, i) =>
+            i < connectors.length ? it + connectors[i] : it
+        ).join('');
+
+        cont.innerHTML =
+            `<div style="background:#fafafa; border:1px solid var(--border-light); border-radius:6px; padding:10px 12px;">` +
+            `<div style="font-size:10px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Hitos del traje</div>` +
+            `<div style="display:flex; align-items:flex-start; gap:0;">${html}</div>` +
+            `</div>`;
+        cont.style.display = 'block';
     },
 
     setBandeja(name) {
@@ -10133,6 +10241,8 @@ App.trajes = {
         set('editTrajeEstado', estadoVal);
         set('editTrajeTelRecibida',       t[this.COL.telaRecibida]);
         set('editTrajeCorte',             t[this.COL.corte]);
+        setDate('editTrajeFechaEnviadoCorte',  t[this.COL.fechaEnviadoCorte]);
+        setDate('editTrajeFechaRecogidoCorte', t[this.COL.fechaRecogidoCorte]);
         set('editTrajeTaller',            t[this.COL.taller]);
         setDate('editTrajeFechaEntregaTaller', t[this.COL.fechaEntregaTaller]);
         set('editTrajeTrajeRecibido',     t[this.COL.trajeRecibido]);
@@ -10173,6 +10283,9 @@ App.trajes = {
                 banner.style.display = 'block';
             }
         }
+
+        // Timeline de hitos del traje (resumen visual de las 4 fechas)
+        this._renderTimeline(t);
 
         // Botones de mensajes a la clienta (plantillas WhatsApp/Gmail) — evaluados contra este traje
         if (App.mensajes && typeof App.mensajes.renderBotones === 'function') {
@@ -10422,6 +10535,25 @@ App.trajes = {
                 return idx === -1 ? null : String.fromCharCode(65 + idx);
             };
 
+            // ── Auto-stamping de fechas de corte ─────────────────────────────
+            // Si CORTE pasa a ENVIADO/RECOGIDO y la fecha correspondiente está vacía,
+            // ponemos hoy. Pilar puede sobreescribirla a mano desde el modal.
+            const hoy = this._toSheetDate(this._todayISO());
+            const fechaEnvFromInput = (document.getElementById('editTrajeFechaEnviadoCorte')?.value  || '').trim();
+            const fechaRecFromInput = (document.getElementById('editTrajeFechaRecogidoCorte')?.value || '').trim();
+            const fechaEnvOld = (tPrev?.[this.COL.fechaEnviadoCorte]  || '').toString().trim();
+            const fechaRecOld = (tPrev?.[this.COL.fechaRecogidoCorte] || '').toString().trim();
+            // Valor a escribir: respetamos lo que Pilar tecleó; si vacío y CORTE entró
+            // en la fase correspondiente, ponemos hoy; si no, mantenemos lo que había.
+            let fechaEnvNueva = this._toSheetDate(fechaEnvFromInput) || fechaEnvOld;
+            let fechaRecNueva = this._toSheetDate(fechaRecFromInput) || fechaRecOld;
+            if (!fechaEnvNueva && (corteNew === 'ENVIADO' || corteNew === 'RECOGIDO')) {
+                fechaEnvNueva = hoy;
+            }
+            if (!fechaRecNueva && corteNew === 'RECOGIDO') {
+                fechaRecNueva = hoy;
+            }
+
             const updates = [
                 ['ESTADO',               (document.getElementById('editTrajeEstado')?.value             || '').trim()],
                 ['MODELO',               (document.getElementById('editTrajeModelo')?.value             || '').trim()],
@@ -10429,6 +10561,8 @@ App.trajes = {
                 ['MEDIDAS',              (document.getElementById('editTrajeMedidas')?.value            || '').trim()],
                 ['TELA RECIBIDA',        (document.getElementById('editTrajeTelRecibida')?.value        || '').trim()],
                 ['CORTE',                (document.getElementById('editTrajeCorte')?.value              || '').trim()],
+                ['FECHA ENVIADO CORTE',  fechaEnvNueva],
+                ['FECHA RECOGIDO CORTE', fechaRecNueva],
                 ['TALLER',               (document.getElementById('editTrajeTaller')?.value             || '').trim()],
                 ['FECHA ENTREGA TALLER', this._toSheetDate((document.getElementById('editTrajeFechaEntregaTaller')?.value || '').trim())],
                 ['TRAJE RECIBIDO',       (document.getElementById('editTrajeTrajeRecibido')?.value      || '').trim()],
