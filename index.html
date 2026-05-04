@@ -2293,6 +2293,10 @@
                     <div class="bandeja" data-bandeja="enCorte" onclick="App.trajes.setBandeja('enCorte')">
                         &#x1F4E4; En corte <span class="count" id="bdCount-enCorte">&mdash;</span>
                     </div>
+                    <div class="bandeja bandeja-warn" data-bandeja="asignarTaller" onclick="App.trajes.setBandeja('asignarTaller')"
+                         title="Trajes con corte recogido pero sin taller asignado. Asigna taller para que avance.">
+                        &#x1F3ED; Asignar taller <span class="count" id="bdCount-asignarTaller">&mdash;</span>
+                    </div>
                     <div class="bandeja" data-bandeja="enTaller" onclick="App.trajes.setBandeja('enTaller')">
                         &#x1F3ED; En taller <span class="count" id="bdCount-enTaller">&mdash;</span>
                     </div>
@@ -7934,6 +7938,62 @@ App.trajes = {
         return entry;
     },
 
+    // ─── Asignación rápida de taller (dropdown inline en bandeja "Asignar taller") ────
+    /** Asigna el taller `tallerNombre` al traje en `rowIndex` y rellena la fecha
+     *  de entrega al taller con hoy si está vacía. Refresca la lista al instante. */
+    async _asignarTallerInline(rowIndex, tallerNombre) {
+        const t = this.data.find(r => r._rowIndex === rowIndex);
+        if (!t) return;
+        const nombre = (tallerNombre || '').trim();
+        if (!nombre) return;   // si vuelven a "—", no hacemos nada (ignorar)
+
+        try {
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = headers[0] || [];
+            const idxTaller = hdr.indexOf('TALLER');
+            const idxFecha  = hdr.indexOf('FECHA ENTREGA TALLER');
+            if (idxTaller < 0) throw new Error('Columna TALLER no encontrada en LISTADO.');
+            const tallerLetter = String.fromCharCode(65 + idxTaller);
+
+            const updates = [{ range: `${tab}!${tallerLetter}${rowIndex}`, values: [[nombre]] }];
+
+            // Auto-rellenar fecha si está vacía (refleja "he asignado y entregado al taller hoy")
+            let fechaPuesta = false;
+            if (idxFecha >= 0) {
+                const fechaActual = (t[this.COL.fechaEntregaTaller] || '').trim();
+                if (!fechaActual) {
+                    const hoy = this._toSheetDate(this._todayISO());
+                    const fechaLetter = String.fromCharCode(65 + idxFecha);
+                    updates.push({ range: `${tab}!${fechaLetter}${rowIndex}`, values: [[hoy]] });
+                    t[this.COL.fechaEntregaTaller] = hoy;
+                    fechaPuesta = true;
+                }
+            }
+
+            await App.sheets.batchWriteRanges(sheetId, updates);
+
+            // Refresh cache local
+            t[this.COL.taller] = nombre;
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) {
+                tc[this.COL.taller] = nombre;
+                if (fechaPuesta) tc[this.COL.fechaEntregaTaller] = t[this.COL.fechaEntregaTaller];
+            }
+
+            App.toast.show(
+                `Traje #${t[this.COL.num]} asignado a <strong>${nombre}</strong>` +
+                (fechaPuesta ? ' · fecha entrega = hoy' : ''),
+                'success', 3000
+            );
+            this.filter();   // re-render: el traje sale de la bandeja "Asignar taller"
+        } catch (err) {
+            console.error('[asignarTallerInline]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
     // ─── Banner "Marcar como recibida" en bandeja Esperando tela ──────────
     /** Renderiza el banner con los pedidos pendientes de recepción. Se llama async
      *  desde render() porque necesita leer MOVIMIENTOS del Sheet. */
@@ -8403,6 +8463,19 @@ App.trajes = {
         }
     },
 
+    /** Filtro transversal: traje con corte recogido pero sin taller asignado.
+     *  No aplica si el traje ya volvió del taller (TRAJE RECIBIDO = RECIBIDO) o está
+     *  entregado. Indica que Pilar tiene el corte físicamente y debe darle taller. */
+    _needsAsignarTaller(t) {
+        const corte    = (t[this.COL.corte]          || '').toUpperCase().trim();
+        const taller   = (t[this.COL.taller]         || '').trim();
+        const trajeRec = (t[this.COL.trajeRecibido]  || '').toUpperCase().trim();
+        const trajeEnt = (t[this.COL.trajeEntregado] || '').toUpperCase().trim();
+        if (trajeEnt === 'ENTREGADO') return false;
+        if (trajeRec === 'RECIBIDO')  return false;
+        return corte === 'RECOGIDO' && !taller;
+    },
+
     // Revisar es un filtro transversal — un traje "necesita revisión" si tiene
     // ESTADO=REVISAR/INCIDENCIA o cualquier campo del flujo marcado como INCIDENCIA.
     // Un traje puede estar simultáneamente "En taller" y "Revisar".
@@ -8429,18 +8502,17 @@ App.trajes = {
     _updateBandejaCounts() {
         const counts = {
             todos: this.data.length,
-            esperandoTela: 0, pedirTela: 0, listos: 0, enCorte: 0, enTaller: 0,
+            esperandoTela: 0, pedirTela: 0, listos: 0, enCorte: 0,
+            asignarTaller: 0, enTaller: 0,
             recibidos: 0, entregados: 0, revisar: 0,
         };
         for (const t of this.data) {
             const b = this._getBandeja(t);
             if (counts[b] !== undefined) counts[b]++;
-            // "Revisar" y "Pedir tela" son transversales: un traje puede estar en
-            // su fase física Y además aparecer aquí. Se cuentan aparte.
+            // Transversales (un traje puede estar en su fase física Y aparecer aquí).
             if (this._needsRevisar(t)) counts.revisar++;
-            // Bandeja "Pedir tela" solo cuenta lo URGENTE (status='falta'),
-            // no los "stock bajo" — esos quedan como aviso informativo en la fila.
             if (this._isPedirUrgente(t)) counts.pedirTela++;
+            if (this._needsAsignarTaller(t)) counts.asignarTaller++;
         }
         for (const [k, v] of Object.entries(counts)) {
             const el = document.getElementById('bdCount-' + k);
@@ -8504,6 +8576,8 @@ App.trajes = {
                 if (!this._needsRevisar(t)) return false;
             } else if (bandeja === 'pedirTela') {
                 if (!this._isPedirUrgente(t)) return false;
+            } else if (bandeja === 'asignarTaller') {
+                if (!this._needsAsignarTaller(t)) return false;
             } else if (bandeja !== 'todos' && this._getBandeja(t) !== bandeja) {
                 return false;
             }
@@ -8739,9 +8813,27 @@ App.trajes = {
                 ? ` <span title="Necesita revisión" style="cursor:help; font-size:13px;">&#x26A0;&#xFE0F;</span>`
                 : '';
             const tallerVal = (t[this.COL.taller] || '').trim();
-            const tallerCell = tallerVal
-                ? `<span style="font-size:12px;">${tallerVal}</span>`
-                : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
+            // En la bandeja "Asignar taller", la celda muestra un dropdown inline
+            // editable para asignar taller en un click sin abrir modal.
+            let tallerCell;
+            if (this._bandeja === 'asignarTaller') {
+                const todosLosTalleres = (App.talleres && typeof App.talleres._allTalleres === 'function')
+                    ? App.talleres._allTalleres()
+                    : (CONFIG.TALLERES || []);
+                const opts = todosLosTalleres
+                    .map(tl => `<option value="${tl}"${tl === tallerVal ? ' selected' : ''}>${tl}</option>`)
+                    .join('');
+                tallerCell = `<select onclick="event.stopPropagation()"
+                                      onchange="App.trajes._asignarTallerInline(${t._rowIndex}, this.value)"
+                                      style="font-size:12px; padding:4px 6px; max-width:140px; border:1px solid var(--border); border-radius:4px;">
+                    <option value="">— elige taller —</option>
+                    ${opts}
+                </select>`;
+            } else {
+                tallerCell = tallerVal
+                    ? `<span style="font-size:12px;">${tallerVal}</span>`
+                    : '<span style="font-size:11px; color:var(--text-muted);">&mdash;</span>';
+            }
             const telaVal = (t[this.COL.tipoTela] || '').trim();
             // Badge de stock agregado (📦 pedir / 🔻 stock bajo) — solo en trajes pendientes
             // de tela y cuya tela+modelo encajan con catálogo. Tooltip con el detalle.
@@ -8840,6 +8932,18 @@ App.trajes = {
             html += `<div id="esperandoTelaBannerHolder"></div>`;
             // Disparamos el render async tras renderizar el resto.
             setTimeout(() => this._renderEsperandoTelaBanner(), 0);
+        }
+
+        // ── Banner de bandeja "Asignar taller": instrucción para repartir cortes ──
+        if (this._bandeja === 'asignarTaller' && this.filtered.length > 0) {
+            html += `<div class="card" style="margin-bottom:16px; padding:12px 16px; background:#fce4ec; border-left:3px solid #c2185b;">
+                <div style="font-weight:600; font-size:13px; color:#880e4f;">
+                    🏭 Trajes con corte recogido sin taller asignado
+                </div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                    Estos trajes ya tienen el corte hecho y físicamente están en tu mano. Asígnales taller con el desplegable de la columna <strong>TALLER</strong> para que avancen al siguiente paso. Al asignar, la fecha de entrega al taller se rellena automáticamente con hoy.
+                </div>
+            </div>`;
         }
 
         // ── Banner de bandeja "Pedir tela": botón para generar el pedido al proveedor ──
@@ -10327,8 +10431,11 @@ App.trajes = {
         });
         if (otrosRecibidos.length > 0) {
             console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero quedan ${otrosRecibidos.length} traje(s) del mismo pedido en RECIBIDA — no se revierte stock.`);
+            const lista = otrosRecibidos.map(n => `#${n}`).join(', ');
             App.toast.show(
-                `<strong>Stock no modificado</strong><br>Otros trajes del mismo pedido siguen en RECIBIDA, así que la tela del lote sigue en stock.`,
+                `<strong>Stock no modificado</strong><br>` +
+                `${otrosRecibidos.length} traje${otrosRecibidos.length !== 1 ? 's' : ''} del mismo pedido sigue${otrosRecibidos.length !== 1 ? 'n' : ''} en RECIBIDA: <strong>${lista}</strong>.<br>` +
+                `La tela del lote sigue en stock.`,
                 'info', 0
             );
             return false;
