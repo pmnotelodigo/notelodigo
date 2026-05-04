@@ -3181,6 +3181,8 @@ const CONFIG = {
     CACHE_DB_VERSION: 1,
     CACHE_STORE: 'cache',
     CACHE_TTL: 5 * 60 * 1000, // 5 min default
+    // Días sin modificar tras los cuales un traje (no entregado) entra en bandeja "Revisar" como estancado.
+    STAGNATION_DAYS: 10,
     TALLERES: ['BRENES','BALDOMERO','ROCIO','CARO','ALISON','NIDIA','GLADIS','TRIANGULO','ALVARO','DOLORES','YEYE','TALLER'],
     ESTADOS_CORTE: ['PENDIENTE','ENVIADO','RECOGIDO','INCIDENCIA'],
     ESTADOS_TRAJE: ['PENDIENTE','RECIBIDO'],
@@ -7710,21 +7712,29 @@ App.clientas = {
             const estado       = esIncidencia ? 'INCIDENCIA' : 'CORRECTO';
             const comentario   = (document.getElementById('nuevaComentario')?.value || '').trim();
 
+            // Fecha actual en formato sheet (DD/MM/YYYY) para FECHA ULTIMA MOD
+            const hoyDDMMYYYY = (() => {
+                const d = new Date();
+                return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+            })();
+
             const valores = {
-                'Nº':            numId,
-                'NOMBRE':        nombre,
-                'TELÉFONO':      v('nuevaTelefono'),
-                'CORREO':        v('nuevaCorreo'),
-                'FERIA':         v('nuevaFeria'),
-                'MODELO':        v('nuevaModelo'),
-                'FICHA':         fichaUrl,
-                'TIPO TELA':     v('nuevaTipoTela'),
-                'ADORNOS':       v('nuevaAdornos'),
-                'MEDIDAS':       medidas,
-                'ESTADO':        estado,
+                'Nº':                numId,
+                'NOMBRE':            nombre,
+                'TELÉFONO':          v('nuevaTelefono'),
+                'CORREO':            v('nuevaCorreo'),
+                'FERIA':             v('nuevaFeria'),
+                'MODELO':            v('nuevaModelo'),
+                'FICHA':             fichaUrl,
+                'TIPO TELA':         v('nuevaTipoTela'),
+                'ADORNOS':           v('nuevaAdornos'),
+                'MEDIDAS':           medidas,
+                'ESTADO':            estado,
                 // TELA RECIBIDA arranca en PENDIENTE: el traje entra en "Pedir tela"
                 // hasta que Pilar lo cambie a PEDIDA / RECIBIDA en el modal de editar.
-                'TELA RECIBIDA': 'PENDIENTE',
+                'TELA RECIBIDA':     'PENDIENTE',
+                // Marca de creación, para detectar trajes estancados en bandeja "Revisar"
+                'FECHA ULTIMA MOD':  hoyDDMMYYYY,
             };
 
             const row = targetRow;
@@ -7783,6 +7793,7 @@ App.trajes = {
         corte: 'CORTE', taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
         trajeRecibido: 'TRAJE RECIBIDO', fechaRecibido: 'FECHA RECIBIDO',
         trajeEntregado: 'TRAJE ENTREGADO',
+        fechaUltimaMod: 'FECHA ULTIMA MOD',
     },
 
     // Primer segmento del campo MODELO (antes de /, - o |)
@@ -8010,6 +8021,10 @@ App.trajes = {
                 }
             }
 
+            // Marca FECHA ULTIMA MOD
+            const touchUpd = this._touchUltimaModUpdate(rowIndex, hdr, tab);
+            if (touchUpd) updates.push(touchUpd);
+
             await App.sheets.batchWriteRanges(sheetId, updates);
 
             // Refresh cache local
@@ -8154,11 +8169,13 @@ App.trajes = {
             if (idxTelaRec < 0) throw new Error('Columna TELA RECIBIDA no encontrada');
             const colLetter = String.fromCharCode(65 + idxTelaRec);
 
-            // 1. Update batch en LISTADO
-            const updates = trajes.map(t => ({
-                range: `${tab}!${colLetter}${t._rowIndex}`,
-                values: [['RECIBIDA']],
-            }));
+            // 1. Update batch en LISTADO (TELA RECIBIDA + FECHA ULTIMA MOD)
+            const updates = [];
+            for (const t of trajes) {
+                updates.push({ range: `${tab}!${colLetter}${t._rowIndex}`, values: [['RECIBIDA']] });
+                const touchUpd = this._touchUltimaModUpdate(t._rowIndex, hdr, tab);
+                if (touchUpd) updates.push(touchUpd);
+            }
             await App.sheets.batchWriteRanges(sheetId, updates);
 
             // 2. Aplicar movimientos: secuencialmente, el primero dispara la suma al stock,
@@ -8413,12 +8430,14 @@ App.trajes = {
             if (idxTelaRec < 0) throw new Error('Columna TELA RECIBIDA no encontrada en el LISTADO.');
             const colLetter = String.fromCharCode(65 + idxTelaRec);
 
-            // 1. Update TELA RECIBIDA = PEDIDA en batch (LISTADO)
+            // 1. Update TELA RECIBIDA = PEDIDA + FECHA ULTIMA MOD en batch (LISTADO)
             const trajesArr = [...trajesAfectados];
-            const updates = trajesArr.map(rowIndex => ({
-                range: `${tab}!${colLetter}${rowIndex}`,
-                values: [['PEDIDA']],
-            }));
+            const updates = [];
+            for (const rowIndex of trajesArr) {
+                updates.push({ range: `${tab}!${colLetter}${rowIndex}`, values: [['PEDIDA']] });
+                const touchUpd = this._touchUltimaModUpdate(rowIndex, hdr, tab);
+                if (touchUpd) updates.push(touchUpd);
+            }
             await App.sheets.batchWriteRanges(sheetId, updates);
 
             // 2. Registrar PEDIDO_PROVEEDOR en MOVIMIENTOS — una fila por tela
@@ -8501,6 +8520,53 @@ App.trajes = {
         }
     },
 
+    /** Construye un range-update {range, values} para escribir FECHA ULTIMA MOD en
+     *  una fila concreta. Devuelve null si la columna no existe (silencioso para
+     *  trajes/listados sin la columna añadida). */
+    _touchUltimaModUpdate(rowIndex, hdr, tab) {
+        const idx = (hdr || []).indexOf('FECHA ULTIMA MOD');
+        if (idx < 0) return null;
+        const letter = String.fromCharCode(65 + idx);
+        return {
+            range: `${tab}!${letter}${rowIndex}`,
+            values: [[ this._toSheetDate(this._todayISO()) ]],
+        };
+    },
+
+    /** Parsea una fecha string del LISTADO (admite "DD/MM/YYYY" o ISO "YYYY-MM-DD").
+     *  Devuelve Date o null si no se puede parsear. */
+    _parseSheetDate(val) {
+        const s = (val || '').toString().trim();
+        if (!s) return null;
+        let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+        m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
+    },
+
+    /** Días desde la última modificación del traje. null si no hay fecha registrada. */
+    _diasSinCambio(t) {
+        const fechaStr = (t[this.COL.fechaUltimaMod] || '').toString().trim();
+        const d = this._parseSheetDate(fechaStr);
+        if (!d) return null;
+        const ahora = new Date();
+        const diffMs = ahora.getTime() - d.getTime();
+        return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    },
+
+    /** Filtro transversal: traje estancado (sin modificar en > STAGNATION_DAYS días).
+     *  Excluye los ya entregados. Si la fecha está vacía (legacy), no entra
+     *  como estancado — empezará a contar a partir de la primera modificación. */
+    _isEstancado(t) {
+        const trajeEnt = (t[this.COL.trajeEntregado] || '').toUpperCase().trim();
+        if (trajeEnt === 'ENTREGADO') return false;
+        const dias = this._diasSinCambio(t);
+        if (dias == null) return false;
+        return dias > (CONFIG.STAGNATION_DAYS || 10);
+    },
+
     /** Filtro transversal: traje con corte recogido pero sin taller asignado.
      *  No aplica si el traje ya volvió del taller (TRAJE RECIBIDO = RECIBIDO) o está
      *  entregado. Indica que Pilar tiene el corte físicamente y debe darle taller. */
@@ -8515,17 +8581,19 @@ App.trajes = {
     },
 
     // Revisar es un filtro transversal — un traje "necesita revisión" si tiene
-    // ESTADO=REVISAR/INCIDENCIA o cualquier campo del flujo marcado como INCIDENCIA.
-    // Un traje puede estar simultáneamente "En taller" y "Revisar".
+    // ESTADO=REVISAR/INCIDENCIA, cualquier campo del flujo marcado como INCIDENCIA,
+    // o lleva estancado más de CONFIG.STAGNATION_DAYS días sin modificarse.
     _needsRevisar(t) {
         const estado   = this._estadoEfectivo(t);
         const tela     = (t[this.COL.telaRecibida]   || '').toUpperCase();
         const corte    = (t[this.COL.corte]          || '').toUpperCase();
         const trajeRec = (t[this.COL.trajeRecibido]  || '').toUpperCase();
         const trajeEnt = (t[this.COL.trajeEntregado] || '').toUpperCase();
-        return estado === 'REVISAR' || estado === 'INCIDENCIA' ||
-               tela === 'INCIDENCIA' || corte === 'INCIDENCIA' ||
-               trajeRec === 'INCIDENCIA' || trajeEnt === 'INCIDENCIA';
+        if (estado === 'REVISAR' || estado === 'INCIDENCIA') return true;
+        if (tela === 'INCIDENCIA' || corte === 'INCIDENCIA') return true;
+        if (trajeRec === 'INCIDENCIA' || trajeEnt === 'INCIDENCIA') return true;
+        if (this._isEstancado(t)) return true;
+        return false;
     },
 
     setBandeja(name) {
@@ -8850,6 +8918,12 @@ App.trajes = {
             const revisarIcon = this._needsRevisar(t)
                 ? ` <span title="Necesita revisión" style="cursor:help; font-size:13px;">&#x26A0;&#xFE0F;</span>`
                 : '';
+            // Chip "⏰ N días" si el traje lleva > STAGNATION_DAYS sin modificarse
+            const dias = this._diasSinCambio(t);
+            const estancadoChip = (this._isEstancado(t) && dias != null)
+                ? ` <span class="chip" style="background:#f57c00; color:white; font-size:10px; cursor:help;"
+                          title="Sin cambios desde hace ${dias} días. Revísalo.">&#x23F0; ${dias} días</span>`
+                : '';
             const tallerVal = (t[this.COL.taller] || '').trim();
             // En la bandeja "Asignar taller", la celda muestra un dropdown inline
             // editable para asignar taller en un click sin abrir modal.
@@ -8935,7 +9009,7 @@ App.trajes = {
             return `<tr${trClass} style="cursor:pointer;" onclick="App.trajes.showEditModal(${t._rowIndex})">
                 <td data-label="N&ordm;" style="font-weight:600; color:var(--primary);">${t[this.COL.num] || '&mdash;'}</td>
                 <td data-label="Clienta">
-                    <div style="font-weight:500;">${t[this.COL.nombre] || '&mdash;'}${revisarIcon}${noteIconFor(this.COL.nombre)}${orphanIcon}</div>
+                    <div style="font-weight:500;">${t[this.COL.nombre] || '&mdash;'}${revisarIcon}${estancadoChip}${noteIconFor(this.COL.nombre)}${orphanIcon}</div>
                     <div style="font-size:11px; color:var(--text-muted);">${t[this.COL.feria] || ''}${noteIconFor(this.COL.feria)}</div>
                 </td>
                 <td data-label="Modelo"><span style="font-size:12px; color:var(--text-light);">${t[this.COL.modelo] || '<span class="badge-sin-modelo">sin modelo</span>'}</span>${noteIconFor(this.COL.modelo)}</td>
@@ -8970,6 +9044,29 @@ App.trajes = {
             html += `<div id="esperandoTelaBannerHolder"></div>`;
             // Disparamos el render async tras renderizar el resto.
             setTimeout(() => this._renderEsperandoTelaBanner(), 0);
+        }
+
+        // ── Banner de bandeja "Revisar": qué trajes aparecen aquí y por qué ──
+        if (this._bandeja === 'revisar') {
+            html += `<div class="card" style="margin-bottom:16px; padding:12px 16px; background:#fff3e0; border-left:3px solid #f57c00;">
+                <div style="font-weight:600; font-size:13px; color:#e65100;">
+                    ⚠️ Trajes que necesitan revisión
+                </div>
+                <div style="font-size:12px; color:#7c3a00; margin-top:6px; line-height:1.6;">
+                    Es un filtro <strong>transversal</strong>: un traje aparece aquí además de en su fase física actual. Cuando arregles la incidencia y los campos vuelvan a estados normales, desaparece de aquí solo.
+                </div>
+                <div style="font-size:12px; color:#7c3a00; margin-top:6px;">
+                    <strong>Casos que entran en Revisar:</strong>
+                    <ul style="margin:4px 0 0 18px; padding:0;">
+                        <li><code>ESTADO = REVISAR</code> o <code>INCIDENCIA</code></li>
+                        <li><code>TELA RECIBIDA = INCIDENCIA</code></li>
+                        <li><code>CORTE = INCIDENCIA</code></li>
+                        <li><code>TRAJE RECIBIDO = INCIDENCIA</code></li>
+                        <li><code>TRAJE ENTREGADO = INCIDENCIA</code></li>
+                        <li><strong>Estancamiento:</strong> traje no entregado sin modificar en los últimos <strong>${CONFIG.STAGNATION_DAYS || 10} días</strong> (lleva un chip naranja ⏰ con los días).</li>
+                    </ul>
+                </div>
+            </div>`;
         }
 
         // ── Banner de bandeja "Asignar taller": instrucción para repartir cortes ──
@@ -10208,6 +10305,8 @@ App.trajes = {
                 ['TRAJE RECIBIDO',       (document.getElementById('editTrajeTrajeRecibido')?.value      || '').trim()],
                 ['FECHA RECIBIDO',       this._toSheetDate((document.getElementById('editTrajeFechaRecibido')?.value      || '').trim())],
                 ['TRAJE ENTREGADO',      (document.getElementById('editTrajeTrajeEntregado')?.value     || '').trim()],
+                // Marca de modificación (para detectar trajes estancados en bandeja "Revisar")
+                ['FECHA ULTIMA MOD',     this._toSheetDate(this._todayISO())],
             ];
 
             // ── 1 llamada API: todos los valores en batch ─────────────────────
