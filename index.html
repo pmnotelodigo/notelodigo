@@ -7950,7 +7950,20 @@ App.trajes = {
                 !recepcionadosVivos.has(App.movimientos.extractPedidoId(m.NOTAS) || '')
             );
 
-            // Para cada pedido, ver qué trajes están actualmente en PEDIDA
+            // Helper: ¿la tela del traje coincide con la del pedido? Compara
+            // TIPO TELA del LISTADO contra "TIPO / VARIANTE" del pedido (case y
+            // espacios alrededor del "/" tolerantes).
+            const matchTelaTraje = (t, p) => {
+                const raw = (t[this.COL.tipoTela] || '').trim().toLowerCase();
+                if (!raw) return false;
+                const norm = raw.replace(/\s*\/\s*/, ' / ');
+                const expected = `${p.TELA_TIPO} / ${p.TELA_VARIANTE}`.toLowerCase();
+                return norm === expected;
+            };
+
+            // Para cada pedido, ver qué trajes están actualmente en PEDIDA Y siguen
+            // teniendo la tela del pedido (si Pilar cambió la tela del traje después de
+            // generar el pedido, ya no cuenta como "pendiente de ese pedido").
             const grupos = [];
             for (const p of pedidosPendientes) {
                 const id = App.movimientos.extractPedidoId(p.NOTAS);
@@ -7958,7 +7971,9 @@ App.trajes = {
                 const numTrajes = App.movimientos._parseTrajesCsv(p.TRAJE_NUM);
                 const trajes = numTrajes
                     .map(num => this.data.find(t => App.movimientos._numMatch(t[this.COL.num], num)))
-                    .filter(t => t && (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'PEDIDA');
+                    .filter(t => t &&
+                        (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'PEDIDA' &&
+                        matchTelaTraje(t, p));
                 if (trajes.length > 0) grupos.push({ pedido: p, pedidoId: id, trajes });
             }
 
