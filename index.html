@@ -10011,11 +10011,14 @@ App.trajes = {
      *  correspondientes (suma o reverso). En la fase 3 se añadirá CORTE = RECOGIDO.
      *
      *  Reglas:
-     *    - * → RECIBIDA: busca PEDIDO_PROVEEDOR pendiente para esa tela donde el traje
-     *      esté en TRAJE_NUM csv. Si lo encuentra, suma METROS al stock + crea RECEPCION
-     *      con [REF:<id>] que apunta al pedido. Si NO hay pedido pendiente, silencioso
-     *      (caso "ya tenía la tela antes de pedir").
-     *    - RECIBIDA → otro: busca el RECEPCION asociado al traje, resta y crea REVERSO.
+     *    - * → RECIBIDA: si hay un PEDIDO sin RECEPCION viva donde el traje aparezca,
+     *      sumar METROS al stock y crear RECEPCION con [REF:<id>] que apunta al pedido.
+     *      La RECEPCION es del PEDIDO, no del traje individual — solo se suma una vez
+     *      aunque varios trajes del pedido pasen a RECIBIDA.
+     *      Si no hay pedido pendiente (la tela ya estaba disponible), silencioso.
+     *    - RECIBIDA → otro: solo se REVIERTE el stock si NINGÚN otro traje del pedido
+     *      sigue como RECIBIDA. Mientras quede al menos uno, asumimos que la tela sí
+     *      llegó y solo cambia el estado individual (no se toca stock).
      */
     async _aplicarMovimientosStock(rowIndex, antes, despues) {
         const traje = this.data.find(r => r._rowIndex === rowIndex);
@@ -10034,11 +10037,18 @@ App.trajes = {
 
         const numTraje = (traje[this.COL.num] || '').toString().trim();
 
-        // Transición * → RECIBIDA
+        // ── Transición * → RECIBIDA ────────────────────────────────────────────
         if (newTela === 'RECIBIDA' && oldTela !== 'RECIBIDA') {
             const pedido = await App.movimientos.findOpenPedido(tipo, variante, numTraje);
             if (!pedido) {
-                console.info(`[stock] Traje ${numTraje} marcado RECIBIDA sin pedido previo — no se suma stock (caso "tela ya disponible").`);
+                // Puede que el pedido ya esté recepcionado (otro traje del lote lo abrió).
+                // Comprobar para decidir si es "silencioso ok" o "no había pedido".
+                const existing = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
+                if (existing) {
+                    console.info(`[stock] Traje ${numTraje} marcado RECIBIDA — el pedido del lote ya estaba recepcionado por otro traje, no se suma stock.`);
+                } else {
+                    console.info(`[stock] Traje ${numTraje} marcado RECIBIDA sin pedido previo — no se suma stock (caso "tela ya disponible").`);
+                }
                 return;
             }
             const metros = pedido.METROS;
@@ -10047,53 +10057,51 @@ App.trajes = {
                 App.toast.show(`Tela ${tipo}/${variante} no está en catálogo, no se pudo sumar al stock.`, 'warning', 5000);
                 return;
             }
-            // Registrar RECEPCION enlazada al PEDIDO
             await App.movimientos.append({
                 TIPO:           App.movimientos.TIPOS.RECEPCION,
                 TELA_TIPO:      tipo,
                 TELA_VARIANTE:  variante,
                 METROS:         metros,
-                TRAJE_NUM:      numTraje,
+                TRAJE_NUM:      pedido.TRAJE_NUM,   // todos los trajes del pedido (no solo este)
                 PROVEEDOR:      pedido.PROVEEDOR,
-                NOTAS:          `[REF:${pedido.pedidoId}] +${metros} m al stock (nuevo: ${nuevoStock} m)`,
+                NOTAS:          `[REF:${pedido.pedidoId}] +${metros} m al stock (nuevo: ${nuevoStock} m) · disparado por traje ${numTraje}`,
             });
             App.toast.show(`+${metros} m de ${tipo}/${variante} al stock (nuevo: ${nuevoStock} m)`, 'success', 4000);
             return;
         }
 
-        // Transición RECIBIDA → otro: revertir si hay RECEPCION del traje
+        // ── Transición RECIBIDA → otro: revertir solo si era el último ─────────
         if (oldTela === 'RECIBIDA' && newTela !== 'RECIBIDA') {
-            const all = await App.movimientos.loadAll();
-            // Última RECEPCION para este traje y tela, sin REVERSO posterior
-            const reversados = new Set();
-            for (const m of all) {
-                if (m.TIPO !== App.movimientos.TIPOS.REVERSO) continue;
-                const ref = App.movimientos.extractRefId(m.NOTAS);
-                if (ref) reversados.add(ref);
-            }
-            const recepcion = all.slice().reverse().find(m =>
-                m.TIPO === App.movimientos.TIPOS.RECEPCION &&
-                m.TELA_TIPO === tipo &&
-                m.TELA_VARIANTE === variante &&
-                String(m.TRAJE_NUM).trim() === numTraje &&
-                !reversados.has(App.movimientos.extractRefId(m.NOTAS) || '')
-            );
-            if (!recepcion) {
-                console.info(`[stock] No hay RECEPCION pendiente para revertir (traje ${numTraje}).`);
+            const found = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
+            if (!found || !found.recepcion) {
+                console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero no hay RECEPCION viva del pedido — sin acción.`);
                 return;
             }
-            const metros = recepcion.METROS;
+            // Comprobar si quedan otros trajes del MISMO pedido aún en RECIBIDA.
+            const trajesPedido = (found.pedido.TRAJE_NUM || '').split(',').map(s => s.trim()).filter(Boolean);
+            const otrosRecibidos = trajesPedido.filter(n => {
+                if (n === numTraje) return false;  // este traje ya está saliendo
+                const t = this.data.find(r =>
+                    String(r[this.COL.num] || '').trim() === n);
+                return t && (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'RECIBIDA';
+            });
+            if (otrosRecibidos.length > 0) {
+                console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero quedan ${otrosRecibidos.length} traje(s) del mismo pedido en RECIBIDA — no se revierte stock.`);
+                App.toast.show(`Cambio de estado en traje ${numTraje} aplicado. Stock no se modifica (otros trajes del pedido siguen en RECIBIDA).`, 'info', 4500);
+                return;
+            }
+            // Era el último → revertir
+            const metros = found.recepcion.METROS;
             const nuevoStock = await App.telas.updateStock(tipo, variante, -metros);
             if (nuevoStock === null) return;
-            const refId = App.movimientos.extractRefId(recepcion.NOTAS) || '';
             await App.movimientos.append({
                 TIPO:           App.movimientos.TIPOS.REVERSO,
                 TELA_TIPO:      tipo,
                 TELA_VARIANTE:  variante,
                 METROS:         -metros,
-                TRAJE_NUM:      numTraje,
-                PROVEEDOR:      recepcion.PROVEEDOR,
-                NOTAS:          `[REF:${refId}] reverso recepción · -${metros} m al stock (nuevo: ${nuevoStock} m)`,
+                TRAJE_NUM:      found.pedido.TRAJE_NUM,
+                PROVEEDOR:      found.recepcion.PROVEEDOR,
+                NOTAS:          `[REF:${found.pedido.pedidoId}] reverso recepción · -${metros} m al stock (nuevo: ${nuevoStock} m) · ningún traje del pedido sigue en RECIBIDA`,
             });
             App.toast.show(`Revertida recepción de ${metros} m de ${tipo}/${variante} (nuevo: ${nuevoStock} m)`, 'warning', 5000);
         }
@@ -11464,18 +11472,48 @@ App.movimientos = {
         return m ? m[1] : null;
     },
 
-    /** Busca un PEDIDO_PROVEEDOR pendiente de recepción para una tela, donde el traje
-     *  numTraje aparezca en TRAJE_NUM (CSV). "Pendiente" = no existe ya un movimiento
-     *  RECEPCION con el mismo PEDIDO_ID. Devuelve el movimiento o null. */
-    async findOpenPedido(tipo, variante, numTraje) {
-        const all = await this.loadAll();
-        const recepcionados = new Set();
+    /** Calcula los IDs de pedidos con RECEPCION VIVA (con RECEPCION + sin REVERSO posterior). */
+    _vivosFromAll(all) {
+        const reversados = new Set();
+        for (const m of all) {
+            if (m.TIPO !== this.TIPOS.REVERSO) continue;
+            const ref = this.extractRefId(m.NOTAS);
+            if (ref) reversados.add(ref);
+        }
+        const recepcionadosVivos = new Set();
         for (const m of all) {
             if (m.TIPO !== this.TIPOS.RECEPCION) continue;
             const ref = this.extractRefId(m.NOTAS);
-            if (ref) recepcionados.add(ref);
+            if (ref && !reversados.has(ref)) recepcionadosVivos.add(ref);
         }
-        // Recorrer PEDIDO_PROVEEDOR del más reciente al más antiguo
+        return { recepcionadosVivos, reversados };
+    },
+
+    /** Busca un PEDIDO_PROVEEDOR PENDIENTE de recepción para una tela, donde el traje
+     *  numTraje aparezca en TRAJE_NUM (CSV). "Pendiente" = no tiene RECEPCION viva.
+     *  Devuelve el pedido (con `pedidoId`) o null. */
+    async findOpenPedido(tipo, variante, numTraje) {
+        const all = await this.loadAll();
+        const { recepcionadosVivos } = this._vivosFromAll(all);
+        const pedidos = all
+            .filter(m => m.TIPO === this.TIPOS.PEDIDO &&
+                         m.TELA_TIPO === tipo &&
+                         m.TELA_VARIANTE === variante)
+            .reverse();   // del más reciente al más antiguo
+        for (const p of pedidos) {
+            const id = this.extractPedidoId(p.NOTAS);
+            if (!id || recepcionadosVivos.has(id)) continue;
+            const trajes = (p.TRAJE_NUM || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (numTraje && trajes.includes(String(numTraje).trim())) return { ...p, pedidoId: id };
+        }
+        return null;
+    },
+
+    /** Busca un PEDIDO_PROVEEDOR con RECEPCION VIVA para una tela, donde el traje aparezca.
+     *  Devuelve el pedido + la RECEPCION asociada. Útil para revertir. */
+    async findRecepcionedPedido(tipo, variante, numTraje) {
+        const all = await this.loadAll();
+        const { recepcionadosVivos } = this._vivosFromAll(all);
         const pedidos = all
             .filter(m => m.TIPO === this.TIPOS.PEDIDO &&
                          m.TELA_TIPO === tipo &&
@@ -11483,10 +11521,14 @@ App.movimientos = {
             .reverse();
         for (const p of pedidos) {
             const id = this.extractPedidoId(p.NOTAS);
-            if (!id || recepcionados.has(id)) continue;
-            // ¿El traje está en la lista del pedido?
+            if (!id || !recepcionadosVivos.has(id)) continue;
             const trajes = (p.TRAJE_NUM || '').split(',').map(s => s.trim()).filter(Boolean);
-            if (numTraje && trajes.includes(String(numTraje).trim())) return { ...p, pedidoId: id };
+            if (numTraje && trajes.includes(String(numTraje).trim())) {
+                const recepcion = all.slice().reverse().find(m =>
+                    m.TIPO === this.TIPOS.RECEPCION &&
+                    this.extractRefId(m.NOTAS) === id);
+                return { pedido: { ...p, pedidoId: id }, recepcion };
+            }
         }
         return null;
     },
