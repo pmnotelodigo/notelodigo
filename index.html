@@ -10086,11 +10086,12 @@ App.trajes = {
                 return;
             }
             // Comprobar si quedan otros trajes del MISMO pedido aún en RECIBIDA.
-            const trajesPedido = (found.pedido.TRAJE_NUM || '').split(',').map(s => s.trim()).filter(Boolean);
+            // Comparamos Nº de traje tolerando padding ("1" === "001").
+            const trajesPedido = App.movimientos._parseTrajesCsv(found.pedido.TRAJE_NUM);
             const otrosRecibidos = trajesPedido.filter(n => {
-                if (n === numTraje) return false;  // este traje ya está saliendo
+                if (App.movimientos._numMatch(n, numTraje)) return false;  // este traje ya está saliendo
                 const t = this.data.find(r =>
-                    String(r[this.COL.num] || '').trim() === n);
+                    App.movimientos._numMatch(r[this.COL.num], n));
                 return t && (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'RECIBIDA';
             });
             if (otrosRecibidos.length > 0) {
@@ -11419,19 +11420,43 @@ App.movimientos = {
         REVERSO:  'REVERSO',           // se deshizo un movimiento previo
     },
 
-    /** Construye una fila a partir de un objeto movimiento. */
+    /** Construye una fila a partir de un objeto movimiento.
+     *  IMPORTANTE: prefijamos TRAJE_NUM con apóstrofo `'` para que Sheets lo guarde como
+     *  TEXTO y no como número. Esto evita que un CSV como "001,004" se transforme en el
+     *  número 1004 y al leer perdamos el padding. El apóstrofo no se ve en la celda. */
     _toRow(m) {
+        const fecha = m.FECHA || new Date().toISOString().slice(0, 16).replace('T', ' ');
+        const trajeNum = m.TRAJE_NUM != null ? String(m.TRAJE_NUM) : '';
         return [
-            m.FECHA          || new Date().toISOString().slice(0, 16).replace('T', ' '),
+            fecha,
             m.TIPO           || '',
             m.TELA_TIPO      || '',
             m.TELA_VARIANTE  || '',
             (m.METROS != null ? String(m.METROS) : ''),
-            m.TRAJE_NUM      || '',
+            trajeNum ? "'" + trajeNum : '',   // forzar texto, conserva CSV con padding
             m.PROVEEDOR      || '',
             m.USUARIO        || (App.user?.name || ''),
             m.NOTAS          || '',
         ];
+    },
+
+    /** Compara dos números de traje tolerando padding ("1" === "001"). */
+    _numMatch(a, b) {
+        const sa = String(a || '').trim();
+        const sb = String(b || '').trim();
+        if (sa === sb) return true;
+        const na = parseInt(sa, 10);
+        const nb = parseInt(sb, 10);
+        return !isNaN(na) && !isNaN(nb) && na === nb;
+    },
+
+    /** Parsea un CSV de TRAJE_NUM tolerando comas (`,`) y punto y coma (`;`).
+     *  Devuelve array de strings con los Nº (sin trim de leading zeros). */
+    _parseTrajesCsv(csv) {
+        return (csv || '').toString()
+            .split(/[,;]/)
+            .map(s => s.trim())
+            .filter(Boolean);
     },
 
     /** Append de un solo movimiento. */
@@ -11501,7 +11526,7 @@ App.movimientos = {
 
     /** Busca un PEDIDO_PROVEEDOR PENDIENTE de recepción para una tela, donde el traje
      *  numTraje aparezca en TRAJE_NUM (CSV). "Pendiente" = no tiene RECEPCION viva.
-     *  Devuelve el pedido (con `pedidoId`) o null. */
+     *  Compara números de traje tolerando padding ("1" === "001"). */
     async findOpenPedido(tipo, variante, numTraje) {
         const all = await this.loadAll();
         const { recepcionadosVivos } = this._vivosFromAll(all);
@@ -11509,18 +11534,18 @@ App.movimientos = {
             .filter(m => m.TIPO === this.TIPOS.PEDIDO &&
                          m.TELA_TIPO === tipo &&
                          m.TELA_VARIANTE === variante)
-            .reverse();   // del más reciente al más antiguo
+            .reverse();
         for (const p of pedidos) {
             const id = this.extractPedidoId(p.NOTAS);
             if (!id || recepcionadosVivos.has(id)) continue;
-            const trajes = (p.TRAJE_NUM || '').split(',').map(s => s.trim()).filter(Boolean);
-            if (numTraje && trajes.includes(String(numTraje).trim())) return { ...p, pedidoId: id };
+            const trajes = this._parseTrajesCsv(p.TRAJE_NUM);
+            if (numTraje && trajes.some(n => this._numMatch(n, numTraje))) return { ...p, pedidoId: id };
         }
         return null;
     },
 
     /** Busca un PEDIDO_PROVEEDOR con RECEPCION VIVA para una tela, donde el traje aparezca.
-     *  Devuelve el pedido + la RECEPCION asociada. Útil para revertir. */
+     *  Compara números de traje tolerando padding. */
     async findRecepcionedPedido(tipo, variante, numTraje) {
         const all = await this.loadAll();
         const { recepcionadosVivos } = this._vivosFromAll(all);
@@ -11532,8 +11557,8 @@ App.movimientos = {
         for (const p of pedidos) {
             const id = this.extractPedidoId(p.NOTAS);
             if (!id || !recepcionadosVivos.has(id)) continue;
-            const trajes = (p.TRAJE_NUM || '').split(',').map(s => s.trim()).filter(Boolean);
-            if (numTraje && trajes.includes(String(numTraje).trim())) {
+            const trajes = this._parseTrajesCsv(p.TRAJE_NUM);
+            if (numTraje && trajes.some(n => this._numMatch(n, numTraje))) {
                 const recepcion = all.slice().reverse().find(m =>
                     m.TIPO === this.TIPOS.RECEPCION &&
                     this.extractRefId(m.NOTAS) === id);
