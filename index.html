@@ -7934,6 +7934,144 @@ App.trajes = {
         return entry;
     },
 
+    // ─── Banner "Marcar como recibida" en bandeja Esperando tela ──────────
+    /** Renderiza el banner con los pedidos pendientes de recepción. Se llama async
+     *  desde render() porque necesita leer MOVIMIENTOS del Sheet. */
+    async _renderEsperandoTelaBanner() {
+        const holder = document.getElementById('esperandoTelaBannerHolder');
+        if (!holder) return;
+        try {
+            const all = await App.movimientos.loadAll();
+            const { recepcionadosVivos } = App.movimientos._vivosFromAll(all);
+
+            // Pedidos sin RECEPCION viva
+            const pedidosPendientes = all.filter(m =>
+                m.TIPO === App.movimientos.TIPOS.PEDIDO &&
+                !recepcionadosVivos.has(App.movimientos.extractPedidoId(m.NOTAS) || '')
+            );
+
+            // Para cada pedido, ver qué trajes están actualmente en PEDIDA
+            const grupos = [];
+            for (const p of pedidosPendientes) {
+                const id = App.movimientos.extractPedidoId(p.NOTAS);
+                if (!id) continue;
+                const numTrajes = App.movimientos._parseTrajesCsv(p.TRAJE_NUM);
+                const trajes = numTrajes
+                    .map(num => this.data.find(t => App.movimientos._numMatch(t[this.COL.num], num)))
+                    .filter(t => t && (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'PEDIDA');
+                if (trajes.length > 0) grupos.push({ pedido: p, pedidoId: id, trajes });
+            }
+
+            if (!grupos.length) {
+                holder.innerHTML = '';
+                return;
+            }
+
+            const items = grupos.map(g => {
+                const trajesNums = g.trajes.map(t => t[this.COL.num]).join(', ');
+                const escId = g.pedidoId.replace(/'/g, "\\'");
+                const proveedor = g.pedido.PROVEEDOR || '—';
+                return `<button class="btn btn-primary" style="font-size:13px; padding:8px 14px; text-align:left;"
+                            onclick="App.trajes.marcarPedidoComoRecibido('${escId}')"
+                            title="Marca estos trajes como TELA RECIBIDA y suma ${g.pedido.METROS} m al stock">
+                    📦 <strong>${proveedor}</strong> · ${g.pedido.TELA_TIPO} / ${g.pedido.TELA_VARIANTE}
+                    <br><span style="font-size:11px; opacity:0.85; font-weight:400;">
+                        ${g.trajes.length} traje${g.trajes.length !== 1 ? 's' : ''} (${trajesNums}) · pedido de ${g.pedido.METROS} m
+                    </span>
+                </button>`;
+            }).join(' ');
+
+            holder.innerHTML = `<div class="card" style="margin-bottom:16px; padding:12px 16px; background:#e3f2fd; border-left:3px solid #1976d2;">
+                <div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#0d47a1;">
+                    📦 Pedidos pendientes de recepción
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">${items}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:8px;">
+                    Cuando llegue el pedido, marca aquí los trajes asociados como RECIBIDA en bloque. El stock se actualizará automáticamente.
+                </div>
+            </div>`;
+        } catch (err) {
+            console.warn('[trajes._renderEsperandoTelaBanner]', err);
+            holder.innerHTML = '';
+        }
+    },
+
+    /** Marca todos los trajes en PEDIDA del pedido `pedidoId` como TELA RECIBIDA = RECIBIDA.
+     *  La lógica de stock dinámico se encarga de sumar al stock una vez. */
+    async marcarPedidoComoRecibido(pedidoId) {
+        const all = await App.movimientos.loadAll();
+        const pedido = all.find(m =>
+            m.TIPO === App.movimientos.TIPOS.PEDIDO &&
+            App.movimientos.extractPedidoId(m.NOTAS) === pedidoId
+        );
+        if (!pedido) {
+            App.toast.show('No se encontró el pedido en MOVIMIENTOS.', 'error');
+            return;
+        }
+        const numTrajes = App.movimientos._parseTrajesCsv(pedido.TRAJE_NUM);
+        const trajes = numTrajes
+            .map(num => this.data.find(t => App.movimientos._numMatch(t[this.COL.num], num)))
+            .filter(t => t && (t[this.COL.telaRecibida] || '').toUpperCase().trim() === 'PEDIDA');
+
+        if (!trajes.length) {
+            App.toast.show('No hay trajes en PEDIDA para este pedido.', 'info');
+            return;
+        }
+
+        const trajesLabel = trajes.map(t => `#${t[this.COL.num]}`).join(', ');
+        const confirma = await App.ui.confirmDialog({
+            title: '📦 ¿Marcar como recibida?',
+            message:
+                `Vas a marcar <strong>${trajes.length} traje${trajes.length !== 1 ? 's' : ''}</strong> (${trajesLabel}) ` +
+                `como <strong>TELA RECIBIDA = RECIBIDA</strong>.<br><br>` +
+                `Esto sumará <strong>${pedido.METROS} m</strong> al stock de <strong>${pedido.TELA_TIPO} / ${pedido.TELA_VARIANTE}</strong>.`,
+            actions: [
+                { label: '✅ Sí, marcar recibida', value: 'ok',  style: 'primary' },
+                { label: 'Cancelar',                value: null, style: 'secondary' },
+            ],
+        });
+        if (confirma !== 'ok') return;
+
+        try {
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = headers[0] || [];
+            const idxTelaRec = hdr.indexOf('TELA RECIBIDA');
+            if (idxTelaRec < 0) throw new Error('Columna TELA RECIBIDA no encontrada');
+            const colLetter = String.fromCharCode(65 + idxTelaRec);
+
+            // 1. Update batch en LISTADO
+            const updates = trajes.map(t => ({
+                range: `${tab}!${colLetter}${t._rowIndex}`,
+                values: [['RECIBIDA']],
+            }));
+            await App.sheets.batchWriteRanges(sheetId, updates);
+
+            // 2. Aplicar movimientos: secuencialmente, el primero dispara la suma al stock,
+            //    los demás van silenciosos porque el pedido ya tiene RECEPCION viva.
+            for (const t of trajes) {
+                const oldTela = (t[this.COL.telaRecibida] || '').toUpperCase().trim();
+                t[this.COL.telaRecibida] = 'RECIBIDA';
+                const tc = App.clientas?.data?.find(r => r._rowIndex === t._rowIndex);
+                if (tc) tc[this.COL.telaRecibida] = 'RECIBIDA';
+                await this._aplicarMovimientosStock(t._rowIndex,
+                    { 'TELA RECIBIDA': oldTela },
+                    { 'TELA RECIBIDA': 'RECIBIDA' }
+                );
+            }
+
+            App.toast.show(`${trajes.length} traje${trajes.length !== 1 ? 's' : ''} marcado${trajes.length !== 1 ? 's' : ''} como RECIBIDA`, 'success', 4000);
+            this.filter();   // refresca lista + bandeja
+            if (App.telas && document.getElementById('sec-telas')?.classList.contains('active')) {
+                App.telas.filter();
+            }
+        } catch (err) {
+            console.error('[marcarPedidoComoRecibido]', err);
+            App.toast.show('Error: ' + err.message, 'error', 6000);
+        }
+    },
+
     // ─── Pedido al proveedor ──────────────────────────────────────────────
 
     /** Reglas de redondeo por proveedor para los metros a pedir. */
@@ -8680,6 +8818,14 @@ App.trajes = {
         </tr>`;
 
         let html = '';
+
+        // ── Banner de bandeja "Esperando tela": pedidos pendientes de recepción ──
+        // El banner se rellena asíncronamente porque necesita leer MOVIMIENTOS del Sheet.
+        if (this._bandeja === 'esperandoTela' && this.filtered.length > 0) {
+            html += `<div id="esperandoTelaBannerHolder"></div>`;
+            // Disparamos el render async tras renderizar el resto.
+            setTimeout(() => this._renderEsperandoTelaBanner(), 0);
+        }
 
         // ── Banner de bandeja "Pedir tela": botón para generar el pedido al proveedor ──
         if (this._bandeja === 'pedirTela' && this.filtered.length > 0) {
