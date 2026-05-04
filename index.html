@@ -9973,7 +9973,15 @@ App.trajes = {
             // ── Stock dinámico: si TELA RECIBIDA o CORTE cambiaron, aplicar movimientos
             // de stock automáticamente. No bloqueamos el resto del flujo si falla (try/catch).
             try {
-                await this._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
+                const tocoStock = await this._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
+                // Si se tocó el stock, refrescar la vista de Trajes para que el _stockMap
+                // se recalcule y los badges/bandeja "Pedir tela" reflejen la realidad.
+                if (tocoStock) {
+                    this.filter();
+                    if (App.telas && document.getElementById('sec-telas')?.classList.contains('active')) {
+                        App.telas.filter();   // refresca badges de stock bajo en sección Telas
+                    }
+                }
             } catch (e) {
                 console.error('[stock] Error aplicando movimientos:', e);
                 App.toast.show('⚠ El traje se guardó pero el stock no se pudo actualizar: ' + e.message, 'warning', 6000);
@@ -10067,7 +10075,7 @@ App.trajes = {
                 NOTAS:          `[REF:${pedido.pedidoId}] +${metros} m al stock (nuevo: ${nuevoStock} m) · disparado por traje ${numTraje}`,
             });
             App.toast.show(`+${metros} m de ${tipo}/${variante} al stock (nuevo: ${nuevoStock} m)`, 'success', 4000);
-            return;
+            return true;
         }
 
         // ── Transición RECIBIDA → otro: revertir solo si era el último ─────────
@@ -10104,7 +10112,9 @@ App.trajes = {
                 NOTAS:          `[REF:${found.pedido.pedidoId}] reverso recepción · -${metros} m al stock (nuevo: ${nuevoStock} m) · ningún traje del pedido sigue en RECIBIDA`,
             });
             App.toast.show(`Revertida recepción de ${metros} m de ${tipo}/${variante} (nuevo: ${nuevoStock} m)`, 'warning', 5000);
+            return true;
         }
+        return false;
     },
 
 };
