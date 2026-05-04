@@ -2881,34 +2881,33 @@
                     <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="telasCount"></div>
                 </div>
 
-                <!-- Tabla agrupada por TIPO -->
-                <div id="telasContent">
-                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
-                </div>
-
                 <!-- Aviso informativo: reglas del stock dinámico -->
-                <details style="margin-top:14px; padding:8px 12px; background:#fff8e1; border-left:3px solid #f57c00; border-radius:4px; font-size:12px; color:#7c3a00;">
-                    <summary style="cursor:pointer; font-weight:600;">ⓘ Cómo funciona el stock automático (haz click para ver las reglas)</summary>
+                <details style="margin-bottom:14px; padding:8px 12px; background:#fff8e1; border-left:3px solid #f57c00; border-radius:4px; font-size:12px; color:#7c3a00;">
+                    <summary style="cursor:pointer; font-weight:600;">&#x24D8; Cómo funciona el stock automático (haz click para ver las reglas)</summary>
                     <div style="margin-top:8px; line-height:1.6;">
                         <strong>Cuándo cambia el stock automáticamente:</strong>
                         <ul style="margin:4px 0 8px 18px; padding:0;">
                             <li>Al marcar un traje como <strong>TELA RECIBIDA = RECIBIDA</strong> → se <strong>suma</strong> al stock lo que se pidió en el pedido al proveedor.</li>
-                            <li>Al marcar un traje como <strong>CORTE = RECOGIDO</strong> → se <strong>resta</strong> del stock lo que ha consumido el cortador.</li>
+                            <li>Al marcar un traje como <strong>CORTE = RECOGIDO</strong> → se <strong>resta</strong> del stock lo consumido al cortar.</li>
                             <li>Si deshaces un estado, la app revierte el movimiento automáticamente (devuelve los metros al stock o los vuelve a quitar).</li>
                         </ul>
 
                         <strong>Una RECEPCION por pedido, no por traje:</strong>
                         Si un pedido tiene varios trajes, el stock se suma <strong>una sola vez</strong> (cuando llega el primero a RECIBIDA). Los demás trajes no añaden al stock — la tela ya está contada. Y solo se revierte el stock si <strong>todos</strong> los trajes del pedido salen de RECIBIDA.
 
-                        <p style="margin:8px 0 4px;"><strong>Reglas de redondeo al pedir al proveedor:</strong></p>
+                        <p style="margin:8px 0 4px;"><strong>Cuántos metros se descuentan al cortar — depende de la <code>UNIDAD_PEDIDO_M</code> de la tela:</strong></p>
                         <ul style="margin:4px 0 8px 18px; padding:0;">
-                            <li><strong>Flamentex</strong> → múltiplos de 10 m (regla "10 m por traje").</li>
-                            <li><strong>TELATER</strong> → múltiplos de 50 m (rollos).</li>
-                            <li>Siempre se redondea al alza para cubrir la demanda. Tú puedes editar los metros antes de generar el WhatsApp.</li>
+                            <li><strong>Unidad ≤ 10 m</strong> (telas tipo Flamentex, "por traje") → si hay pedido asociado, se descuentan los <strong>metros del pedido completos</strong>. El sobrante del lote (los 2 m que sobran de cada 10) se descarta automáticamente.</li>
+                            <li><strong>Unidad ≥ 50 m</strong> (telas tipo TELATER, "por rollo") → se descuenta el <strong>escandallo del modelo</strong>. El stock va bajando con cada corte hasta que el rollo se agota.</li>
+                            <li><strong>Unidad vacía</strong> → se descuenta el escandallo y la app no aplica reglas de retal.</li>
                         </ul>
 
-                        <strong>Retales al cortar:</strong>
-                        Cuando se corta un traje y sobran metros (lo pedido − el escandallo), la app te pregunta si quieres <strong>conservar el retal en stock</strong> para reaprovecharlo o si <strong>no es aprovechable</strong> (descartarlo). Si descartas, se consume el lote entero. Si conservas, solo se consume el escandallo.
+                        <p style="margin:8px 0 4px;"><strong>Detección automática de retales:</strong></p>
+                        <ul style="margin:4px 0 8px 18px; padding:0;">
+                            <li>Tras cada movimiento de stock, la app comprueba si <code>stock % unidad</code> es un valor pequeño (≤ 6 m). Si lo es, ese sobrante es un <strong>retal candidato a descartar</strong> (no es aprovechable para otro traje grande).</li>
+                            <li>Aparece un modal preguntando "¿Descartar retal?" con default <strong>Sí</strong>. Por ejemplo: stock 52 m con unidad 50 m → "tienes 1 rollo entero + retal de 2 m, ¿descartar 2 m?".</li>
+                            <li>Si por lo que sea se cuela algún retal sin descartar, aparece un <strong>banner amarillo</strong> arriba de la tabla con la lista de telas pendientes y un botón rápido para limpiarlas.</li>
+                        </ul>
 
                         <strong>Cuándo TIENES que tocar el stock a mano:</strong>
                         <ul style="margin:4px 0 0 18px; padding:0;">
@@ -2918,6 +2917,11 @@
                         </ul>
                     </div>
                 </details>
+
+                <!-- Tabla agrupada por TIPO -->
+                <div id="telasContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
             </div>
 
             <!-- TELA EDIT MODAL -->
