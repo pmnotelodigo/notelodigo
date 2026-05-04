@@ -1802,11 +1802,6 @@
                         <div class="summary-card-value" id="statIncidencias">—</div>
                         <div class="summary-card-label">Incidencias</div>
                     </div>
-                    <div class="summary-card orange" style="cursor:pointer;" onclick="App.dashboard.goToFilter('atascados')" title="Trajes que llevan más de 15 días en el taller sin volver">
-                        <div class="summary-card-value" id="statAtascados">—</div>
-                        <div class="summary-card-label">Atascados &gt; 15 días</div>
-                        <div class="summary-card-hint">Llevan más de 15 días en el taller sin volver</div>
-                    </div>
                 </div>
                 <div class="card">
                     <div class="card-title">&#x1F4CA; Resumen del estado</div>
@@ -5292,16 +5287,15 @@ const App = {
                     (t['TRAJE ENTREGADO'] || '').toUpperCase() !== 'ENTREGADO'
                 ).length;
 
-                // Atascados: > 15 días en taller sin volver (FECHA ENTREGA TALLER + 15d < hoy y aún no recibido)
-                const atascados = trajes.filter(t => App.dashboard._estaAtascado(t, 15)).length;
-
                 document.getElementById('statTotalTrajes').textContent = total;
                 document.getElementById('statEntregados').textContent = entregados;
                 document.getElementById('statPendientes').textContent = pendientesTela;
                 document.getElementById('statEnTaller').textContent = enTaller;
                 document.getElementById('statPendientesEntrega').textContent = pendientesEntrega;
                 document.getElementById('statIncidencias').textContent = incidencias;
-                document.getElementById('statAtascados').textContent = atascados;
+                // (chip "Atascados > 15 días" eliminado: redundante con el sistema de
+                //  estancamiento general (CONFIG.STAGNATION_DAYS) que ya marca trajes
+                //  estancados con chip ⏰ en bandeja Revisar).
 
                 // Breakdown by estado
                 const porEstado = {};
@@ -9051,9 +9045,6 @@ App.trajes = {
             html += `<div class="card" style="margin-bottom:16px; padding:12px 16px; background:#fff3e0; border-left:3px solid #f57c00;">
                 <div style="font-weight:600; font-size:13px; color:#e65100;">
                     ⚠️ Trajes que necesitan revisión
-                </div>
-                <div style="font-size:12px; color:#7c3a00; margin-top:6px; line-height:1.6;">
-                    Es un filtro <strong>transversal</strong>: un traje aparece aquí además de en su fase física actual. Cuando arregles la incidencia y los campos vuelvan a estados normales, desaparece de aquí solo.
                 </div>
                 <div style="font-size:12px; color:#7c3a00; margin-top:6px;">
                     <strong>Casos que entran en Revisar:</strong>
