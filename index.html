@@ -2951,6 +2951,15 @@
                             <input type="number" step="0.5" class="form-input" id="telaUmbralAlerta" placeholder="10">
                         </div>
                         <div class="form-group" style="margin:0;">
+                            <label>Unidad de pedido (m)
+                                <span style="font-size:11px; color:var(--text-muted); font-weight:normal;"
+                                      title="Tamaño típico del rollo o pedido (10 para Flamentex por traje, 50 para rollos Latek/TelaTer). Vacío = no aplica detección de retal.">
+                                    &#x2139;
+                                </span>
+                            </label>
+                            <input type="number" step="1" class="form-input" id="telaUnidadPedido" placeholder="50">
+                        </div>
+                        <div class="form-group" style="margin:0;">
                             <label>
                                 <input type="checkbox" id="telaActiva" checked> Activa
                             </label>
@@ -3204,6 +3213,9 @@ const CONFIG = {
     CACHE_TTL: 5 * 60 * 1000, // 5 min default
     // Días sin modificar tras los cuales un traje (no entregado) entra en bandeja "Revisar" como estancado.
     STAGNATION_DAYS: 10,
+    // Umbral de retal: si después de un movimiento de stock,
+    // (stock % UNIDAD_PEDIDO_M) cae en (0, RETAL_UMBRAL_M], se ofrece descartar el retal.
+    RETAL_UMBRAL_M: 6,
     TALLERES: ['BRENES','BALDOMERO','ROCIO','CARO','ALISON','NIDIA','GLADIS','TRIANGULO','ALVARO','DOLORES','YEYE','TALLER'],
     ESTADOS_CORTE: ['PENDIENTE','ENVIADO','RECOGIDO','INCIDENCIA'],
     ESTADOS_TRAJE: ['PENDIENTE','RECIBIDO'],
@@ -10662,6 +10674,8 @@ App.trajes = {
             `<strong>Stock actualizado</strong><br>+${metros} m de <strong>${tipo}/${variante}</strong><br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
             'success', 0
         );
+        // Si tras sumar el rollo nuevo queda un retal "huérfano" del rollo previo, ofrecer descartarlo
+        await App.telas._gestionarRetalCandidato(tipo, variante, 'recepción de pedido');
         return true;
     },
 
@@ -10710,12 +10724,16 @@ App.trajes = {
     },
 
     /** RESTA stock al consumir el traje en el cortador (CORTE = RECOGIDO).
-     *  Resta `modelo.TELA_PPAL_M` (escandallo) del stock y crea CONSUMO_TRAJE.
      *
-     *  Si el proveedor es "de lote" (Flamentex y similares — NO TELATER) y hay sobrante
-     *  per-traje (pedido_por_traje − escandallo > 0), pregunta a Pilar si conserva el
-     *  retal en stock o lo descarta. Si descarta, se consume el lote entero (no queda
-     *  retal en stock para ese traje).
+     *  Regla nueva basada en UNIDAD_PEDIDO_M de la tela:
+     *    · Si UNIDAD ≤ 10 (Flamentex y similares — pedidos "por traje") y hay pedido
+     *      asociado → consume los metros del pedido completos (no el escandallo).
+     *      Eso descarta automáticamente el retal del lote (los 2 m que sobran de cada 10).
+     *    · Si UNIDAD ≥ 50 o vacía (rollos / consumo de stock libre) → consume el escandallo
+     *      del modelo. El retal del rollo se gestionará en el modal automático de
+     *      _gestionarRetalCandidato() que se dispara después.
+     *
+     *  Aviso al cortar: confirmación informativa breve (sin decisión).
      *
      *  Idempotente: si ya hay CONSUMO vivo para este traje, silencioso. */
     async _stockRestaPorConsumo({ traje, tipo, variante, numTraje }) {
@@ -10743,66 +10761,50 @@ App.trajes = {
         }
         const tela = (App.telas?._data || []).find(t => t.TIPO === tipo && t.VARIANTE === variante);
         const proveedor = tela?.PROVEEDOR || '';
+        const unidad = parseFloat(tela?.UNIDAD_PEDIDO_M) || 0;
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
 
-        // ── Aviso al cortar: SIEMPRE mostramos un diálogo informativo o de decisión. ─────
-        // Reglas:
-        //   1. Si hay SOBRANTE per-traje (pedido > escandallo) → diálogo keep/discard.
-        //      Aplica tanto a TELATER (rollo) como a Flamentex (lote). Pilar decide.
-        //      Default si cierra con X = keep (conservar — no destruimos info).
-        //   2. Si NO hay sobrante (sin pedido previo, o escandallo ≥ pedido) → diálogo
-        //      informativo de solo confirmación (consumes el escandallo, sin retal).
+        // ── Decidir cuántos metros consumir ───────────────────────────────────
+        // Por defecto = escandallo. Si la tela es "por traje" y hay pedido, consume el pedido entero.
         let metrosAConsumir = escandallo;
         let notaExtra = '';
-        const fmt = n => Number(Number(n).toFixed(2)).toString();
 
         const found = await App.movimientos.findRecepcionedPedido(tipo, variante, numTraje);
         let metrosPorTraje = null;
-        let sobrante = 0;
         if (found?.recepcion) {
             const metrosPedido = Number(found.recepcion.METROS) || 0;
             const trajesDelPedido = App.movimientos._parseTrajesCsv(found.pedido.TRAJE_NUM).length || 1;
             metrosPorTraje = metrosPedido / trajesDelPedido;
-            sobrante = +(metrosPorTraje - escandallo).toFixed(2);
         }
 
+        // Regla "por traje": unidad pequeña (≤ 10 m) Y hay pedido asociado → consume todo el pedido
+        const esPorTraje = unidad > 0 && unidad <= 10 && metrosPorTraje != null && metrosPorTraje > escandallo;
+        if (esPorTraje) {
+            metrosAConsumir = metrosPorTraje;
+            const sobrante = +(metrosPorTraje - escandallo).toFixed(2);
+            notaExtra = ` · retal de ${fmt(sobrante)} m del lote descartado (regla por-traje, unidad ${fmt(unidad)} m)`;
+        }
+
+        // ── Aviso al cortar (informativo, sin decisión) ───────────────────────
         const baseMsg =
             `Has cortado el traje <strong>Nº&nbsp;${numTraje}</strong> (modelo <strong>${modelo.NOMBRE}</strong>).<br><br>` +
             (metrosPorTraje != null
-                ? `· Pediste <strong>${fmt(metrosPorTraje)} m</strong> de <strong>${tipo} / ${variante}</strong> a <strong>${proveedor || 'sin proveedor'}</strong> para este traje.<br>`
-                : `· Tela: <strong>${tipo} / ${variante}</strong> (sin pedido previo registrado).<br>`) +
+                ? `· Pedido para este traje: <strong>${fmt(metrosPorTraje)} m</strong> de <strong>${tipo} / ${variante}</strong>` +
+                  (proveedor ? ` a <strong>${proveedor}</strong>` : '') + `.<br>`
+                : `· Tela: <strong>${tipo} / ${variante}</strong> (sin pedido previo registrado, consumiendo de stock libre).<br>`) +
             `· Escandallo del modelo: <strong>${fmt(escandallo)} m</strong>.`;
 
-        if (sobrante > 0) {
-            // Hay retal: preguntamos siempre, sea TELATER o lote
-            const answer = await App.ui.confirmDialog({
-                title: '✂️ Corte registrado · ¿Qué hacer con el retal?',
-                message:
-                    `${baseMsg}<br>` +
-                    `· Sobran <strong>${fmt(sobrante)} m</strong> de retal.<br><br>` +
-                    `¿Conservar el retal en stock para reaprovecharlo, o no es aprovechable?`,
-                actions: [
-                    { label: `✅ Conservar ${fmt(sobrante)} m en stock`, value: 'keep',    style: 'primary' },
-                    { label: 'No es aprovechable (consumir todo)',       value: 'discard', style: 'secondary' },
-                ],
-            });
-            if (answer === 'discard') {
-                metrosAConsumir = metrosPorTraje;
-                notaExtra = ` · retal de ${fmt(sobrante)} m descartado (no reaprovechable)`;
-            } else {
-                notaExtra = ` · retal de ${fmt(sobrante)} m conservado en stock`;
-            }
-        } else {
-            // Sin retal: aviso informativo de solo confirmación
-            await App.ui.confirmDialog({
-                title: '✂️ Corte registrado',
-                message:
-                    `${baseMsg}<br><br>` +
-                    `Se consumirán <strong>${fmt(escandallo)} m</strong> del stock. Sin retal sobrante.`,
-                actions: [
-                    { label: '✅ Entendido', value: 'ok', style: 'primary' },
-                ],
-            });
-        }
+        const consumoMsg = esPorTraje
+            ? `<br>Se consumirán los <strong>${fmt(metrosAConsumir)} m</strong> del pedido completos ` +
+              `(unidad de pedido = ${fmt(unidad)} m → el retal del lote no se aprovecha).`
+            : `<br>Se consumirán <strong>${fmt(metrosAConsumir)} m</strong> del stock` +
+              (unidad >= 50 ? ` (rollo de ${fmt(unidad)} m).` : '.');
+
+        await App.ui.confirmDialog({
+            title: '✂️ Corte registrado',
+            message: baseMsg + consumoMsg,
+            actions: [{ label: '✅ Entendido', value: 'ok', style: 'primary' }],
+        });
 
         const nuevoStock = await App.telas.updateStock(tipo, variante, -metrosAConsumir);
         if (nuevoStock === null) {
@@ -10823,6 +10825,9 @@ App.trajes = {
             `<strong>Consumo registrado</strong><br>−${metrosAConsumir} m de <strong>${tipo}/${variante}</strong> (corte del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>${notaExtra ? '<br><span style="font-size:11px; opacity:0.85;">' + notaExtra.replace(/^ · /, '') + '</span>' : ''}`,
             'warning', 0
         );
+
+        // Tras consumir, comprobar si quedó retal de rollo (stock % unidad ∈ (0, UMBRAL])
+        await App.telas._gestionarRetalCandidato(tipo, variante, 'corte de traje ' + numTraje);
         return true;
     },
 
@@ -12838,7 +12843,7 @@ App.modelos = {
    Lee/escribe el tab TELAS del Sheet ESCANDALLOS_<NOMBRE>.
    ========================================================== */
 App.telas = {
-    HEADERS: ['TIPO','VARIANTE','PROVEEDOR','STOCK_M','UMBRAL_ALERTA','UBICACION','ACTIVA','NOTAS'],
+    HEADERS: ['TIPO','VARIANTE','PROVEEDOR','STOCK_M','UMBRAL_ALERTA','UBICACION','ACTIVA','NOTAS','UNIDAD_PEDIDO_M'],
     TAB: 'TELAS',
     _data: [],
     _filtered: [],
@@ -12861,7 +12866,7 @@ App.telas = {
                     'Ve a Ajustes → Temporadas y enlaza el Sheet de escandallos.</div>';
                 return;
             }
-            const range = `${this.TAB}!A2:H`;
+            const range = `${this.TAB}!A2:I`;
             const rows = await App.sheets.readRange(sheetId, range);
             this._data = rows.map((r, i) => this._parseRow(r, i + 2));
             this._populateFilters();
@@ -12876,15 +12881,16 @@ App.telas = {
     _parseRow(r, rowIndex) {
         const cell = i => (r[i] || '').toString().trim();
         return {
-            TIPO:           cell(0),
-            VARIANTE:       cell(1),
-            PROVEEDOR:      cell(2),
-            STOCK_M:        cell(3),
-            UMBRAL_ALERTA:  cell(4),
-            UBICACION:      cell(5),
-            ACTIVA:         cell(6),
-            NOTAS:          cell(7),
-            _rowIndex:      rowIndex,
+            TIPO:             cell(0),
+            VARIANTE:         cell(1),
+            PROVEEDOR:        cell(2),
+            STOCK_M:          cell(3),
+            UMBRAL_ALERTA:    cell(4),
+            UBICACION:        cell(5),
+            ACTIVA:           cell(6),
+            NOTAS:            cell(7),
+            UNIDAD_PEDIDO_M:  cell(8),  // Tamaño del rollo/pedido típico — usado para detectar retales
+            _rowIndex:        rowIndex,
         };
     },
 
@@ -12893,6 +12899,7 @@ App.telas = {
             t.TIPO || '', t.VARIANTE || '', t.PROVEEDOR || '',
             t.STOCK_M || '', t.UMBRAL_ALERTA || '',
             t.UBICACION || '', t.ACTIVA || '', t.NOTAS || '',
+            t.UNIDAD_PEDIDO_M || '',
         ];
     },
 
@@ -12974,8 +12981,13 @@ App.telas = {
             countEl.innerHTML = `${this._filtered.length} tela${this._filtered.length !== 1 ? 's' : ''}` +
                 (bajas ? ` <span style="color:#c2185b; font-weight:600;">· ${bajas} bajo umbral</span>` : '');
         }
+
+        // Banner de retales pendientes (sobre el catálogo entero, no afectado por filtros)
+        const retales = this.telasConRetal();
+        const retalBannerHtml = retales.length ? this._renderRetalBanner(retales) : '';
+
         if (!this._filtered.length) {
-            container.innerHTML =
+            container.innerHTML = retalBannerHtml +
                 '<div class="empty-state" style="padding:40px;">' +
                 '<p style="margin-bottom:12px;">No hay telas que coincidan con los filtros.</p>' +
                 '<button class="btn btn-primary btn-sm" onclick="App.telas.openModal()">+ Nueva tela</button>' +
@@ -13038,8 +13050,50 @@ App.telas = {
             return headerTr + dataRows;
         }).join('');
 
-        container.innerHTML = styles +
+        container.innerHTML = retalBannerHtml + styles +
             `<table class="telas-table">${headerRow}<tbody>${groupsHtml}</tbody></table>`;
+    },
+
+    /** Banner de retales pendientes (encima del catálogo de Telas). */
+    _renderRetalBanner(retales) {
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+        const items = retales.map(({ tela, metros }) => {
+            const escTipo = tela.TIPO.replace(/'/g, "\\'");
+            const escVar  = tela.VARIANTE.replace(/'/g, "\\'");
+            return (
+                `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 10px; background:white; border-radius:4px; margin-bottom:4px;">` +
+                `<span><strong>${tela.TIPO} / ${tela.VARIANTE}</strong> ` +
+                `<span style="color:#7a5d00;">stock ${fmt(this._stockNum(tela))} m</span> ` +
+                `<span style="background:#fff8e1; padding:1px 6px; border-radius:3px; font-size:11px;">retal ${fmt(metros)} m</span></span>` +
+                `<button class="btn btn-primary btn-sm" ` +
+                `onclick="App.telas._descartarRetalUI('${escTipo}', '${escVar}')">` +
+                `Descartar ${fmt(metros)} m</button>` +
+                `</div>`
+            );
+        }).join('');
+        return (
+            `<div class="card" style="margin-bottom:14px; padding:12px 14px; background:#fff8e1; border-left:4px solid #f9a825;">` +
+            `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">` +
+            `<strong style="color:#7a5d00;">&#x1F9F6; ${retales.length} tela${retales.length !== 1 ? 's' : ''} con retal pendiente</strong>` +
+            `<span style="font-size:11px; color:#7a5d00;">retales no aprovechables (≤ ${CONFIG.RETAL_UMBRAL_M || 6} m)</span>` +
+            `</div>` +
+            items +
+            `</div>`
+        );
+    },
+
+    /** UI handler: pregunta confirmación y descarta el retal de una tela concreta. */
+    async _descartarRetalUI(tipo, variante) {
+        const tela = this._data.find(t => t.TIPO === tipo && t.VARIANTE === variante);
+        if (!tela) return;
+        const sobrante = this.retalCandidato(tela);
+        if (!sobrante) {
+            App.toast.show('Esta tela ya no tiene retal pendiente.', 'info');
+            this.filter();
+            return;
+        }
+        await this._gestionarRetalCandidato(tipo, variante, 'limpieza desde banner');
+        this.filter();
     },
 
     _renderRow(t) {
@@ -13136,6 +13190,7 @@ App.telas = {
         get('telaStockM').value         = t?.STOCK_M || '';
         get('telaUmbralAlerta').value   = t?.UMBRAL_ALERTA || '10';
         get('telaUbicacion').value      = t?.UBICACION || '';
+        get('telaUnidadPedido').value   = t?.UNIDAD_PEDIDO_M || '';
         get('telaActiva').checked       = t ? this._isActive(t) : true;
         get('telaNotas').value          = t?.NOTAS || '';
 
@@ -13187,14 +13242,15 @@ App.telas = {
             }
 
             const t = {
-                TIPO:          tipo,
-                VARIANTE:      variante,
-                PROVEEDOR:     get('telaProveedor').value.trim(),
-                STOCK_M:       get('telaStockM').value.trim(),
-                UMBRAL_ALERTA: get('telaUmbralAlerta').value.trim(),
-                UBICACION:     get('telaUbicacion').value,
-                ACTIVA:        get('telaActiva').checked ? 'TRUE' : 'FALSE',
-                NOTAS:         get('telaNotas').value.trim(),
+                TIPO:             tipo,
+                VARIANTE:         variante,
+                PROVEEDOR:        get('telaProveedor').value.trim(),
+                STOCK_M:          get('telaStockM').value.trim(),
+                UMBRAL_ALERTA:    get('telaUmbralAlerta').value.trim(),
+                UBICACION:        get('telaUbicacion').value,
+                ACTIVA:           get('telaActiva').checked ? 'TRUE' : 'FALSE',
+                NOTAS:            get('telaNotas').value.trim(),
+                UNIDAD_PEDIDO_M:  get('telaUnidadPedido').value.trim(),
             };
             const row = this._serializeRow(t);
 
@@ -13202,10 +13258,10 @@ App.telas = {
                 const [oTipo, oVar] = original.split('|');
                 const existing = this._data.find(x => x.TIPO === oTipo && x.VARIANTE === oVar);
                 if (!existing) throw new Error(`No se encontró la tela original.`);
-                const range = `${this.TAB}!A${existing._rowIndex}:H${existing._rowIndex}`;
+                const range = `${this.TAB}!A${existing._rowIndex}:I${existing._rowIndex}`;
                 await App.sheets.writeRange(sheetId, range, [row]);
             } else {
-                await App.sheets.appendRows(sheetId, `${this.TAB}!A:H`, [row]);
+                await App.sheets.appendRows(sheetId, `${this.TAB}!A:I`, [row]);
             }
 
             App.toast.show('Tela guardada', 'success');
@@ -13227,6 +13283,93 @@ App.telas = {
         if (!confirm(`¿Marcar "${tipo} · ${variante}" como inactiva? Dejará de aparecer en los selectores pero no se borrará.`)) return;
         get('telaActiva').checked = false;
         await this.save();
+    },
+
+    /** Devuelve la unidad de pedido numérica (rollo típico) o 0 si no está definida. */
+    _unidadNum(t) {
+        const v = parseFloat(t?.UNIDAD_PEDIDO_M);
+        return isNaN(v) || v <= 0 ? 0 : v;
+    },
+
+    /** Calcula el "retal candidato" de una tela: stock % unidad si está en (0, UMBRAL]. 0 si no aplica. */
+    retalCandidato(tela) {
+        if (!tela) return 0;
+        const unidad = this._unidadNum(tela);
+        const stock = this._stockNum(tela);
+        if (!unidad || stock <= 0) return 0;
+        const sobrante = stock % unidad;
+        const umbral = CONFIG.RETAL_UMBRAL_M || 6;
+        return (sobrante > 0 && sobrante <= umbral) ? sobrante : 0;
+    },
+
+    /** Lista de telas con retal pendiente de revisar (para el banner global). */
+    telasConRetal() {
+        return this._data
+            .filter(t => this._isActive(t))
+            .map(t => ({ tela: t, metros: this.retalCandidato(t) }))
+            .filter(x => x.metros > 0);
+    },
+
+    /** Tras un movimiento de stock, si la tela queda con un retal candidato,
+     *  abre un modal preguntando a Pilar si lo descarta. Default = "Sí, descartar".
+     *  contexto: string corto que se muestra en el modal (ej. "corte traje 12"). */
+    async _gestionarRetalCandidato(tipo, variante, contexto) {
+        // Recargar la tela desde cache para tener el stock actualizado
+        const tela = this._data.find(t => t.TIPO === tipo && t.VARIANTE === variante);
+        if (!tela) return false;
+        const sobrante = this.retalCandidato(tela);
+        if (!sobrante) return false;
+
+        const unidad = this._unidadNum(tela);
+        const stock  = this._stockNum(tela);
+        const rollos = Math.floor(stock / unidad);
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+
+        const desglose = rollos > 0
+            ? `${rollos} rollo${rollos !== 1 ? 's' : ''} entero${rollos !== 1 ? 's' : ''} (${fmt(rollos * unidad)} m) + retal de <strong>${fmt(sobrante)} m</strong>`
+            : `Retal de <strong>${fmt(sobrante)} m</strong> (sin rollo entero detrás)`;
+
+        const answer = await App.ui.confirmDialog({
+            title: '🧶 ¿Descartar retal?',
+            message:
+                `Tras ${contexto}, el stock de <strong>${tipo} / ${variante}</strong> es <strong>${fmt(stock)} m</strong>:<br>` +
+                `<span style="display:inline-block; background:#fff8e1; padding:6px 10px; border-radius:4px; margin:8px 0;">${desglose}</span><br>` +
+                `Los retales pequeños no se reaprovechan para trajes (van a trajes de niña por otro circuito).<br><br>` +
+                `¿Descartar los <strong>${fmt(sobrante)} m</strong> de retal?`,
+            actions: [
+                { label: `✅ Sí, descartar ${fmt(sobrante)} m`, value: 'discard', style: 'primary'   },
+                { label: 'No, mantener',                       value: 'keep',    style: 'secondary' },
+            ],
+        });
+        if (answer !== 'discard') {
+            console.info(`[retal] Pilar mantiene ${sobrante} m de ${tipo}/${variante}.`);
+            return false;
+        }
+        return await this.descartarRetal(tela, sobrante, contexto);
+    },
+
+    /** Descarta `metros` m de retal de una tela: resta del stock y registra AJUSTE [RETAL]. */
+    async descartarRetal(tela, metros, contexto = 'ajuste manual') {
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+        const tipo = tela.TIPO, variante = tela.VARIANTE;
+        const nuevoStock = await this.updateStock(tipo, variante, -Number(metros));
+        if (nuevoStock === null) return false;
+        await App.movimientos.append({
+            TIPO:           App.movimientos.TIPOS.AJUSTE,
+            TELA_TIPO:      tipo,
+            TELA_VARIANTE:  variante,
+            METROS:         -Number(metros),
+            TRAJE_NUM:      '',
+            PROVEEDOR:      tela.PROVEEDOR || '',
+            NOTAS:          `[RETAL] descartados ${metros} m de retal (${contexto}) · nuevo stock: ${nuevoStock} m`,
+        });
+        App.toast.show(
+            `<strong>Retal descartado</strong><br>−${fmt(metros)} m de <strong>${tipo}/${variante}</strong><br>Nuevo stock: <strong>${fmt(nuevoStock)} m</strong>`,
+            'info', 0
+        );
+        // Refrescar la vista de telas si está visible
+        if (this._filtered) this.filter();
+        return true;
     },
 
     /** API: aplica un delta al STOCK_M de una tela. Útil para automatizaciones
