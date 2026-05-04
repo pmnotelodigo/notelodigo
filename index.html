@@ -7937,7 +7937,7 @@ App.trajes = {
         return porProv;
     },
 
-    /** Texto WhatsApp para un proveedor (un solo mensaje). */
+    /** Texto WhatsApp para un proveedor (un solo mensaje). Lee los metros editados. */
     _buildWhatsappText(provBlock) {
         const fecha = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
         const lines = [];
@@ -7946,9 +7946,11 @@ App.trajes = {
         lines.push(provBlock.nombre);
         let total = 0;
         for (const t of provBlock.telas) {
+            const m = Number(t.confirmedM ?? t.roundedM) || 0;
+            if (m <= 0) continue;  // si Pilar puso 0, no aparece en el mensaje
             const sufijo = (provBlock.rounding === 50) ? ' (rollo)' : '';
-            lines.push(`• ${t.roundedM} m · ${t.tipo} / ${t.variante}${sufijo}`);
-            total += t.roundedM;
+            lines.push(`• ${m} m · ${t.tipo} / ${t.variante}${sufijo}`);
+            total += m;
         }
         lines.push('');
         lines.push(`Total: ${total} m`);
@@ -7968,33 +7970,50 @@ App.trajes = {
         const totalTrajes = provKeys.reduce((acc, k) => acc + desglose[k].trajeRowIndices.length, 0);
         if (subtitle) subtitle.textContent = `${totalTrajes} traje${totalTrajes !== 1 ? 's' : ''} agrupados en ${provKeys.length} proveedor${provKeys.length !== 1 ? 'es' : ''}`;
 
+        // Inicializar metros confirmados con el redondeo sugerido (Pilar puede editarlos)
+        for (const k of provKeys) {
+            for (const t of desglose[k].telas) {
+                t.confirmedM = t.roundedM;
+            }
+        }
+
         // Cache en memoria para que las acciones del modal lean el desglose actual
         this._pedidoActual = desglose;
 
         const blocks = provKeys.map(k => {
             const b = desglose[k];
-            const filas = b.telas.map(t =>
+            const escKey = k.replace(/'/g, "\\'");
+            const filas = b.telas.map((t, idx) =>
                 `<tr>
-                    <td style="padding:4px 8px; font-size:12px;"><strong>${t.tipo}</strong> / ${t.variante}</td>
-                    <td style="padding:4px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${t.count} traje${t.count !== 1 ? 's' : ''}</td>
-                    <td style="padding:4px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${Number(t.demanda.toFixed(2))} m demanda</td>
-                    <td style="padding:4px 8px; font-size:13px; font-weight:700; color:#c2185b; text-align:right;">${t.roundedM} m a pedir</td>
+                    <td style="padding:6px 8px; font-size:12px;"><strong>${t.tipo}</strong> / ${t.variante}</td>
+                    <td style="padding:6px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${t.count} traje${t.count !== 1 ? 's' : ''}</td>
+                    <td style="padding:6px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${Number(t.demanda.toFixed(2))} m demanda</td>
+                    <td style="padding:6px 8px; text-align:right;">
+                        <input type="number" min="0" step="${b.rounding === 50 ? 50 : 10}"
+                               value="${t.confirmedM}"
+                               style="width:74px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:13px; font-weight:700; color:#c2185b; text-align:right;"
+                               oninput="App.trajes._onPedidoMetrosInput('${escKey}', ${idx}, this.value)">
+                        <span style="font-size:11px; color:var(--text-muted);"> m</span>
+                    </td>
                 </tr>`
             ).join('');
-            const totalPedido = b.telas.reduce((s, t) => s + t.roundedM, 0);
-            const escKey = k.replace(/'/g, "\\'");
             const wa = this._buildWhatsappText(b);
-            // Usamos textarea para que el copy funcione bien en todos los navegadores
+            const totalPedido = b.telas.reduce((s, t) => s + (Number(t.confirmedM) || 0), 0);
             return `
-            <div class="card" style="padding:12px; margin-bottom:14px;">
+            <div class="card" style="padding:12px; margin-bottom:14px;" data-prov="${escKey}">
                 <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px;">
                     <strong style="font-size:14px;">${b.nombre}</strong>
-                    <span style="font-size:11px; color:var(--text-muted);">redondeo a múltiplos de ${b.rounding} m · total <strong style="color:#c2185b;">${totalPedido} m</strong></span>
+                    <span style="font-size:11px; color:var(--text-muted);">
+                        redondeo sugerido: múltiplos de ${b.rounding} m · total <strong style="color:#c2185b;" id="pedidoTotal-${escKey}">${totalPedido} m</strong>
+                    </span>
+                </div>
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">
+                    Edita los metros si quieres pedir más o menos. Pon <strong>0</strong> para excluir una tela del pedido.
                 </div>
                 <table style="width:100%; border-collapse:collapse; margin-bottom:10px;">${filas}</table>
                 <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px;">Mensaje listo para WhatsApp:</label>
                 <textarea readonly id="pedidoWA-${escKey}"
-                          style="width:100%; min-height:96px; font-family:monospace; font-size:12px; padding:8px; border:1px solid var(--border); border-radius:4px; resize:vertical;">${wa}</textarea>
+                          style="width:100%; min-height:110px; font-family:monospace; font-size:12px; padding:8px; border:1px solid var(--border); border-radius:4px; resize:vertical;">${wa}</textarea>
                 <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
                     <button class="btn btn-secondary btn-sm" onclick="App.trajes.copiarPedidoProveedor('${escKey}')">
                         📋 Copiar al portapapeles
@@ -8008,6 +8027,23 @@ App.trajes = {
         }).join('');
         content.innerHTML = blocks;
         document.getElementById('pedidoProveedorModal').classList.add('active');
+    },
+
+    /** Handler: input editable de metros por tela. Actualiza WhatsApp y total en vivo. */
+    _onPedidoMetrosInput(provKey, idx, value) {
+        const block = this._pedidoActual?.[provKey];
+        if (!block || !block.telas[idx]) return;
+        const m = Math.max(0, parseFloat(value) || 0);
+        block.telas[idx].confirmedM = m;
+        // Regenerar WhatsApp y total
+        const wa = this._buildWhatsappText(block);
+        const ta = document.getElementById(`pedidoWA-${provKey}`);
+        if (ta) ta.value = wa;
+        const totalEl = document.getElementById(`pedidoTotal-${provKey}`);
+        if (totalEl) {
+            const total = block.telas.reduce((s, t) => s + (Number(t.confirmedM) || 0), 0);
+            totalEl.textContent = `${total} m`;
+        }
     },
 
     cerrarPedidoProveedor() {
@@ -8030,16 +8066,28 @@ App.trajes = {
         }
     },
 
-    /** Marca todos los trajes del proveedor como TELA RECIBIDA = PEDIDA en batch. */
+    /** Marca todos los trajes del proveedor como TELA RECIBIDA = PEDIDA en batch
+     *  y registra un movimiento PEDIDO_PROVEEDOR por cada tela en MOVIMIENTOS. */
     async marcarProveedorComoPedida(provKey) {
         const block = this._pedidoActual?.[provKey];
         if (!block) return;
         const rowIndices = block.trajeRowIndices || [];
         if (!rowIndices.length) return;
 
+        // Filtrar las telas con metros confirmados > 0 (excluimos las que el usuario dejó a 0)
+        const telasConfirmadas = block.telas.filter(t => (Number(t.confirmedM) || 0) > 0);
+        if (!telasConfirmadas.length) {
+            App.toast.show('Has puesto 0 m en todas las telas. Nada que pedir.', 'warning', 5000);
+            return;
+        }
+
+        const totalM = telasConfirmadas.reduce((s, t) => s + Number(t.confirmedM), 0);
+        const trajesAfectados = new Set();
+        telasConfirmadas.forEach(t => t.trajeRowIndices.forEach(idx => trajesAfectados.add(idx)));
+
         const confirma = await App.ui.confirmDialog({
             title: '¿Marcar como PEDIDA?',
-            message: `Vas a marcar <strong>${rowIndices.length} traje${rowIndices.length !== 1 ? 's' : ''}</strong> de <strong>${block.nombre}</strong> como TELA RECIBIDA = PEDIDA. Desaparecerán de la bandeja "Pedir tela".`,
+            message: `Vas a registrar el pedido a <strong>${block.nombre}</strong> (<strong>${totalM} m</strong> en total) y marcar <strong>${trajesAfectados.size} traje${trajesAfectados.size !== 1 ? 's' : ''}</strong> como TELA RECIBIDA = PEDIDA. Desaparecerán de la bandeja "Pedir tela".`,
             actions: [
                 { label: '✅ Sí, marcar PEDIDA', value: 'ok',  style: 'primary' },
                 { label: 'Cancelar',             value: null, style: 'secondary' },
@@ -8055,24 +8103,55 @@ App.trajes = {
             const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
             const hdr = headers[0] || [];
             const idxTelaRec = hdr.indexOf('TELA RECIBIDA');
+            const idxNum     = hdr.indexOf('Nº');
             if (idxTelaRec < 0) throw new Error('Columna TELA RECIBIDA no encontrada en el LISTADO.');
             const colLetter = String.fromCharCode(65 + idxTelaRec);
 
-            const updates = rowIndices.map(rowIndex => ({
+            // 1. Update TELA RECIBIDA = PEDIDA en batch (LISTADO)
+            const trajesArr = [...trajesAfectados];
+            const updates = trajesArr.map(rowIndex => ({
                 range: `${tab}!${colLetter}${rowIndex}`,
                 values: [['PEDIDA']],
             }));
             await App.sheets.batchWriteRanges(sheetId, updates);
 
+            // 2. Registrar PEDIDO_PROVEEDOR en MOVIMIENTOS — una fila por tela
+            //    con la lista de trajes (CSV de Nº) que originaron el pedido.
+            //    Eso permite, cuando llegue uno de esos trajes a RECIBIDA, sumar
+            //    los metros al stock UNA SOLA VEZ.
+            const numByRow = new Map();
+            this.data.forEach(t => {
+                const n = (t[this.COL.num] || '').toString().trim();
+                if (n) numByRow.set(t._rowIndex, n);
+            });
+            const movimientos = telasConfirmadas.map(t => {
+                const trajesCSV = t.trajeRowIndices
+                    .map(idx => numByRow.get(idx)).filter(Boolean).join(',');
+                return {
+                    TIPO:           App.movimientos.TIPOS.PEDIDO,
+                    TELA_TIPO:      t.tipo,
+                    TELA_VARIANTE:  t.variante,
+                    METROS:         t.confirmedM,
+                    TRAJE_NUM:      trajesCSV,
+                    PROVEEDOR:      block.nombre,
+                    NOTAS:          `${t.count} traje${t.count !== 1 ? 's' : ''} · demanda ${Number(t.demanda.toFixed(2))} m`,
+                };
+            });
+            try { await App.movimientos.appendBatch(movimientos); }
+            catch (e) {
+                console.warn('[marcarProveedorComoPedida] No se pudieron registrar movimientos:', e.message);
+                App.toast.show('⚠ Pedido marcado pero no se pudo registrar en MOVIMIENTOS. Revisa el Sheet.', 'warning', 6000);
+            }
+
             // Actualizar caches en memoria
-            for (const rowIndex of rowIndices) {
+            for (const rowIndex of trajesArr) {
                 const t  = this.data.find(r => r._rowIndex === rowIndex);
                 const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
                 if (t)  t['TELA RECIBIDA']  = 'PEDIDA';
                 if (tc) tc['TELA RECIBIDA'] = 'PEDIDA';
             }
 
-            App.toast.show(`${rowIndices.length} traje${rowIndices.length !== 1 ? 's' : ''} marcado${rowIndices.length !== 1 ? 's' : ''} como PEDIDA`, 'success');
+            App.toast.show(`${trajesArr.length} traje${trajesArr.length !== 1 ? 's' : ''} marcado${trajesArr.length !== 1 ? 's' : ''} como PEDIDA · ${totalM} m registrados`, 'success');
             // Quitar el bloque del modal y refrescar lista
             delete this._pedidoActual[provKey];
             const remaining = Object.keys(this._pedidoActual || {});
@@ -11192,6 +11271,59 @@ App.corte = {
         w.document.write(printHtml);
         w.document.close();
         w.addEventListener('load', () => { w.focus(); w.print(); });
+    },
+};
+
+/* ==========================================================
+   MOVIMIENTOS — log de cambios de stock por evento del flujo
+   Cada operación que afecta al stock (PEDIDO al proveedor, RECEPCION
+   de tela, CONSUMO al cortar, AJUSTE manual, REVERSO al deshacer)
+   crea una fila en la pestaña MOVIMIENTOS del Sheet ESCANDALLOS_<NOMBRE>.
+   Sirve para auditoría y para deshacer estados.
+   ========================================================== */
+App.movimientos = {
+    HEADERS: ['FECHA','TIPO','TELA_TIPO','TELA_VARIANTE','METROS','TRAJE_NUM','PROVEEDOR','USUARIO','NOTAS'],
+    TAB: 'MOVIMIENTOS',
+
+    /** Tipos válidos. Mantener sincronizado si se añade alguno. */
+    TIPOS: {
+        PEDIDO:   'PEDIDO_PROVEEDOR',  // se ha pedido tela al proveedor (no afecta stock)
+        RECEPCION:'RECEPCION',         // ha llegado tela del proveedor (suma stock)
+        CONSUMO:  'CONSUMO_TRAJE',     // el cortador ha cortado un traje (resta stock)
+        AJUSTE:   'AJUSTE_MANUAL',     // Pilar editó stock a mano (delta)
+        REVERSO:  'REVERSO',           // se deshizo un movimiento previo
+    },
+
+    /** Construye una fila a partir de un objeto movimiento. */
+    _toRow(m) {
+        return [
+            m.FECHA          || new Date().toISOString().slice(0, 16).replace('T', ' '),
+            m.TIPO           || '',
+            m.TELA_TIPO      || '',
+            m.TELA_VARIANTE  || '',
+            (m.METROS != null ? String(m.METROS) : ''),
+            m.TRAJE_NUM      || '',
+            m.PROVEEDOR      || '',
+            m.USUARIO        || (App.user?.name || ''),
+            m.NOTAS          || '',
+        ];
+    },
+
+    /** Append de un solo movimiento. */
+    async append(m) {
+        return this.appendBatch([m]);
+    },
+
+    /** Append en batch de varios movimientos en una sola llamada API. */
+    async appendBatch(movimientos) {
+        if (!movimientos || !movimientos.length) return;
+        const sheetId = App.settings.get('escandallosId');
+        if (!sheetId) {
+            console.warn('[movimientos] No hay ESCANDALLOS_ID configurado — no se registran movimientos.');
+            return;
+        }
+        const rows = movimientos.map(m => this._toRow(m));
+        await App.sheets.appendRows(sheetId, `${this.TAB}!A:I`, rows);
     },
 };
 
