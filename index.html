@@ -1702,6 +1702,14 @@
                 <span class="nav-icon">&#x2702;&#xFE0F;</span>
                 <span class="nav-label">Corte</span>
             </div>
+            <div class="nav-item nav-item-primary" data-section="pedidos" onclick="App.ui.navigateTo('pedidos')">
+                <span class="nav-icon">&#x1F4E5;</span>
+                <span class="nav-label">Pedidos</span>
+            </div>
+            <div class="nav-item nav-item-primary" data-section="jose" onclick="App.ui.navigateTo('jose')">
+                <span class="nav-icon">&#x1F69A;</span>
+                <span class="nav-label">Jose</span>
+            </div>
 
             <div class="nav-group-label">Herramientas</div>
             <div class="nav-item" data-section="modelos" onclick="App.ui.navigateTo('modelos')">
@@ -2718,6 +2726,105 @@
                 </div>
             </div>
 
+            <!-- SECTION: Jose (logística entre cortador y talleres) -->
+            <div class="section" id="sec-jose">
+
+                <!-- Bandejas -->
+                <div class="card" style="margin-bottom:16px; padding:8px;">
+                    <div id="joseBandejas" style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <button class="bandeja active" data-bandeja="cortador" onclick="App.jose.setBandeja('cortador')">
+                            &#x1F4E5; Recoger del cortador <span class="bandeja-count" id="joseCountCortador">0</span>
+                        </button>
+                        <button class="bandeja" data-bandeja="llevar" onclick="App.jose.setBandeja('llevar')">
+                            &#x1F69B; Llevar al taller <span class="bandeja-count" id="joseCountLlevar">0</span>
+                        </button>
+                        <button class="bandeja" data-bandeja="recoger" onclick="App.jose.setBandeja('recoger')">
+                            &#x1F4E6; Recoger del taller <span class="bandeja-count" id="joseCountRecoger">0</span>
+                        </button>
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.jose.load(true)"
+                                    title="Recargar datos desde Google Sheets">
+                                &#x21BB; Actualizar
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="joseSubtitle"></div>
+                </div>
+
+                <!-- Contenido -->
+                <div id="joseContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+            </div>
+
+            <!-- JOSE FICHA MODAL — info clave del traje + clienta para Jose -->
+            <div class="modal-overlay" id="joseFichaModal">
+                <div class="modal" style="max-width:560px; width:95%;">
+                    <h2 id="joseFichaTitle" style="margin-bottom:6px;">Ficha del traje</h2>
+                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;" id="joseFichaSubtitle"></div>
+                    <div id="joseFichaBody" style="font-size:13px; line-height:1.55;"></div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="App.jose.closeFicha()">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Pedidos a proveedor (lista persistente + recepción) -->
+            <div class="section" id="sec-pedidos">
+
+                <!-- Filtros -->
+                <div class="card" style="margin-bottom:16px; padding:8px;">
+                    <div id="pedidosFiltros" style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <button class="bandeja active" data-pfiltro="pendientes" onclick="App.pedidos.setFiltro('pendientes')">
+                            &#x23F3; Pendientes <span class="bandeja-count" id="pedidosCountPend">0</span>
+                        </button>
+                        <button class="bandeja" data-pfiltro="parciales" onclick="App.pedidos.setFiltro('parciales')">
+                            &#x21BB; Parciales <span class="bandeja-count" id="pedidosCountParc">0</span>
+                        </button>
+                        <button class="bandeja" data-pfiltro="recibidos" onclick="App.pedidos.setFiltro('recibidos')">
+                            &check; Recibidos <span class="bandeja-count" id="pedidosCountRec">0</span>
+                        </button>
+                        <button class="bandeja" data-pfiltro="todos" onclick="App.pedidos.setFiltro('todos')">
+                            Todos <span class="bandeja-count" id="pedidosCountTodos">0</span>
+                        </button>
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.pedidos.load(true)"
+                                    title="Recargar movimientos">
+                                &#x21BB; Actualizar
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="pedidosSubtitle"></div>
+                </div>
+
+                <!-- Contenido -->
+                <div id="pedidosContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+            </div>
+
+            <!-- PEDIDOS RECEPCION MODAL — registrar metros recibidos -->
+            <div class="modal-overlay" id="pedidoRecepcionModal">
+                <div class="modal" style="max-width:480px; width:95%;">
+                    <h2 id="pedidoRecepcionTitle">Registrar recepción</h2>
+                    <div style="font-size:13px; line-height:1.5;" id="pedidoRecepcionInfo"></div>
+                    <div class="form-group" style="margin-top:14px;">
+                        <label>Metros recibidos *</label>
+                        <input type="number" step="0.5" min="0" class="form-input"
+                               id="pedidoRecepcionMetros" placeholder="0">
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;"
+                             id="pedidoRecepcionHint"></div>
+                    </div>
+                    <input type="hidden" id="pedidoRecepcionId">
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="App.pedidos.closeModal()">Cancelar</button>
+                        <button class="btn btn-primary" onclick="App.pedidos.registrarRecepcion()" id="btnPedidoRecepcionSave">
+                            &check; Confirmar recepción
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- SECTION: Modelos (catálogo + escandallos) -->
             <div class="section" id="sec-modelos">
 
@@ -2898,25 +3005,23 @@
                     <div style="margin-top:8px; line-height:1.6;">
                         <strong>Cuándo cambia el stock automáticamente:</strong>
                         <ul style="margin:4px 0 8px 18px; padding:0;">
-                            <li>Al marcar un traje como <strong>TELA RECIBIDA = RECIBIDA</strong> → se <strong>suma</strong> al stock lo que se pidió en el pedido al proveedor.</li>
-                            <li>Al marcar un traje como <strong>CORTE = RECOGIDO</strong> → se <strong>resta</strong> del stock lo consumido al cortar.</li>
-                            <li>Si deshaces un estado, la app revierte el movimiento automáticamente (devuelve los metros al stock o los vuelve a quitar).</li>
+                            <li>Al confirmar una recepción desde la sección <strong>Pedidos</strong> (botón "He recibido X m") → se <strong>suma</strong> al stock lo que se ha recibido. Soporta recepciones parciales: se puede sumar varias veces sobre el mismo pedido hasta cubrirlo.</li>
+                            <li>Al marcar un traje como <strong>TELA RECIBIDA = RECIBIDA</strong> → se <strong>resta</strong> del stock el escandallo del modelo (o los metros del lote completo si la tela es "por traje"). El stock que ves es el realmente disponible para nuevos trajes.</li>
+                            <li>Si deshaces TELA RECIBIDA, la app suma de vuelta los metros al stock.</li>
+                            <li>El estado <strong>CORTE = RECOGIDO</strong> ya no toca el stock — el consumo se contabiliza al RECIBIDA del traje.</li>
                         </ul>
 
-                        <strong>Una RECEPCION por pedido, no por traje:</strong>
-                        Si un pedido tiene varios trajes, el stock se suma <strong>una sola vez</strong> (cuando llega el primero a RECIBIDA). Los demás trajes no añaden al stock — la tela ya está contada. Y solo se revierte el stock si <strong>todos</strong> los trajes del pedido salen de RECIBIDA.
-
-                        <p style="margin:8px 0 4px;"><strong>Cuántos metros se descuentan al cortar — depende de la <code>UNIDAD_PEDIDO_M</code> de la tela:</strong></p>
+                        <p style="margin:8px 0 4px;"><strong>Cuántos metros se restan al asignar la tela — según la <code>UNIDAD_PEDIDO_M</code> de la tela:</strong></p>
                         <ul style="margin:4px 0 8px 18px; padding:0;">
-                            <li><strong>Unidad ≤ 10 m</strong> (telas tipo Flamentex, "por traje") → si hay pedido asociado, se descuentan los <strong>metros del pedido completos</strong>. El sobrante del lote (los 2 m que sobran de cada 10) se descarta automáticamente.</li>
-                            <li><strong>Unidad ≥ 50 m</strong> (telas tipo TELATER, "por rollo") → se descuenta el <strong>escandallo del modelo</strong>. El stock va bajando con cada corte hasta que el rollo se agota.</li>
-                            <li><strong>Unidad vacía</strong> → se descuenta el escandallo y la app no aplica reglas de retal.</li>
+                            <li><strong>Unidad ≤ 10 m</strong> (telas tipo Flamentex, "por traje") → si hay pedido asociado, se restan los <strong>metros del pedido completos</strong>. El sobrante del lote (los 2 m que sobran de cada 10) se descarta automáticamente.</li>
+                            <li><strong>Unidad ≥ 50 m</strong> (telas tipo TELATER, "por rollo") → se resta el <strong>escandallo del modelo</strong>. El rollo del stock va bajando con cada traje asignado.</li>
+                            <li><strong>Unidad vacía</strong> → se resta el escandallo y la app no aplica reglas de retal.</li>
                         </ul>
 
                         <p style="margin:8px 0 4px;"><strong>Detección automática de retales:</strong></p>
                         <ul style="margin:4px 0 8px 18px; padding:0;">
-                            <li>Tras cada movimiento de stock, la app comprueba si <code>stock % unidad</code> es un valor pequeño (≤ 6 m). Si lo es, ese sobrante es un <strong>retal candidato a descartar</strong> (no es aprovechable para otro traje grande).</li>
-                            <li>Aparece un modal preguntando "¿Descartar retal?" con default <strong>Sí</strong>. Por ejemplo: stock 52 m con unidad 50 m → "tienes 1 rollo entero + retal de 2 m, ¿descartar 2 m?".</li>
+                            <li>Tras cada movimiento de stock, la app comprueba si <code>stock % unidad</code> es un valor pequeño (≤ 6 m). Si lo es, ese sobrante es un <strong>retal candidato a descartar</strong>.</li>
+                            <li>Aparece un modal preguntando "¿Descartar retal?" con default <strong>Sí</strong>.</li>
                             <li>Si por lo que sea se cuela algún retal sin descartar, aparece un <strong>banner amarillo</strong> arriba de la tabla con la lista de telas pendientes y un botón rápido para limpiarlas.</li>
                         </ul>
 
@@ -3189,6 +3294,10 @@
             <span class="bottom-nav-icon">&#x2702;&#xFE0F;</span>
             <span>Corte</span>
         </button>
+        <button class="bottom-nav-item" data-section="jose" onclick="App.ui.navigateTo('jose')" type="button">
+            <span class="bottom-nav-icon">&#x1F69A;</span>
+            <span>Jose</span>
+        </button>
         <button class="bottom-nav-item" onclick="App.ui.toggleSidebar()" type="button" aria-label="Abrir m&aacute;s opciones">
             <span class="bottom-nav-icon">&#x2630;</span>
             <span>M&aacute;s</span>
@@ -3231,6 +3340,11 @@ const CONFIG = {
     // Umbral de retal: si después de un movimiento de stock,
     // (stock % UNIDAD_PEDIDO_M) cae en (0, RETAL_UMBRAL_M], se ofrece descartar el retal.
     RETAL_UMBRAL_M: 6,
+    // Emails Google (lowercase) restringidos a la sección "Jose": logística entre cortador y talleres.
+    // Estos usuarios solo verán esa sección — el resto del menú queda oculto.
+    JOSE_EMAILS: [
+        // Pega aquí el email Google de Jose, p. ej.: 'jose.padre@gmail.com'
+    ],
     TALLERES: ['BRENES','BALDOMERO','ROCIO','CARO','ALISON','NIDIA','GLADIS','TRIANGULO','ALVARO','DOLORES','YEYE','TALLER'],
     ESTADOS_CORTE: ['PENDIENTE','ENVIADO','RECOGIDO','INCIDENCIA'],
     ESTADOS_TRAJE: ['PENDIENTE','RECIBIDO'],
@@ -3287,6 +3401,15 @@ const App = {
     token: null,      // OAuth2 access token
     user: null,       // {name, email}
     tokenClient: null, // GIS token client
+
+    /** True si el email del usuario actual está en CONFIG.JOSE_EMAILS. */
+    isJose() {
+        const email = (this.user?.email || '').toLowerCase().trim();
+        if (!email) return false;
+        return (CONFIG.JOSE_EMAILS || []).map(e => e.toLowerCase().trim()).includes(email);
+    },
+    /** True si el usuario actual NO está restringido (ve toda la app). */
+    isAdmin() { return !this.isJose(); },
 
     /* -------------------------------------------------------
        AUTH — Google OAuth2 via GIS
@@ -3458,6 +3581,8 @@ const App = {
             document.getElementById('appContainer').classList.add('active');
             document.getElementById('sidebarUser').textContent = App.user.name;
             App.ui.setConnection('online');
+            // Aplicar restricciones de UI según el rol (Jose ve solo su sección)
+            if (App.ui.applyRolePermissions) App.ui.applyRolePermissions();
 
             // Load seasons BEFORE reading any per-season value; safe no-op if no configsFolderId
             try {
@@ -6223,6 +6348,8 @@ const App = {
             clientas:   { title: 'Fichas',            subtitle: 'Fichas de clientas' },
             trajes:     { title: 'Trajes',            subtitle: 'Seguimiento de produccion' },
             corte:      { title: 'Corte',             subtitle: 'Orden de corte por modelo' },
+            pedidos:    { title: 'Pedidos',           subtitle: 'Pedidos a proveedor — recepción y stock' },
+            jose:       { title: 'Jose',              subtitle: 'Logística entre cortador y talleres' },
             modelos:    { title: 'Modelos',           subtitle: 'Catálogo y escandallos' },
             telas:      { title: 'Telas',             subtitle: 'Catálogo y stock' },
             talleres:   { title: 'Vista por taller',  subtitle: 'Distribucion por taller' },
@@ -6230,6 +6357,10 @@ const App = {
         },
 
         navigateTo(sectionId) {
+            // Si el usuario está restringido (Jose), forzar la sección "jose"
+            if (App.isJose && App.isJose() && sectionId !== 'jose') {
+                sectionId = 'jose';
+            }
             // Update sidebar
             document.querySelectorAll('.nav-item').forEach(el => {
                 el.classList.toggle('active', el.dataset.section === sectionId);
@@ -6250,6 +6381,57 @@ const App = {
             document.querySelector('.content-body').scrollTop = 0;
             // En móvil, cerrar el sidebar al navegar
             this.closeSidebar();
+            // Auto-load de la sección Jose
+            if (sectionId === 'jose' && App.jose && typeof App.jose.load === 'function') {
+                App.jose.load().catch(e => console.warn('[jose.load]', e.message));
+            }
+            // Auto-load de la sección Pedidos
+            if (sectionId === 'pedidos' && App.pedidos && typeof App.pedidos.load === 'function') {
+                App.pedidos.load().catch(e => console.warn('[pedidos.load]', e.message));
+            }
+        },
+
+        /** Aplica restricciones de UI según el rol (admin vs Jose).
+         *  Si el usuario es Jose, oculta todas las secciones de menú menos la suya
+         *  y se asegura de que la sección activa sea "jose". */
+        applyRolePermissions() {
+            const isJose = App.isJose && App.isJose();
+            const allowed = new Set(['jose']);
+            // Sidebar nav-items: ocultar las que no estén permitidas
+            document.querySelectorAll('.nav-item[data-section]').forEach(el => {
+                const sec = el.dataset.section;
+                el.style.display = (!isJose || allowed.has(sec)) ? '' : 'none';
+            });
+            // Si todos los nav-group-label se quedan sin items visibles, ocultarlos también
+            document.querySelectorAll('.nav-group-label').forEach(label => {
+                let next = label.nextElementSibling;
+                let anyVisible = false;
+                while (next && !next.classList.contains('nav-group-label')) {
+                    if (next.classList.contains('nav-item') && next.style.display !== 'none') {
+                        anyVisible = true;
+                        break;
+                    }
+                    next = next.nextElementSibling;
+                }
+                label.style.display = anyVisible ? '' : 'none';
+            });
+            // Bottom nav: ocultar items que no sean Jose, y el botón "Más" (no debería abrir el sidebar)
+            document.querySelectorAll('.bottom-nav-item').forEach(el => {
+                const sec = el.dataset.section;
+                if (sec) {
+                    el.style.display = (!isJose || allowed.has(sec)) ? '' : 'none';
+                } else if (isJose) {
+                    // Botón "Más" — para Jose no tiene sentido (no hay más secciones)
+                    el.style.display = 'none';
+                }
+            });
+            // Si es Jose y la sección activa no es "jose", redirigir
+            if (isJose) {
+                const activeSec = document.querySelector('.section.active');
+                if (!activeSec || activeSec.id !== 'sec-jose') {
+                    this.navigateTo('jose');
+                }
+            }
         },
 
         // ── Sidebar móvil ──────────────────────────────────────────────────
@@ -8256,7 +8438,10 @@ App.trajes = {
             message:
                 `Vas a marcar <strong>${trajes.length} traje${trajes.length !== 1 ? 's' : ''}</strong> (${trajesLabel}) ` +
                 `como <strong>TELA RECIBIDA = RECIBIDA</strong>.<br><br>` +
-                `Esto sumará <strong>${pedido.METROS} m</strong> al stock de <strong>${pedido.TELA_TIPO} / ${pedido.TELA_VARIANTE}</strong>.`,
+                `Esto <strong>restará del stock</strong> de <strong>${pedido.TELA_TIPO} / ${pedido.TELA_VARIANTE}</strong> ` +
+                `los metros del escandallo (o del lote si la tela es "por traje") por cada traje.<br><br>` +
+                `<span style="font-size:11px; color:#7c3a00;">⚠️ La <strong>recepción del pedido</strong> ` +
+                `(suma al stock) se hace desde la sección <strong>Pedidos</strong>. Asegúrate de haberla registrado antes.</span>`,
             actions: [
                 { label: '✅ Sí, marcar recibida', value: 'ok',  style: 'primary' },
                 { label: 'Cancelar',                value: null, style: 'secondary' },
@@ -10111,60 +10296,60 @@ App.trajes = {
         const umbral = parseFloat(tela.UMBRAL_ALERTA);
         const proveedor = tela.PROVEEDOR || 'sin proveedor asignado';
 
-        let bg, fg, icon, summary, detail;
+        // Pendiente de recibir de pedidos en curso para esta tela (si App.pedidos está cargado)
+        const pendienteRec = (App.pedidos && typeof App.pedidos.pendienteRecepcion === 'function')
+            ? App.pedidos.pendienteRecepcion(tipo, variante)
+            : 0;
+
+        // Calcular estado y métricas (entry agregado o fallback per-traje)
+        let status, demanda, restante, faltan, count, otros;
         if (entry) {
-            // Caso normal: cálculo agregado
-            const demanda = entry.demanda;
-            const restante = entry.stock - demanda;
-            const otros = Math.max(0, entry.count - 1);
-            const otrosLabel = otros === 0
-                ? 'solo este traje'
-                : `${entry.count} trajes pendientes (este + ${otros} más)`;
-            if (entry.status === 'falta') {
-                bg = '#ffebee'; fg = '#b71c1c'; icon = '⚠️ Faltan tela';
-                detail = `Demanda total <strong>${fmt(demanda)} m</strong> entre ${otrosLabel} > stock ${fmt(entry.stock)} m. ` +
-                         `Pide al menos <strong>${fmt(entry.faltan)} m</strong> al proveedor (${proveedor}).`;
-            } else if (entry.status === 'umbral') {
-                bg = '#fff8e1'; fg = '#7c3a00'; icon = '🔻 Atención';
-                detail = `Demanda total <strong>${fmt(demanda)} m</strong> entre ${otrosLabel}. ` +
-                         `Tras todos quedarán <strong>${fmt(restante)} m</strong>, por debajo del umbral (${fmt(entry.umbral)} m). ` +
-                         `Considera pedir al proveedor (${proveedor}).`;
-            } else {
-                bg = '#e8f5e9'; fg = '#1b5e20'; icon = '✅ OK';
-                detail = `Demanda total <strong>${fmt(demanda)} m</strong> entre ${otrosLabel}. ` +
-                         `Tras todos quedarán <strong>${fmt(restante)} m</strong>.`;
-            }
-            summary =
-                `Stock: <strong>${fmt(entry.stock)} m</strong> &nbsp;·&nbsp; ` +
-                `Demanda total: <strong>${fmt(demanda)} m</strong>` +
-                (!isNaN(entry.umbral) ? ` &nbsp;·&nbsp; Umbral: ${fmt(entry.umbral)} m` : '') +
-                ` &nbsp;·&nbsp; Este traje: ${fmt(necesita)} m`;
+            status = entry.status;
+            demanda = entry.demanda;
+            restante = entry.stock - demanda;
+            faltan = entry.faltan || 0;
+            count = entry.count || 1;
+            otros = Math.max(0, count - 1);
         } else {
-            // Fallback: per-traje (debería ser raro)
-            const restante = (isNaN(stock) ? 0 : stock) - necesita;
-            const porPedir = Math.max(0, necesita - (isNaN(stock) ? 0 : stock));
-            if (restante < 0) {
-                bg = '#ffebee'; fg = '#b71c1c'; icon = '⚠️ Faltan tela';
-                detail = `No hay suficiente para este traje. Pide al menos <strong>${fmt(porPedir)} m</strong> al proveedor (${proveedor}).`;
-            } else if (!isNaN(umbral) && restante < umbral) {
-                bg = '#fff8e1'; fg = '#7c3a00'; icon = '🔻 Atención';
-                detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>, por debajo del umbral (${fmt(umbral)} m).`;
-            } else {
-                bg = '#e8f5e9'; fg = '#1b5e20'; icon = '✅ OK';
-                detail = `Tras este traje quedarán <strong>${fmt(restante)} m</strong>.`;
-            }
-            summary =
-                `Stock: <strong>${isNaN(stock) ? '?' : fmt(stock)} m</strong> &nbsp;·&nbsp; ` +
-                `Necesita: <strong>${fmt(necesita)} m</strong>` +
-                (umbral && !isNaN(umbral) ? ` &nbsp;·&nbsp; Umbral: ${fmt(umbral)} m` : '');
+            // Fallback per-traje cuando no hay agregado disponible
+            const stockNum = isNaN(stock) ? 0 : stock;
+            demanda  = necesita;
+            restante = stockNum - necesita;
+            faltan   = Math.max(0, necesita - stockNum);
+            count = 1; otros = 0;
+            if (restante < 0) status = 'falta';
+            else if (!isNaN(umbral) && restante < umbral) status = 'umbral';
+            else status = 'ok';
         }
+
+        // SOLO mostramos el aviso si hay alerta (límite/negativo). Si todo OK, nada de banner.
+        if (status === 'ok') return hide();
+
+        const otrosLabel = otros === 0
+            ? 'este traje'
+            : `${count} trajes pendientes (este + ${otros} más)`;
+
+        let bg, fg, icon, mensaje;
+        if (status === 'falta') {
+            bg = '#ffebee'; fg = '#b71c1c'; icon = '⚠️ Sin tela suficiente';
+            mensaje = `Esta tela no llega para ${otrosLabel}. Faltarían <strong>${fmt(faltan)} m</strong>.` +
+                      ` <br>Habla con Pilar antes de seguir adelante con este traje — quizás haya que pedir más urgente o cambiar de tela.`;
+        } else { // umbral
+            bg = '#fff8e1'; fg = '#7c3a00'; icon = '🔻 Tela al límite';
+            mensaje = `Quedan justo <strong>${fmt(restante)} m</strong> tras ${otrosLabel}` +
+                      (!isNaN(entry?.umbral) ? ` (por debajo del umbral ${fmt(entry.umbral)} m)` : '') + `.` +
+                      ` <br>Pregunta a Pilar si conviene seguir o pedir más al proveedor (${proveedor}).`;
+        }
+
+        const pendienteMsg = pendienteRec > 0.001
+            ? `<br><span style="font-size:11px; opacity:0.85;">ℹ️ Hay ${fmt(pendienteRec)} m en camino (pedido pendiente de recibir).</span>`
+            : '';
 
         banner.style.display = 'block';
         banner.style.background = bg;
         banner.style.color = fg;
         banner.innerHTML =
-            `<strong>${icon}</strong> &nbsp;${summary}` +
-            `<br><span style="font-size:11px;">${detail}</span>`;
+            `<strong>${icon}</strong> ${mensaje}${pendienteMsg}`;
     },
 
     // -------- Editar traje --------
@@ -10226,6 +10411,11 @@ App.trajes = {
         if (App.telas && App.telas._data.length === 0) {
             App.telas.load().then(refreshAfterLoad)
                 .catch(e => console.warn('[showEditModal] App.telas.load:', e.message));
+        }
+        // Cargar pedidos en background para que el banner pueda mencionar lo que está en camino
+        if (App.pedidos && App.pedidos._data.length === 0) {
+            App.pedidos.load().then(refreshAfterLoad)
+                .catch(e => console.warn('[showEditModal] App.pedidos.load:', e.message));
         }
         // Combobox: idempotente — no duplica decoradores si ya están attached
         this._attachEditModalComboboxes();
@@ -10760,23 +10950,21 @@ App.trajes = {
 
         let tocoStock = false;
 
-        // ── Transiciones de TELA RECIBIDA ─────────────────────────────────────
+        // ── Transiciones de TELA RECIBIDA (semántica nueva) ───────────────────
+        // RECIBIDA del traje resta del stock (consumo del escandallo o lote).
+        // La SUMA al stock se hace ahora desde la sección "Pedidos a proveedor"
+        // (App.pedidos.registrarRecepcion), no aquí.
         const oldTela = (antes['TELA RECIBIDA']  || '').toUpperCase().trim();
         const newTela = (despues['TELA RECIBIDA']|| '').toUpperCase().trim();
         if (newTela === 'RECIBIDA' && oldTela !== 'RECIBIDA') {
-            if (await this._stockSumaPorRecepcion(ctx)) tocoStock = true;
+            if (await this._stockRestaPorConsumo(ctx)) tocoStock = true;
         } else if (oldTela === 'RECIBIDA' && newTela !== 'RECIBIDA') {
-            if (await this._stockReversoRecepcion(ctx)) tocoStock = true;
+            if (await this._stockReversoConsumo(ctx)) tocoStock = true;
         }
 
         // ── Transiciones de CORTE ─────────────────────────────────────────────
-        const oldCorte = (antes['CORTE'] || '').toUpperCase().trim();
-        const newCorte = (despues['CORTE']|| '').toUpperCase().trim();
-        if (newCorte === 'RECOGIDO' && oldCorte !== 'RECOGIDO') {
-            if (await this._stockRestaPorConsumo(ctx)) tocoStock = true;
-        } else if (oldCorte === 'RECOGIDO' && newCorte !== 'RECOGIDO') {
-            if (await this._stockReversoConsumo(ctx)) tocoStock = true;
-        }
+        // CORTE = RECOGIDO ya NO toca el stock. El consumo se hace al RECIBIDA del traje.
+        // Se mantienen las fechas FECHA ENVIADO CORTE / FECHA RECOGIDO CORTE para timeline.
 
         return tocoStock;
     },
@@ -10923,13 +11111,13 @@ App.trajes = {
             notaExtra = ` · retal de ${fmt(sobrante)} m del lote descartado (regla por-traje, unidad ${fmt(unidad)} m)`;
         }
 
-        // ── Aviso al cortar (informativo, sin decisión) ───────────────────────
+        // ── Aviso al asignar tela al traje (RECIBIDA = RECIBIDA) ───────────
         const baseMsg =
-            `Has cortado el traje <strong>Nº&nbsp;${numTraje}</strong> (modelo <strong>${modelo.NOMBRE}</strong>).<br><br>` +
+            `Tela <strong>recibida</strong> para el traje <strong>Nº&nbsp;${numTraje}</strong> (modelo <strong>${modelo.NOMBRE}</strong>).<br><br>` +
             (metrosPorTraje != null
                 ? `· Pedido para este traje: <strong>${fmt(metrosPorTraje)} m</strong> de <strong>${tipo} / ${variante}</strong>` +
                   (proveedor ? ` a <strong>${proveedor}</strong>` : '') + `.<br>`
-                : `· Tela: <strong>${tipo} / ${variante}</strong> (sin pedido previo registrado, consumiendo de stock libre).<br>`) +
+                : `· Tela: <strong>${tipo} / ${variante}</strong> (sin pedido asociado, consumiendo de stock libre).<br>`) +
             `· Escandallo del modelo: <strong>${fmt(escandallo)} m</strong>.`;
 
         const consumoMsg = esPorTraje
@@ -10939,7 +11127,7 @@ App.trajes = {
               (unidad >= 50 ? ` (rollo de ${fmt(unidad)} m).` : '.');
 
         await App.ui.confirmDialog({
-            title: '✂️ Corte registrado',
+            title: '📥 Tela asignada al traje',
             message: baseMsg + consumoMsg,
             actions: [{ label: '✅ Entendido', value: 'ok', style: 'primary' }],
         });
@@ -10960,20 +11148,20 @@ App.trajes = {
             NOTAS:          `[CON:${consumoId}] consumo ${metrosAConsumir} m del modelo ${modelo.NOMBRE} (escandallo ${escandallo} m, nuevo: ${nuevoStock} m)${notaExtra}`,
         });
         App.toast.show(
-            `<strong>Consumo registrado</strong><br>−${metrosAConsumir} m de <strong>${tipo}/${variante}</strong> (corte del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>${notaExtra ? '<br><span style="font-size:11px; opacity:0.85;">' + notaExtra.replace(/^ · /, '') + '</span>' : ''}`,
+            `<strong>Consumo registrado</strong><br>−${metrosAConsumir} m de <strong>${tipo}/${variante}</strong> (asignado al traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>${notaExtra ? '<br><span style="font-size:11px; opacity:0.85;">' + notaExtra.replace(/^ · /, '') + '</span>' : ''}`,
             'warning', 0
         );
 
         // Tras consumir, comprobar si quedó retal de rollo (stock % unidad ∈ (0, UMBRAL])
-        await App.telas._gestionarRetalCandidato(tipo, variante, 'corte de traje ' + numTraje);
+        await App.telas._gestionarRetalCandidato(tipo, variante, 'asignación a traje ' + numTraje);
         return true;
     },
 
-    /** REVERSO de CONSUMO_TRAJE: cuando se deshace CORTE = RECOGIDO. */
+    /** REVERSO de CONSUMO_TRAJE: cuando se deshace TELA RECIBIDA. Devuelve los metros al stock. */
     async _stockReversoConsumo({ tipo, variante, numTraje }) {
         const consumo = await App.movimientos.findOpenConsumo(tipo, variante, numTraje);
         if (!consumo) {
-            console.info(`[stock] Traje ${numTraje} sale de RECOGIDO pero no hay CONSUMO vivo — sin acción.`);
+            console.info(`[stock] Traje ${numTraje} sale de RECIBIDA pero no hay CONSUMO vivo — sin acción.`);
             return false;
         }
         // METROS del consumo es negativo (lo guardamos así). Para revertir, sumamos el valor absoluto.
@@ -10987,10 +11175,10 @@ App.trajes = {
             METROS:         +metrosAbs,
             TRAJE_NUM:      numTraje,
             PROVEEDOR:      consumo.PROVEEDOR,
-            NOTAS:          `[REF:${consumo.consumoId}] reverso consumo · +${metrosAbs} m al stock (nuevo: ${nuevoStock} m) · CORTE deshecho del traje ${numTraje}`,
+            NOTAS:          `[REF:${consumo.consumoId}] reverso consumo · +${metrosAbs} m al stock (nuevo: ${nuevoStock} m) · TELA RECIBIDA deshecha del traje ${numTraje}`,
         });
         App.toast.show(
-            `<strong>Revertido consumo</strong><br>+${metrosAbs} m de <strong>${tipo}/${variante}</strong> (CORTE deshecho del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
+            `<strong>Revertido consumo</strong><br>+${metrosAbs} m de <strong>${tipo}/${variante}</strong> (TELA RECIBIDA deshecha del traje ${numTraje})<br>Nuevo stock: <strong>${nuevoStock} m</strong>`,
             'warning', 0
         );
         return true;
@@ -12972,6 +13160,767 @@ App.modelos = {
             if (btn) { btn.disabled = false; btn.textContent = originalText || '📷 Subir foto'; }
             // Reset input para que el usuario pueda volver a elegir el mismo archivo si quiere
             if (fileInput) fileInput.value = '';
+        }
+    },
+};
+
+/* ==========================================================
+   JOSE — Logística entre cortador y talleres.
+   Tres bandejas: recoger del cortador, llevar al taller, recoger del taller.
+   Reutiliza el cache de App.trajes (LISTADO TRAJES) y App.modelos (escandallos).
+   ========================================================== */
+App.jose = {
+    _bandeja: 'cortador',  // cortador | llevar | recoger
+
+    async load(forceRefresh = false) {
+        const cont = document.getElementById('joseContent');
+        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando…</p></div>';
+        try {
+            // App.trajes.load se encarga de leer LISTADO con cache de 5min
+            if (forceRefresh || !App.trajes?.data?.length) {
+                await App.trajes.load(forceRefresh);
+            }
+            // Cargar modelos y telas si aún no — necesarios para la ficha
+            if (App.modelos && !App.modelos._data?.length) {
+                await App.modelos.load().catch(()=>{});
+            }
+            if (App.telas && !App.telas._data?.length) {
+                await App.telas.load().catch(()=>{});
+            }
+            this.filter();
+        } catch (err) {
+            console.error('[jose.load]', err);
+            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
+        }
+    },
+
+    setBandeja(name) {
+        this._bandeja = name || 'cortador';
+        document.querySelectorAll('#joseBandejas .bandeja').forEach(el => {
+            el.classList.toggle('active', el.dataset.bandeja === this._bandeja);
+        });
+        this.filter();
+    },
+
+    /** Tres listas de trajes según fase. */
+    _calcLists() {
+        const COL = App.trajes.COL;
+        const all = App.trajes.data || [];
+        const cortador = [];
+        const llevar = [];
+        const recoger = [];
+        for (const t of all) {
+            const corte     = (t[COL.corte]          || '').toUpperCase().trim();
+            const taller    = (t[COL.taller]         || '').trim();
+            const recibido  = (t[COL.trajeRecibido]  || '').toUpperCase().trim();
+            const entregado = (t[COL.trajeEntregado] || '').toUpperCase().trim();
+            // Filtrar trajes ya entregados a clienta o ya recibidos del taller (cerrados para Jose)
+            if (entregado === 'ENTREGADO') continue;
+            if (corte === 'ENVIADO') {
+                cortador.push(t);
+            } else if (corte === 'RECOGIDO' && !taller) {
+                llevar.push(t);
+            } else if (corte === 'RECOGIDO' && taller && recibido !== 'RECIBIDO') {
+                recoger.push(t);
+            }
+        }
+        return { cortador, llevar, recoger };
+    },
+
+    filter() {
+        const lists = this._calcLists();
+        // Counts en los chips
+        const setCount = (id, n) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = n;
+        };
+        setCount('joseCountCortador', lists.cortador.length);
+        setCount('joseCountLlevar',   lists.llevar.length);
+        setCount('joseCountRecoger',  lists.recoger.length);
+
+        // Subtítulo según bandeja activa
+        const subtitleMap = {
+            cortador: 'Trajes en el cortador esperando ser recogidos.',
+            llevar:   'Trajes recogidos del cortador, en el coche, pendientes de llevar al taller.',
+            recoger:  'Trajes en talleres, pendientes de recoger.',
+        };
+        const subt = document.getElementById('joseSubtitle');
+        if (subt) subt.textContent = subtitleMap[this._bandeja] || '';
+
+        const list = lists[this._bandeja] || [];
+        this._render(list);
+    },
+
+    _render(list) {
+        const cont = document.getElementById('joseContent');
+        if (!cont) return;
+        if (!list.length) {
+            cont.innerHTML =
+                '<div class="empty-state" style="padding:40px;">' +
+                '<p>Nada pendiente en esta bandeja.</p></div>';
+            return;
+        }
+        if (this._bandeja === 'recoger') {
+            // Agrupar por taller
+            const groups = {};
+            for (const t of list) {
+                const tl = (t[App.trajes.COL.taller] || '?').trim() || '?';
+                (groups[tl] ||= []).push(t);
+            }
+            const tipos = Object.keys(groups).sort();
+            cont.innerHTML = tipos.map(tl => {
+                const cards = groups[tl].map(t => this._renderCard(t)).join('');
+                return (
+                    `<div style="margin-bottom:18px;">` +
+                    `<div style="font-weight:600; color:var(--primary); padding:6px 4px; font-size:14px;">` +
+                    `&#x1F3ED; ${tl} <span style="opacity:0.65; font-weight:400;">(${groups[tl].length})</span></div>` +
+                    `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>` +
+                    `</div>`
+                );
+            }).join('');
+        } else {
+            // Lista plana
+            const cards = list.map(t => this._renderCard(t)).join('');
+            cont.innerHTML =
+                `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>`;
+        }
+    },
+
+    _renderCard(t) {
+        const COL = App.trajes.COL;
+        const num      = String(t[COL.num] || '').trim();
+        const nombre   = (t[COL.nombre]   || '').trim();
+        const modelo   = (t[COL.modelo]   || '').trim() || '—';
+        const tipoTela = (t[COL.tipoTela] || '').trim();
+        const feria    = (t[COL.feria]    || '').trim();
+        const taller   = (t[COL.taller]   || '').trim();
+
+        // Días en fase actual
+        let diasInfo = '';
+        if (this._bandeja === 'cortador') {
+            const d = App.trajes._diasDesde(t[COL.fechaEnviadoCorte]);
+            if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} esperando`;
+        } else if (this._bandeja === 'llevar') {
+            const d = App.trajes._diasDesde(t[COL.fechaRecogidoCorte]);
+            if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} en el coche`;
+        } else {
+            const d = App.trajes._diasDesde(t[COL.fechaEntregaTaller]);
+            if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} en taller`;
+        }
+
+        let actions = '';
+        if (this._bandeja === 'cortador') {
+            actions =
+                `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
+                `onclick="App.jose.marcarRecogidoCorte(${t._rowIndex})">` +
+                `&#x2713; Marcar recogido</button>`;
+        } else if (this._bandeja === 'llevar') {
+            const talleres = (CONFIG.TALLERES || []).slice().sort();
+            const opts = '<option value="">— Elegir taller —</option>' +
+                talleres.map(tl => `<option value="${tl}">${tl}</option>`).join('');
+            actions =
+                `<select class="form-input" id="joseLlevarSelect-${t._rowIndex}" ` +
+                `style="font-size:12px; flex:1; min-width:0;">${opts}</select>` +
+                `<button class="btn btn-primary btn-sm" ` +
+                `onclick="App.jose.asignarTaller(${t._rowIndex}, document.getElementById('joseLlevarSelect-${t._rowIndex}').value)">` +
+                `&#x1F69B; Llevado</button>`;
+        } else {
+            actions =
+                `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
+                `onclick="App.jose.marcarRecibidoTaller(${t._rowIndex})">` +
+                `&#x1F4E6; Marcar recibido</button>`;
+        }
+
+        return (
+            `<div class="card" style="padding:12px; cursor:pointer;" ` +
+            `onclick="App.jose.verFicha(${t._rowIndex})">` +
+            `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">` +
+            `<strong style="font-size:14px;">#${num} · ${nombre || '—'}</strong></div>` +
+            `<div style="font-size:13px; color:#444; margin-bottom:4px;">${modelo}` +
+            (tipoTela ? ` · <span style="color:#666;">${tipoTela}</span>` : '') + `</div>` +
+            (feria  ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F4CD; ${feria}</div>` : '') +
+            (taller ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F3ED; Taller: ${taller}</div>` : '') +
+            (diasInfo ? `<div style="font-size:11px; color:#888; margin-bottom:8px;">&#x23F1; ${diasInfo}</div>` : '') +
+            `<div style="display:flex; gap:6px; align-items:center; margin-top:8px;" ` +
+            `onclick="event.stopPropagation();">${actions}</div>` +
+            `</div>`
+        );
+    },
+
+    /** Acción inline: marca CORTE=RECOGIDO + auto-stamp fechas + descuenta stock. */
+    async marcarRecogidoCorte(rowIndex) {
+        try {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (!t) throw new Error('Traje no encontrado.');
+            const COL = App.trajes.COL;
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = (headers[0] || []).map(h => h.trim());
+            const colLetter = (name) => {
+                const idx = hdr.indexOf(name);
+                return idx === -1 ? null : String.fromCharCode(65 + idx);
+            };
+
+            const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
+            const fechaEnvOld = (t[COL.fechaEnviadoCorte]  || '').toString().trim();
+            // Snapshot antes de cambios para _aplicarMovimientosStock
+            const snapshotAntes = {
+                'TELA RECIBIDA':   t[COL.telaRecibida]   || '',
+                'CORTE':           t[COL.corte]          || '',
+                'TIPO TELA':       t[COL.tipoTela]       || '',
+            };
+
+            const updates = [
+                ['CORTE',                'RECOGIDO'],
+                ['FECHA RECOGIDO CORTE', hoy],
+                ['FECHA ENVIADO CORTE',  fechaEnvOld || hoy],
+                ['FECHA ULTIMA MOD',     hoy],
+            ];
+            const rangeUpdates = updates
+                .map(([col, val]) => {
+                    const letter = colLetter(col);
+                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
+                })
+                .filter(Boolean);
+            const missing = updates.map(([c]) => c).filter(c => !colLetter(c));
+            if (missing.length) {
+                console.warn('[jose.marcarRecogidoCorte] Columnas no encontradas:', missing);
+                App.toast.show(`⚠️ Faltan columnas en LISTADO: ${missing.join(', ')}`, 'warning', 6000);
+            }
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+
+            // Refresh cache local
+            updates.forEach(([col, val]) => { t[col] = val; });
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
+
+            // Disparar consumo de stock (igual que en el modal save)
+            const snapshotDespues = {
+                'TELA RECIBIDA':   t[COL.telaRecibida]   || '',
+                'CORTE':           'RECOGIDO',
+                'TIPO TELA':       t[COL.tipoTela]       || '',
+            };
+            await App.trajes._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
+
+            App.toast.show(`Traje #${t[COL.num]} marcado como recogido del cortador`, 'success', 3000);
+            this.filter();
+        } catch (err) {
+            console.error('[jose.marcarRecogidoCorte]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Acción inline: asigna TALLER + auto-stamp fecha entrega taller. */
+    async asignarTaller(rowIndex, taller) {
+        if (!taller || !taller.trim()) {
+            App.toast.show('Elige un taller antes de marcar como llevado.', 'warning', 3000);
+            return;
+        }
+        try {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (!t) throw new Error('Traje no encontrado.');
+            const COL = App.trajes.COL;
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = (headers[0] || []).map(h => h.trim());
+            const colLetter = (name) => {
+                const idx = hdr.indexOf(name);
+                return idx === -1 ? null : String.fromCharCode(65 + idx);
+            };
+
+            const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
+            const updates = [
+                ['TALLER',               taller],
+                ['FECHA ENTREGA TALLER', hoy],
+                ['FECHA ULTIMA MOD',     hoy],
+            ];
+            const rangeUpdates = updates
+                .map(([col, val]) => {
+                    const letter = colLetter(col);
+                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
+                })
+                .filter(Boolean);
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+
+            updates.forEach(([col, val]) => { t[col] = val; });
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
+
+            App.toast.show(`Traje #${t[COL.num]} llevado al taller <strong>${taller}</strong>`, 'success', 3000);
+            this.filter();
+        } catch (err) {
+            console.error('[jose.asignarTaller]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Acción inline: marca TRAJE RECIBIDO=RECIBIDO + auto-stamp fecha. */
+    async marcarRecibidoTaller(rowIndex) {
+        try {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (!t) throw new Error('Traje no encontrado.');
+            const COL = App.trajes.COL;
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = (headers[0] || []).map(h => h.trim());
+            const colLetter = (name) => {
+                const idx = hdr.indexOf(name);
+                return idx === -1 ? null : String.fromCharCode(65 + idx);
+            };
+            const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
+            const fechaRecOld = (t[COL.fechaRecibido] || '').toString().trim();
+
+            const updates = [
+                ['TRAJE RECIBIDO',  'RECIBIDO'],
+                ['FECHA RECIBIDO',  fechaRecOld || hoy],
+                ['FECHA ULTIMA MOD', hoy],
+            ];
+            const rangeUpdates = updates
+                .map(([col, val]) => {
+                    const letter = colLetter(col);
+                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
+                })
+                .filter(Boolean);
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+
+            updates.forEach(([col, val]) => { t[col] = val; });
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
+
+            App.toast.show(`Traje #${t[COL.num]} recibido del taller`, 'success', 3000);
+            this.filter();
+        } catch (err) {
+            console.error('[jose.marcarRecibidoTaller]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Modal: ficha completa del traje (info clave + clienta + adornos + cambio de taller). */
+    async verFicha(rowIndex) {
+        const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+        const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+        if (!t) { App.toast.show('Traje no encontrado.', 'error'); return; }
+        const COL = App.trajes.COL;
+        const Cc  = App.clientas?.COL || {};
+        const num = String(t[COL.num] || '').trim();
+        const nombre   = (t[COL.nombre]   || tc?.[Cc.nombre]   || '').trim();
+        const telefono = (tc?.[Cc.telefono] || '').trim();
+        const correo   = (tc?.[Cc.correo]   || '').trim();
+        const feria    = (t[COL.feria]    || '').trim();
+        const modeloRaw = (t[COL.modelo]   || '').trim();
+        const tipoTela  = (t[COL.tipoTela] || '').trim();
+        const medidas   = (t[COL.medidas]  || tc?.[Cc.medidas]  || '').trim();
+        const taller    = (t[COL.taller]   || '').trim();
+
+        // Datos del modelo (escandallo + adornos)
+        const modeloFull = (App.modelos?._data || []).find(m =>
+            m.NOMBRE && m.NOMBRE.toLowerCase() === modeloRaw.toLowerCase());
+        const adornos      = modeloFull?.ADORNOS      || '';
+        const escandalloM  = modeloFull?.TELA_PPAL_M  || '';
+        const tipoConstr   = modeloFull?.TIPO_CONSTRUCCION || '';
+
+        document.getElementById('joseFichaTitle').innerHTML =
+            `Ficha del traje &nbsp;&middot;&nbsp; <span style="color:var(--primary);">#${num}</span>`;
+        document.getElementById('joseFichaSubtitle').textContent =
+            nombre + (feria ? `  ·  ${feria}` : '');
+
+        // Selector de taller (combobox tipo dropdown). Permite cambiar al vuelo.
+        const talleresOrden = (CONFIG.TALLERES || []).slice().sort();
+        const opts = '<option value="">— sin taller —</option>' +
+            talleresOrden.map(tl => `<option value="${tl}"${tl === taller ? ' selected' : ''}>${tl}</option>`).join('');
+
+        const fila = (label, value, color = '#222') =>
+            `<tr><td style="padding:5px 0; color:#666; vertical-align:top; min-width:130px;">${label}</td>` +
+            `<td style="padding:5px 0; color:${color};"><strong>${value || '—'}</strong></td></tr>`;
+
+        const tlf = telefono
+            ? `<a href="tel:${telefono}" style="text-decoration:none;">${telefono}</a> ` +
+              `<a href="https://wa.me/${telefono.replace(/\D/g, '')}" target="_blank" rel="noopener" ` +
+              `style="font-size:11px; margin-left:6px;">WhatsApp ↗</a>`
+            : '—';
+
+        document.getElementById('joseFichaBody').innerHTML =
+            `<table style="width:100%; border-collapse:collapse;">` +
+            fila('Clienta', nombre) +
+            fila('Teléfono', tlf) +
+            (correo ? fila('Correo', `<a href="mailto:${correo}">${correo}</a>`) : '') +
+            (feria  ? fila('Feria', feria) : '') +
+            fila('Modelo', modeloRaw) +
+            (tipoConstr ? fila('Construcción', tipoConstr) : '') +
+            fila('Tela', tipoTela) +
+            (medidas ? fila('Talla / medidas', medidas) : '') +
+            (escandalloM ? fila('Tela ppal (escandallo)', `${escandalloM} m`) : '') +
+            (adornos ? fila('Adornos', `<span style="font-size:12px; line-height:1.5;">${adornos.replace(/\n/g, '<br>')}</span>`) : '') +
+            `</table>` +
+            `<div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border-light);">` +
+            `<label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px;">Taller asignado</label>` +
+            `<div style="display:flex; gap:8px; align-items:center;">` +
+            `<select class="form-input" id="joseFichaTallerSelect" style="flex:1;">${opts}</select>` +
+            `<button class="btn btn-primary btn-sm" ` +
+            `onclick="App.jose._cambiarTallerDesdeFicha(${rowIndex}, document.getElementById('joseFichaTallerSelect').value)">` +
+            `Guardar</button></div></div>`;
+
+        document.getElementById('joseFichaModal').classList.add('active');
+    },
+
+    closeFicha() {
+        document.getElementById('joseFichaModal').classList.remove('active');
+    },
+
+    /** Cambiar taller desde la ficha (puede ser asignación inicial o reasignación). */
+    async _cambiarTallerDesdeFicha(rowIndex, nuevoTaller) {
+        const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+        const COL = App.trajes.COL;
+        const tallerActual = (t?.[COL.taller] || '').trim();
+        if (nuevoTaller === tallerActual) {
+            App.toast.show('No has cambiado el taller.', 'info', 2500);
+            return;
+        }
+        // Si quitamos taller (vacío), confirmar
+        if (!nuevoTaller && tallerActual) {
+            const ok = confirm(`¿Quitar el taller "${tallerActual}" del traje?`);
+            if (!ok) return;
+        }
+        try {
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = (headers[0] || []).map(h => h.trim());
+            const colLetter = (name) => {
+                const idx = hdr.indexOf(name);
+                return idx === -1 ? null : String.fromCharCode(65 + idx);
+            };
+            const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
+            const updates = [
+                ['TALLER',               nuevoTaller],
+                ['FECHA ULTIMA MOD',     hoy],
+            ];
+            // Si se asigna por primera vez (no había taller), poner FECHA ENTREGA TALLER = hoy
+            if (nuevoTaller && !tallerActual) {
+                updates.push(['FECHA ENTREGA TALLER', hoy]);
+            }
+            const rangeUpdates = updates
+                .map(([col, val]) => {
+                    const letter = colLetter(col);
+                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
+                })
+                .filter(Boolean);
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+            updates.forEach(([col, val]) => { t[col] = val; });
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
+            App.toast.show(
+                nuevoTaller
+                    ? `Traje #${t[COL.num]} → taller <strong>${nuevoTaller}</strong>`
+                    : `Quitado taller de #${t[COL.num]}`,
+                'success', 3000
+            );
+            this.closeFicha();
+            this.filter();
+        } catch (err) {
+            console.error('[jose._cambiarTallerDesdeFicha]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+};
+
+/* ==========================================================
+   PEDIDOS — Lista persistente de pedidos a proveedor + recepciones
+   Deriva del log MOVIMIENTOS (PEDIDO + RECEPCION + REVERSO).
+   Soporta recepciones parciales (varias RECEPCIONES por pedido).
+   ========================================================== */
+App.pedidos = {
+    _data: [],          // Array de pedidos agregados con cálculo de pendiente
+    _filtro: 'pendientes',  // pendientes | parciales | recibidos | todos
+
+    async load(forceRefresh = false) {
+        const cont = document.getElementById('pedidosContent');
+        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando…</p></div>';
+        try {
+            const all = await App.movimientos.loadAll();
+            // Agrupar por pedidoId. Cada grupo: { pedido, recepciones[], reversos[] }
+            const byId = new Map();
+            for (const m of all) {
+                if (m.TIPO === App.movimientos.TIPOS.PEDIDO) {
+                    const id = App.movimientos.extractPedidoId(m.NOTAS);
+                    if (!id) continue;
+                    if (!byId.has(id)) {
+                        byId.set(id, { pedidoId: id, pedido: m, recepciones: [], reversos: [] });
+                    }
+                } else if (m.TIPO === App.movimientos.TIPOS.RECEPCION) {
+                    const refId = App.movimientos.extractRefId(m.NOTAS);
+                    if (!refId) continue;
+                    const grp = byId.get(refId);
+                    if (grp) grp.recepciones.push(m);
+                } else if (m.TIPO === App.movimientos.TIPOS.REVERSO) {
+                    const refId = App.movimientos.extractRefId(m.NOTAS);
+                    if (!refId) continue;
+                    const grp = byId.get(refId);
+                    if (grp) grp.reversos.push(m);
+                }
+            }
+            // Calcular estado y metros por pedido
+            this._data = [];
+            for (const grp of byId.values()) {
+                const pedidoMetros = parseFloat(grp.pedido.METROS) || 0;
+                const recibidoBruto = grp.recepciones.reduce((s, r) => s + (Math.abs(parseFloat(r.METROS)) || 0), 0);
+                const reversoBruto  = grp.reversos.reduce((s, r) => s + (Math.abs(parseFloat(r.METROS)) || 0), 0);
+                const recibidoNeto  = Math.max(0, recibidoBruto - reversoBruto);
+                const pendiente     = Math.max(0, pedidoMetros - recibidoNeto);
+                let estado;
+                if (pendiente <= 0.001) estado = 'recibido';
+                else if (recibidoNeto > 0.001) estado = 'parcial';
+                else estado = 'pendiente';
+                this._data.push({
+                    pedidoId:       grp.pedidoId,
+                    pedido:         grp.pedido,
+                    recepciones:    grp.recepciones,
+                    reversos:       grp.reversos,
+                    pedidoMetros,
+                    recibidoNeto,
+                    pendiente,
+                    estado,
+                });
+            }
+            // Ordenar: pendientes primero, después parciales, después recibidos. Más recientes arriba dentro de cada grupo.
+            const orderEstado = { pendiente: 0, parcial: 1, recibido: 2 };
+            this._data.sort((a, b) => {
+                const oa = orderEstado[a.estado] ?? 99;
+                const ob = orderEstado[b.estado] ?? 99;
+                if (oa !== ob) return oa - ob;
+                // Más recientes arriba (rowIndex mayor)
+                return (b.pedido._rowIndex || 0) - (a.pedido._rowIndex || 0);
+            });
+            this._render();
+        } catch (err) {
+            console.error('[pedidos.load]', err);
+            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
+        }
+    },
+
+    setFiltro(name) {
+        this._filtro = name || 'pendientes';
+        document.querySelectorAll('#pedidosFiltros .bandeja').forEach(el => {
+            el.classList.toggle('active', el.dataset.pfiltro === this._filtro);
+        });
+        this._render();
+    },
+
+    /** Suma los metros pendientes de recibir para una tela (TIPO + VARIANTE).
+     *  Útil para enseñar en otros sitios "hay X m en camino". Devuelve 0 si no hay pendiente
+     *  o si _data no está cargado todavía. */
+    pendienteRecepcion(tipo, variante) {
+        if (!this._data?.length) return 0;
+        let total = 0;
+        for (const p of this._data) {
+            if (p.estado === 'recibido') continue;
+            if (p.pedido.TELA_TIPO !== tipo) continue;
+            if (p.pedido.TELA_VARIANTE !== variante) continue;
+            total += p.pendiente;
+        }
+        return total;
+    },
+
+    _filteredList() {
+        const f = this._filtro;
+        if (f === 'todos') return this._data;
+        if (f === 'pendientes') return this._data.filter(p => p.estado === 'pendiente');
+        if (f === 'parciales')  return this._data.filter(p => p.estado === 'parcial');
+        if (f === 'recibidos')  return this._data.filter(p => p.estado === 'recibido');
+        return this._data;
+    },
+
+    _render() {
+        const cont = document.getElementById('pedidosContent');
+        if (!cont) return;
+        // Counts
+        const counts = {
+            pendientes: 0, parciales: 0, recibidos: 0,
+        };
+        for (const p of this._data) {
+            if (p.estado === 'pendiente') counts.pendientes++;
+            else if (p.estado === 'parcial') counts.parciales++;
+            else if (p.estado === 'recibido') counts.recibidos++;
+        }
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        set('pedidosCountPend',  counts.pendientes);
+        set('pedidosCountParc',  counts.parciales);
+        set('pedidosCountRec',   counts.recibidos);
+        set('pedidosCountTodos', this._data.length);
+
+        const list = this._filteredList();
+        const sub = document.getElementById('pedidosSubtitle');
+        if (sub) {
+            const desc = {
+                pendientes: 'Pedidos hechos al proveedor sin recibir nada todavía.',
+                parciales:  'Pedidos con recepción parcial — falta una parte por llegar.',
+                recibidos:  'Pedidos completos.',
+                todos:      'Todos los pedidos del histórico.',
+            }[this._filtro] || '';
+            sub.textContent = `${desc}${list.length ? '' : ' (vacío)'}`;
+        }
+
+        if (!list.length) {
+            cont.innerHTML = '<div class="empty-state" style="padding:40px;"><p>No hay pedidos en esta vista.</p></div>';
+            return;
+        }
+        // Agrupar por proveedor
+        const groups = {};
+        for (const p of list) {
+            const prov = (p.pedido.PROVEEDOR || '—').trim() || '—';
+            (groups[prov] ||= []).push(p);
+        }
+        const provs = Object.keys(groups).sort();
+        cont.innerHTML = provs.map(prov => {
+            const rows = groups[prov].map(p => this._renderRow(p)).join('');
+            return (
+                `<div style="margin-bottom:18px;">` +
+                `<div style="font-weight:600; color:var(--primary); padding:8px 4px; font-size:14px;">` +
+                `&#x1F3EA; ${prov} <span style="opacity:0.65; font-weight:400;">(${groups[prov].length})</span></div>` +
+                `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:10px;">${rows}</div>` +
+                `</div>`
+            );
+        }).join('');
+    },
+
+    _renderRow(p) {
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+        const tela = `${p.pedido.TELA_TIPO} / ${p.pedido.TELA_VARIANTE}`;
+        const fecha = (p.pedido.FECHA || '').toString().split(' ')[0];
+        const trajes = (p.pedido.TRAJE_NUM || '').trim();
+        const trajesTxt = trajes ? `<span style="font-size:11px; color:#888;">trajes: ${trajes}</span>` : '';
+
+        // Estado y barra de progreso
+        let estadoChip, barraColor, barraPct;
+        if (p.estado === 'pendiente') {
+            estadoChip = `<span class="chip" style="background:#fff8e1; color:#7a5d00;">&#x23F3; pendiente</span>`;
+            barraColor = '#ffd54f';
+            barraPct = 0;
+        } else if (p.estado === 'parcial') {
+            estadoChip = `<span class="chip" style="background:#ffe0b2; color:#bf6900;">&#x21BB; parcial</span>`;
+            barraColor = '#ff9800';
+            barraPct = (p.recibidoNeto / p.pedidoMetros) * 100;
+        } else {
+            estadoChip = `<span class="chip" style="background:#c8e6c9; color:#1b5e20;">&check; recibido</span>`;
+            barraColor = '#4caf50';
+            barraPct = 100;
+        }
+
+        const acciones = (p.estado !== 'recibido')
+            ? `<button class="btn btn-primary btn-sm" ` +
+              `onclick="App.pedidos.openModal('${p.pedidoId}')">` +
+              `&check; He recibido…</button>`
+            : `<span style="font-size:11px; color:var(--text-muted);">completo</span>`;
+
+        return (
+            `<div class="card" style="padding:12px;">` +
+            `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">` +
+            `<div style="flex:1; min-width:0;"><strong style="font-size:14px;">${tela}</strong></div>` +
+            estadoChip +
+            `</div>` +
+            `<div style="font-size:12px; color:#666; margin-bottom:6px;">` +
+            `<strong>${fmt(p.recibidoNeto)} / ${fmt(p.pedidoMetros)} m</strong>` +
+            (p.pendiente > 0.001 ? ` · falta <strong>${fmt(p.pendiente)} m</strong>` : '') +
+            `</div>` +
+            `<div style="height:6px; background:#eee; border-radius:3px; overflow:hidden; margin-bottom:8px;">` +
+            `<div style="height:100%; width:${Math.min(100, barraPct)}%; background:${barraColor}; transition:width .25s;"></div></div>` +
+            `<div style="font-size:11px; color:#888; margin-bottom:4px;">${fecha ? `&#x1F4C5; ${fecha}` : ''}` +
+            (trajesTxt ? ` &middot; ${trajesTxt}` : '') + `</div>` +
+            `<div style="margin-top:8px;">${acciones}</div>` +
+            `</div>`
+        );
+    },
+
+    /** Abre el modal de recepción para un pedido. */
+    openModal(pedidoId) {
+        const p = this._data.find(x => x.pedidoId === pedidoId);
+        if (!p) {
+            App.toast.show('Pedido no encontrado.', 'error');
+            return;
+        }
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+        document.getElementById('pedidoRecepcionId').value = pedidoId;
+        document.getElementById('pedidoRecepcionTitle').innerHTML =
+            `Registrar recepción · <span style="color:var(--primary);">${p.pedido.TELA_TIPO} / ${p.pedido.TELA_VARIANTE}</span>`;
+
+        const lineas = [
+            `Pedido total: <strong>${fmt(p.pedidoMetros)} m</strong> a <strong>${p.pedido.PROVEEDOR || '—'}</strong>`,
+            `Ya recibido: <strong>${fmt(p.recibidoNeto)} m</strong>`,
+            `Pendiente: <strong style="color:#bf6900;">${fmt(p.pendiente)} m</strong>`,
+        ];
+        document.getElementById('pedidoRecepcionInfo').innerHTML =
+            lineas.map(l => `<div style="margin-bottom:3px;">${l}</div>`).join('');
+
+        const inp = document.getElementById('pedidoRecepcionMetros');
+        inp.value = fmt(p.pendiente);
+        inp.max = '';  // sin máximo — el proveedor podría enviar más por error
+        document.getElementById('pedidoRecepcionHint').textContent =
+            `Por defecto se sugiere recibir todo lo pendiente. Si llegó menos, ajusta el número y la línea quedará "parcial".`;
+        document.getElementById('pedidoRecepcionModal').classList.add('active');
+        setTimeout(() => inp.focus(), 50);
+    },
+
+    closeModal() {
+        document.getElementById('pedidoRecepcionModal').classList.remove('active');
+    },
+
+    /** Confirmar recepción: crea movimiento RECEPCION + suma al stock + posible modal retal. */
+    async registrarRecepcion() {
+        const btn = document.getElementById('btnPedidoRecepcionSave');
+        btn.disabled = true; btn.textContent = 'Guardando...';
+        try {
+            const pedidoId = document.getElementById('pedidoRecepcionId').value;
+            const metrosStr = (document.getElementById('pedidoRecepcionMetros').value || '').trim();
+            const metros = parseFloat(metrosStr);
+            if (isNaN(metros) || metros <= 0) {
+                App.toast.show('Mete una cantidad válida de metros recibidos.', 'error');
+                return;
+            }
+            const p = this._data.find(x => x.pedidoId === pedidoId);
+            if (!p) throw new Error('Pedido no encontrado.');
+
+            const tipo     = p.pedido.TELA_TIPO;
+            const variante = p.pedido.TELA_VARIANTE;
+            const proveedor = p.pedido.PROVEEDOR || '';
+
+            // 1) Sumar al stock
+            const nuevoStock = await App.telas.updateStock(tipo, variante, +metros);
+            if (nuevoStock === null) {
+                App.toast.show(`Tela ${tipo}/${variante} no está en catálogo. Crea la tela en Telas antes.`, 'warning', 6000);
+                return;
+            }
+            // 2) Registrar RECEPCION (parcial o total — siempre marca [REF:<pedidoId>])
+            const fmt = n => Number(Number(n).toFixed(2)).toString();
+            const totalTrasEsta = p.recibidoNeto + metros;
+            const queda = Math.max(0, p.pedidoMetros - totalTrasEsta);
+            const tipoEnt = queda <= 0.001 ? 'completa' : 'parcial';
+            await App.movimientos.append({
+                TIPO:           App.movimientos.TIPOS.RECEPCION,
+                TELA_TIPO:      tipo,
+                TELA_VARIANTE:  variante,
+                METROS:         metros,
+                TRAJE_NUM:      p.pedido.TRAJE_NUM || '',
+                PROVEEDOR:      proveedor,
+                NOTAS:          `[REF:${pedidoId}] recepción ${tipoEnt} · +${fmt(metros)} m al stock (nuevo: ${fmt(nuevoStock)} m, queda por recibir: ${fmt(queda)} m)`,
+            });
+            App.toast.show(
+                `<strong>Recepción registrada</strong><br>+${fmt(metros)} m de <strong>${tipo}/${variante}</strong><br>Stock: <strong>${fmt(nuevoStock)} m</strong>` +
+                (queda > 0.001 ? `<br><span style="font-size:11px; opacity:0.85;">aún quedan ${fmt(queda)} m por recibir</span>` : ''),
+                'success', 0
+            );
+            // 3) Posible retal si tras la suma hay sobrante en zona retal
+            await App.telas._gestionarRetalCandidato(tipo, variante, 'recepción de pedido');
+            // 4) Cerrar modal y recargar
+            this.closeModal();
+            await this.load(true);
+        } catch (err) {
+            console.error('[pedidos.registrarRecepcion]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        } finally {
+            btn.disabled = false; btn.textContent = '✓ Confirmar recepción';
         }
     },
 };
