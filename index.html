@@ -219,11 +219,33 @@
         /* ---- BANDEJAS DE ESTADO (Trajes) ---- */
         .trajes-bandejas {
             display: flex;
-            gap: 8px;
+            gap: 16px;
             margin-bottom: 14px;
             flex-wrap: wrap;
             padding-bottom: 12px;
             border-bottom: 1px solid var(--border);
+            align-items: flex-end;
+        }
+        .bandeja-group {
+            position: relative;
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            padding: 16px 10px 4px 10px;
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+            background: rgba(0,0,0,0.015);
+        }
+        .bandeja-group::before {
+            content: attr(data-group-label);
+            position: absolute;
+            top: 2px;
+            left: 12px;
+            font-size: 9px;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            text-transform: uppercase;
         }
         .bandeja {
             padding: 9px 14px;
@@ -2276,37 +2298,53 @@
 
                 <!-- Bandejas por estado (filtros principales) -->
                 <div class="trajes-bandejas" id="trajesBandejas">
+                    <!-- Vista global -->
                     <div class="bandeja active" data-bandeja="todos" onclick="App.trajes.setBandeja('todos')">
                         &#x1F4CB; Todos <span class="count" id="bdCount-todos">&mdash;</span>
                     </div>
-                    <div class="bandeja" data-bandeja="esperandoTela" onclick="App.trajes.setBandeja('esperandoTela')"
-                         title="Sin tela en mano todavía (PENDIENTE + PEDIDA). El traje no se puede cortar hasta que llegue.">
-                        &#x23F3; Esperando tela <span class="count" id="bdCount-esperandoTela">&mdash;</span>
+
+                    <!-- Grupo TELA -->
+                    <div class="bandeja-group" data-group-label="Tela">
+                        <div class="bandeja" data-bandeja="esperandoTela" onclick="App.trajes.setBandeja('esperandoTela')"
+                             title="Sin tela en mano todavía (PENDIENTE + PEDIDA). El traje no se puede cortar hasta que llegue.">
+                            &#x23F3; Esperando tela <span class="count" id="bdCount-esperandoTela">&mdash;</span>
+                        </div>
+                        <div class="bandeja bandeja-warn" data-bandeja="pedirTela" onclick="App.trajes.setBandeja('pedirTela')"
+                             title="Urge pedir al proveedor: la demanda agregada de esta tela supera el stock disponible.">
+                            &#x1F4E6; Pedir tela <span class="count" id="bdCount-pedirTela">&mdash;</span>
+                        </div>
                     </div>
-                    <div class="bandeja bandeja-warn" data-bandeja="pedirTela" onclick="App.trajes.setBandeja('pedirTela')"
-                         title="Urge pedir al proveedor: la demanda agregada de esta tela supera el stock disponible.">
-                        &#x1F4E6; Pedir tela <span class="count" id="bdCount-pedirTela">&mdash;</span>
+
+                    <!-- Grupo CORTE -->
+                    <div class="bandeja-group" data-group-label="Corte">
+                        <div class="bandeja" data-bandeja="listos" onclick="App.trajes.setBandeja('listos')">
+                            &#x2702;&#xFE0F; Listos para cortar <span class="count" id="bdCount-listos">&mdash;</span>
+                        </div>
+                        <div class="bandeja" data-bandeja="enCorte" onclick="App.trajes.setBandeja('enCorte')">
+                            &#x1F4E4; En corte <span class="count" id="bdCount-enCorte">&mdash;</span>
+                        </div>
+                        <div class="bandeja bandeja-warn" data-bandeja="asignarTaller" onclick="App.trajes.setBandeja('asignarTaller')"
+                             title="Trajes con corte recogido pero sin taller asignado. Asigna taller para que avance.">
+                            &#x1F3ED; Asignar taller <span class="count" id="bdCount-asignarTaller">&mdash;</span>
+                        </div>
                     </div>
-                    <div class="bandeja" data-bandeja="listos" onclick="App.trajes.setBandeja('listos')">
-                        &#x2702;&#xFE0F; Listos para cortar <span class="count" id="bdCount-listos">&mdash;</span>
+
+                    <!-- Grupo CONFECCIÓN -->
+                    <div class="bandeja-group" data-group-label="Confección">
+                        <div class="bandeja" data-bandeja="enTaller" onclick="App.trajes.setBandeja('enTaller')">
+                            &#x1F3ED; En taller <span class="count" id="bdCount-enTaller">&mdash;</span>
+                        </div>
+                        <div class="bandeja" data-bandeja="recibidos" onclick="App.trajes.setBandeja('recibidos')">
+                            &#x1F4E6; Recibidos <span class="count" id="bdCount-recibidos">&mdash;</span>
+                        </div>
+                        <div class="bandeja" data-bandeja="entregados" onclick="App.trajes.setBandeja('entregados')">
+                            &#x1F69A; Entregados <span class="count" id="bdCount-entregados">&mdash;</span>
+                        </div>
                     </div>
-                    <div class="bandeja" data-bandeja="enCorte" onclick="App.trajes.setBandeja('enCorte')">
-                        &#x1F4E4; En corte <span class="count" id="bdCount-enCorte">&mdash;</span>
-                    </div>
-                    <div class="bandeja bandeja-warn" data-bandeja="asignarTaller" onclick="App.trajes.setBandeja('asignarTaller')"
-                         title="Trajes con corte recogido pero sin taller asignado. Asigna taller para que avance.">
-                        &#x1F3ED; Asignar taller <span class="count" id="bdCount-asignarTaller">&mdash;</span>
-                    </div>
-                    <div class="bandeja" data-bandeja="enTaller" onclick="App.trajes.setBandeja('enTaller')">
-                        &#x1F3ED; En taller <span class="count" id="bdCount-enTaller">&mdash;</span>
-                    </div>
-                    <div class="bandeja" data-bandeja="recibidos" onclick="App.trajes.setBandeja('recibidos')">
-                        &#x1F4E6; Recibidos <span class="count" id="bdCount-recibidos">&mdash;</span>
-                    </div>
-                    <div class="bandeja" data-bandeja="entregados" onclick="App.trajes.setBandeja('entregados')">
-                        &#x1F69A; Entregados <span class="count" id="bdCount-entregados">&mdash;</span>
-                    </div>
-                    <div class="bandeja bandeja-warn" data-bandeja="revisar" onclick="App.trajes.setBandeja('revisar')">
+
+                    <!-- Filtro transversal -->
+                    <div class="bandeja bandeja-warn" data-bandeja="revisar" onclick="App.trajes.setBandeja('revisar')"
+                         title="Trajes con incidencia o estado REVISAR (transversal a las fases físicas).">
                         &#x26A0;&#xFE0F; Revisar <span class="count" id="bdCount-revisar">&mdash;</span>
                     </div>
                 </div>
