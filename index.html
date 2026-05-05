@@ -1770,6 +1770,14 @@
                 </span>
                 <span class="nav-label">Telas</span>
             </div>
+            <div class="nav-item" data-section="proveedores" onclick="App.ui.navigateTo('proveedores')">
+                <span class="nav-icon">&#x1F3EA;</span>
+                <span class="nav-label">Proveedores</span>
+            </div>
+            <div class="nav-item" data-section="talleres-catalogo" onclick="App.ui.navigateTo('talleres-catalogo')">
+                <span class="nav-icon">&#x1F4DD;</span>
+                <span class="nav-label">Catálogo talleres</span>
+            </div>
             <div class="nav-item" data-section="talleres" onclick="App.ui.navigateTo('talleres')">
                 <span class="nav-icon" style="position:relative;">
                     &#x1F3ED;
@@ -3145,18 +3153,12 @@
                             <input type="number" step="0.5" class="form-input" id="telaUmbralAlerta" placeholder="10">
                         </div>
                         <div class="form-group" style="margin:0;">
-                            <label>Unidad de pedido (m)
-                                <span style="font-size:11px; color:var(--text-muted); font-weight:normal;"
-                                      title="Tamaño típico del rollo o pedido (10 para Flamentex por traje, 50 para rollos Latek/TelaTer). Vacío = no aplica detección de retal.">
-                                    &#x2139;
-                                </span>
-                            </label>
-                            <input type="number" step="1" class="form-input" id="telaUnidadPedido" placeholder="50">
-                        </div>
-                        <div class="form-group" style="margin:0;">
                             <label>
                                 <input type="checkbox" id="telaActiva" checked> Activa
                             </label>
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <!-- Hueco vacío para alinear el grid 2-col -->
                         </div>
                         <div class="form-group" style="margin:0; grid-column:1/3;">
                             <label>Notas</label>
@@ -3173,6 +3175,191 @@
                         <button class="btn btn-primary" onclick="App.telas.save()" id="btnTelaSave">
                             Guardar
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Proveedores (catálogo + mínimo de pedido) -->
+            <div class="section" id="sec-proveedores">
+                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <input type="text" class="form-input" id="proveedoresSearch"
+                               placeholder="&#x1F50D; Buscar proveedor..."
+                               style="flex:1; min-width:180px; max-width:280px; margin:0;"
+                               oninput="App.proveedores.filter()">
+                        <select class="form-input" id="proveedoresEstadoFiltro"
+                                style="max-width:160px; margin:0; font-size:12px;"
+                                onchange="App.proveedores.filter()">
+                            <option value="activos">Solo activos</option>
+                            <option value="todos">Todos</option>
+                            <option value="inactivos">Solo inactivos</option>
+                        </select>
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.proveedores.load(true)">
+                                &#x21BB; Actualizar
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="App.proveedores.openModal()">
+                                + Nuevo proveedor
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="proveedoresCount"></div>
+                </div>
+                <div id="proveedoresContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+            </div>
+
+            <!-- PROVEEDOR EDIT MODAL -->
+            <div class="modal-overlay" id="proveedorModal">
+                <div class="modal" style="max-width:560px; width:95%;">
+                    <h2 id="proveedorModalTitle">Nuevo proveedor</h2>
+                    <input type="hidden" id="proveedorOriginalNombre" value="">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Nombre *</label>
+                            <input type="text" class="form-input" id="proveedorNombre" placeholder="TELATER" autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Pedido mínimo (m) *
+                                <span style="font-size:11px; color:var(--text-muted); font-weight:normal;"
+                                      title="Cantidad mínima que pides cuando haces un pedido. Las telas de este proveedor heredan este valor para detección de retales y redondeo del pedido.">
+                                    &#x2139;
+                                </span>
+                            </label>
+                            <input type="number" step="1" min="1" class="form-input" id="proveedorMinimo" placeholder="50">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>
+                                <input type="checkbox" id="proveedorActivo" checked> Activo
+                            </label>
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Notas</label>
+                            <textarea class="form-input" id="proveedorNotas" rows="2"
+                                      placeholder="Tipos de tela que sirve, contacto, observaciones..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-danger btn-sm" onclick="App.proveedores.markInactive()"
+                                id="btnProveedorMarkInactive" style="display:none; margin-right:auto;">
+                            Marcar inactivo
+                        </button>
+                        <button class="btn btn-secondary" onclick="App.proveedores.closeModal()">Cancelar</button>
+                        <button class="btn btn-primary" onclick="App.proveedores.save()" id="btnProveedorSave">
+                            Guardar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Talleres-catálogo (CRUD del catálogo de talleres) -->
+            <div class="section" id="sec-talleres-catalogo">
+                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <input type="text" class="form-input" id="talleresCatSearch"
+                               placeholder="&#x1F50D; Buscar taller..."
+                               style="flex:1; min-width:180px; max-width:280px; margin:0;"
+                               oninput="App.talleresCatalogo.filter()">
+                        <select class="form-input" id="talleresCatEstadoFiltro"
+                                style="max-width:160px; margin:0; font-size:12px;"
+                                onchange="App.talleresCatalogo.filter()">
+                            <option value="activos">Solo activos</option>
+                            <option value="todos">Todos</option>
+                            <option value="inactivos">Solo inactivos</option>
+                        </select>
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.talleresCatalogo.load(true)">
+                                &#x21BB; Actualizar
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="App.talleresCatalogo.openModal()">
+                                + Nuevo taller
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="talleresCatCount"></div>
+                </div>
+                <div id="talleresCatContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+            </div>
+
+            <!-- TALLER CATÁLOGO EDIT MODAL -->
+            <div class="modal-overlay" id="tallerCatModal">
+                <div class="modal" style="max-width:560px; width:95%;">
+                    <h2 id="tallerCatModalTitle">Nuevo taller</h2>
+                    <input type="hidden" id="tallerCatOriginalNombre" value="">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Nombre *</label>
+                            <input type="text" class="form-input" id="tallerCatNombre" placeholder="DOLORES" autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Email Google
+                                <span style="font-size:11px; color:var(--text-muted); font-weight:normal;"
+                                      title="Email Google del taller. Si entra a la app con este email, solo verá sus trajes.">
+                                    &#x2139;
+                                </span>
+                            </label>
+                            <input type="email" class="form-input mono" id="tallerCatEmail" placeholder="taller@gmail.com" autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Teléfono</label>
+                            <input type="tel" class="form-input" id="tallerCatTelefono">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>
+                                <input type="checkbox" id="tallerCatActivo" checked> Activo
+                            </label>
+                        </div>
+                        <div class="form-group" style="margin:0; grid-column:1/3;">
+                            <label>Notas</label>
+                            <textarea class="form-input" id="tallerCatNotas" rows="2"
+                                      placeholder="Especialidad, observaciones..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-danger btn-sm" onclick="App.talleresCatalogo.markInactive()"
+                                id="btnTallerCatMarkInactive" style="display:none; margin-right:auto;">
+                            Marcar inactivo
+                        </button>
+                        <button class="btn btn-secondary" onclick="App.talleresCatalogo.closeModal()">Cancelar</button>
+                        <button class="btn btn-primary" onclick="App.talleresCatalogo.save()" id="btnTallerCatSave">
+                            Guardar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Mis trajes (vista del taller — solo lectura) -->
+            <div class="section" id="sec-mis-trajes">
+                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <input type="text" class="form-input" id="misTrajesSearch"
+                               placeholder="&#x1F50D; Buscar..."
+                               style="flex:1; min-width:180px; max-width:280px; margin:0;"
+                               oninput="App.misTrajes.filter()">
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.misTrajes.load(true)">
+                                &#x21BB; Actualizar
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="misTrajesCount"></div>
+                </div>
+                <div id="misTrajesContent">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+                </div>
+            </div>
+
+            <!-- MIS TRAJES FICHA MODAL — solo lectura, info del traje (sin teléfono/correo) -->
+            <div class="modal-overlay" id="misTrajesFichaModal">
+                <div class="modal" style="max-width:560px; width:95%;">
+                    <h2 id="misTrajesFichaTitle" style="margin-bottom:6px;">Ficha del traje</h2>
+                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;" id="misTrajesFichaSubtitle"></div>
+                    <div id="misTrajesFichaBody" style="font-size:13px; line-height:1.55;"></div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="App.misTrajes.closeFicha()">Cerrar</button>
                     </div>
                 </div>
             </div>
@@ -3482,8 +3669,16 @@ const App = {
         if (!email) return false;
         return (CONFIG.JOSE_EMAILS || []).map(e => e.toLowerCase().trim()).includes(email);
     },
+    /** True si el email del usuario actual coincide con un taller del catálogo. */
+    isTaller() {
+        const email = (this.user?.email || '').toLowerCase().trim();
+        if (!email) return false;
+        if (this.isJose()) return false;   // Jose tiene precedencia
+        const taller = App.talleresCatalogo?.findByEmail?.(email);
+        return !!taller;
+    },
     /** True si el usuario actual NO está restringido (ve toda la app). */
-    isAdmin() { return !this.isJose(); },
+    isAdmin() { return !this.isJose() && !this.isTaller(); },
 
     /* -------------------------------------------------------
        AUTH — Google OAuth2 via GIS
@@ -3666,16 +3861,31 @@ const App = {
                 console.warn('seasons load failed:', e);
             }
 
-            // Cargar en background los datos necesarios para los badges del sidebar.
-            // ⚠ DEPENDENCIA: tiene que ir DESPUÉS de App.seasons.load() porque las
-            // funciones de carga leen App.settings.get('listadoId'/'escandallosId'), que
-            // sólo devuelve valor cuando la temporada activa está cargada.
-            if (App.pedidos && typeof App.pedidos.load === 'function') {
-                App.pedidos.load().catch(e => console.warn('[login] pedidos.load:', e.message));
+            // Cargar el catálogo de talleres ANTES de re-aplicar permisos: si el email
+            // del usuario coincide con un taller, hay que restringir la UI a "mis-trajes".
+            if (App.talleresCatalogo && typeof App.talleresCatalogo.load === 'function') {
+                try {
+                    await App.talleresCatalogo.load();
+                } catch (e) {
+                    console.warn('[login] talleresCatalogo.load:', e.message);
+                }
+                // Re-aplicar permisos ahora que sabemos si es taller o no
+                if (App.ui.applyRolePermissions) App.ui.applyRolePermissions();
             }
-            if (App.telas && typeof App.telas.load === 'function') {
-                App.telas.load().then(() => App.telas.refreshBadge && App.telas.refreshBadge())
-                    .catch(e => console.warn('[login] telas.load:', e.message));
+
+            // Cargar en background los datos necesarios para los badges del sidebar
+            // y otras vistas (no aplica si el usuario es Taller — solo ve mis-trajes).
+            if (!(App.isTaller && App.isTaller())) {
+                if (App.pedidos && typeof App.pedidos.load === 'function') {
+                    App.pedidos.load().catch(e => console.warn('[login] pedidos.load:', e.message));
+                }
+                if (App.telas && typeof App.telas.load === 'function') {
+                    App.telas.load().then(() => App.telas.refreshBadge && App.telas.refreshBadge())
+                        .catch(e => console.warn('[login] telas.load:', e.message));
+                }
+                if (App.proveedores && typeof App.proveedores.load === 'function') {
+                    App.proveedores.load().catch(e => console.warn('[login] proveedores.load:', e.message));
+                }
             }
             if (App.trajes && typeof App.trajes.load === 'function' && App.trajes.data?.length === 0) {
                 App.trajes.load().catch(e => console.warn('[login] trajes.load:', e.message));
@@ -6448,16 +6658,23 @@ const App = {
             corte:      { title: 'Corte',             subtitle: 'Orden de corte por modelo' },
             pedidos:    { title: 'Pedidos',           subtitle: 'Pedidos a proveedor — recepción y stock' },
             jose:       { title: 'Jose',              subtitle: 'Logística entre cortador y talleres' },
-            modelos:    { title: 'Modelos',           subtitle: 'Catálogo y escandallos' },
-            telas:      { title: 'Telas',             subtitle: 'Catálogo y stock' },
-            talleres:   { title: 'Vista por taller',  subtitle: 'Distribucion por taller' },
-            ajustes:    { title: 'Ajustes',           subtitle: 'Configuracion del sistema' },
+            modelos:           { title: 'Modelos',           subtitle: 'Catálogo y escandallos' },
+            telas:             { title: 'Telas',             subtitle: 'Catálogo y stock' },
+            proveedores:       { title: 'Proveedores',       subtitle: 'Catálogo de proveedores y mínimos de pedido' },
+            'talleres-catalogo': { title: 'Catálogo talleres', subtitle: 'Talleres con email para acceso restringido' },
+            talleres:          { title: 'Vista por taller',  subtitle: 'Distribucion por taller' },
+            'mis-trajes':      { title: 'Mis trajes',        subtitle: 'Trajes asignados a tu taller' },
+            ajustes:           { title: 'Ajustes',           subtitle: 'Configuracion del sistema' },
         },
 
         navigateTo(sectionId) {
             // Si el usuario está restringido (Jose), forzar la sección "jose"
             if (App.isJose && App.isJose() && sectionId !== 'jose') {
                 sectionId = 'jose';
+            }
+            // Si el usuario es un Taller, forzar la sección "mis-trajes"
+            if (App.isTaller && App.isTaller() && sectionId !== 'mis-trajes') {
+                sectionId = 'mis-trajes';
             }
             // Update sidebar
             document.querySelectorAll('.nav-item').forEach(el => {
@@ -6487,20 +6704,41 @@ const App = {
             if (sectionId === 'pedidos' && App.pedidos && typeof App.pedidos.load === 'function') {
                 App.pedidos.load().catch(e => console.warn('[pedidos.load]', e.message));
             }
+            // Auto-load Proveedores
+            if (sectionId === 'proveedores' && App.proveedores && typeof App.proveedores.load === 'function') {
+                App.proveedores.load().catch(e => console.warn('[proveedores.load]', e.message));
+            }
+            // Auto-load Catálogo de talleres
+            if (sectionId === 'talleres-catalogo' && App.talleresCatalogo && typeof App.talleresCatalogo.load === 'function') {
+                App.talleresCatalogo.load().catch(e => console.warn('[talleresCatalogo.load]', e.message));
+            }
+            // Auto-load Mis trajes (vista del taller)
+            if (sectionId === 'mis-trajes' && App.misTrajes && typeof App.misTrajes.load === 'function') {
+                App.misTrajes.load().catch(e => console.warn('[misTrajes.load]', e.message));
+            }
         },
 
-        /** Aplica restricciones de UI según el rol (admin vs Jose).
-         *  Si el usuario es Jose, oculta todas las secciones de menú menos la suya
-         *  y se asegura de que la sección activa sea "jose". */
+        /** Aplica restricciones de UI según el rol (admin vs Jose vs Taller).
+         *  - Jose ve solo la sección "jose".
+         *  - Taller ve solo la sección "mis-trajes".
+         *  - Admin ve todo.
+         *  Oculta nav-items, group-labels y bottom-nav-items según corresponda. */
         applyRolePermissions() {
-            const isJose = App.isJose && App.isJose();
-            const allowed = new Set(['jose']);
-            // Sidebar nav-items: ocultar las que no estén permitidas
+            const isJose   = App.isJose && App.isJose();
+            const isTaller = App.isTaller && App.isTaller();
+            const restricted = isJose || isTaller;
+            const allowed = isJose
+                ? new Set(['jose'])
+                : isTaller
+                    ? new Set(['mis-trajes'])
+                    : null;   // admin: todo permitido
+
+            // Sidebar nav-items
             document.querySelectorAll('.nav-item[data-section]').forEach(el => {
                 const sec = el.dataset.section;
-                el.style.display = (!isJose || allowed.has(sec)) ? '' : 'none';
+                el.style.display = (!restricted || allowed.has(sec)) ? '' : 'none';
             });
-            // Si todos los nav-group-label se quedan sin items visibles, ocultarlos también
+            // Group labels
             document.querySelectorAll('.nav-group-label').forEach(label => {
                 let next = label.nextElementSibling;
                 let anyVisible = false;
@@ -6513,22 +6751,22 @@ const App = {
                 }
                 label.style.display = anyVisible ? '' : 'none';
             });
-            // Bottom nav: ocultar items que no sean Jose, y el botón "Más" (no debería abrir el sidebar)
+            // Bottom nav
             document.querySelectorAll('.bottom-nav-item').forEach(el => {
                 const sec = el.dataset.section;
                 if (sec) {
-                    el.style.display = (!isJose || allowed.has(sec)) ? '' : 'none';
-                } else if (isJose) {
-                    // Botón "Más" — para Jose no tiene sentido (no hay más secciones)
+                    el.style.display = (!restricted || allowed.has(sec)) ? '' : 'none';
+                } else if (restricted) {
                     el.style.display = 'none';
                 }
             });
-            // Si es Jose y la sección activa no es "jose", redirigir
+            // Forzar navegación a la única sección permitida
             if (isJose) {
                 const activeSec = document.querySelector('.section.active');
-                if (!activeSec || activeSec.id !== 'sec-jose') {
-                    this.navigateTo('jose');
-                }
+                if (!activeSec || activeSec.id !== 'sec-jose') this.navigateTo('jose');
+            } else if (isTaller) {
+                const activeSec = document.querySelector('.section.active');
+                if (!activeSec || activeSec.id !== 'sec-mis-trajes') this.navigateTo('mis-trajes');
             }
         },
 
@@ -8698,11 +8936,19 @@ App.trajes = {
 
     // ─── Pedido al proveedor ──────────────────────────────────────────────
 
-    /** Reglas de redondeo por proveedor para los metros a pedir. */
+    /** Reglas de redondeo por proveedor para los metros a pedir.
+     *  Lee el pedido mínimo del catálogo de proveedores (App.proveedores).
+     *  Si no encuentra el proveedor o no tiene mínimo configurado, usa 10 como
+     *  fallback (compatibilidad con el comportamiento histórico). */
     _roundingForProveedor(prov) {
+        if (App.proveedores && typeof App.proveedores.getMinimo === 'function') {
+            const m = App.proveedores.getMinimo(prov);
+            if (m > 0) return m;
+        }
+        // Fallback histórico
         const p = (prov || '').toUpperCase().trim();
-        if (p === 'TELATER') return 50;     // rollos de 50 m
-        return 10;                          // Flamentex y resto: múltiplos de 10
+        if (p === 'TELATER') return 50;
+        return 10;
     },
     _ceilToMultiple(value, mult) {
         if (!mult || mult <= 0) return Math.ceil(value);
@@ -14385,6 +14631,549 @@ App.pedidos = {
 };
 
 /* ==========================================================
+   PROVEEDORES — catálogo de proveedores con pedido mínimo.
+   Lee/escribe el tab PROVEEDORES del Sheet ESCANDALLOS_<NOMBRE>.
+   ========================================================== */
+App.proveedores = {
+    HEADERS: ['NOMBRE','PEDIDO_MINIMO_M','ACTIVO','NOTAS'],
+    TAB: 'PROVEEDORES',
+    _data: [],
+    _filtered: [],
+
+    async load(forceRefresh = false) {
+        const cont = document.getElementById('proveedoresContent');
+        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando proveedores…</p></div>';
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) {
+                this._data = [];
+                if (cont) cont.innerHTML =
+                    '<div class="alert alert-warning" style="margin:20px;">' +
+                    'No hay <code>ESCANDALLOS_ID</code> configurado. Ve a Ajustes → Temporadas.</div>';
+                return;
+            }
+            const range = `${this.TAB}!A2:D`;
+            const rows = await App.sheets.readRange(sheetId, range).catch(() => []);
+            this._data = rows.map((r, i) => this._parseRow(r, i + 2)).filter(p => p.NOMBRE);
+            this.filter();
+        } catch (err) {
+            console.error('[proveedores.load]', err);
+            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
+        }
+    },
+
+    _parseRow(r, rowIndex) {
+        const cell = i => (r[i] || '').toString().trim();
+        return {
+            NOMBRE:           cell(0),
+            PEDIDO_MINIMO_M:  cell(1),
+            ACTIVO:           cell(2),
+            NOTAS:            cell(3),
+            _rowIndex:        rowIndex,
+        };
+    },
+
+    _serializeRow(p) {
+        return [p.NOMBRE || '', p.PEDIDO_MINIMO_M || '', p.ACTIVO || '', p.NOTAS || ''];
+    },
+
+    _isActive(p) {
+        const v = (p.ACTIVO || '').toString().toUpperCase().trim();
+        return !['FALSE','NO','0','INACTIVO'].includes(v);
+    },
+
+    /** Devuelve el pedido mínimo (m) para un proveedor por nombre. 0 si no encontrado. */
+    getMinimo(nombreProveedor) {
+        const nombre = (nombreProveedor || '').toString().trim().toUpperCase();
+        if (!nombre) return 0;
+        const p = this._data.find(x => x.NOMBRE.toUpperCase() === nombre);
+        if (!p) return 0;
+        const v = parseFloat(p.PEDIDO_MINIMO_M);
+        return isNaN(v) || v <= 0 ? 0 : v;
+    },
+
+    filter() {
+        const q = (document.getElementById('proveedoresSearch')?.value || '').toLowerCase().trim();
+        const estadoFiltro = (document.getElementById('proveedoresEstadoFiltro')?.value || 'activos');
+        this._filtered = this._data.filter(p => {
+            if (q && !p.NOMBRE.toLowerCase().includes(q)) return false;
+            const active = this._isActive(p);
+            if (estadoFiltro === 'activos'   && !active) return false;
+            if (estadoFiltro === 'inactivos' && active) return false;
+            return true;
+        });
+        this._render();
+    },
+
+    _render() {
+        const cont = document.getElementById('proveedoresContent');
+        const countEl = document.getElementById('proveedoresCount');
+        if (countEl) countEl.textContent = `${this._filtered.length} proveedor${this._filtered.length !== 1 ? 'es' : ''}`;
+        if (!cont) return;
+        if (!this._filtered.length) {
+            cont.innerHTML =
+                '<div class="empty-state" style="padding:40px;">' +
+                '<p style="margin-bottom:12px;">No hay proveedores que coincidan.</p>' +
+                '<button class="btn btn-primary btn-sm" onclick="App.proveedores.openModal()">+ Nuevo proveedor</button></div>';
+            return;
+        }
+        const cards = this._filtered.map(p => this._renderCard(p)).join('');
+        cont.innerHTML =
+            `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px;">${cards}</div>`;
+    },
+
+    _renderCard(p) {
+        const active = this._isActive(p);
+        const escName = (p.NOMBRE || '').replace(/'/g, "\\'");
+        const opacity = active ? '' : 'opacity:0.55;';
+        const inactiveBadge = active ? '' :
+            '<span class="chip" style="background:#999; color:white; font-size:10px;">inactivo</span>';
+        return `
+        <div class="card" style="padding:14px; ${opacity} cursor:pointer;"
+             onclick="App.proveedores.openModal('${escName}')">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <strong style="font-size:15px;">&#x1F3EA; ${p.NOMBRE}</strong>
+                ${inactiveBadge}
+            </div>
+            <div style="font-size:13px; color:#444; margin-bottom:6px;">
+                Pedido mínimo: <strong>${p.PEDIDO_MINIMO_M || '—'}${p.PEDIDO_MINIMO_M ? ' m' : ''}</strong>
+            </div>
+            ${p.NOTAS ? `<div style="font-size:11px; color:var(--text-muted);">${p.NOTAS}</div>` : ''}
+        </div>`;
+    },
+
+    openModal(nombre) {
+        const get = id => document.getElementById(id);
+        get('proveedorOriginalNombre').value = nombre || '';
+        const editing = !!nombre;
+        const p = editing ? this._data.find(x => x.NOMBRE === nombre) : null;
+        get('proveedorModalTitle').textContent = editing ? `Editar "${nombre}"` : 'Nuevo proveedor';
+        get('btnProveedorMarkInactive').style.display = editing && this._isActive(p || {}) ? 'inline-flex' : 'none';
+
+        get('proveedorNombre').value          = p?.NOMBRE || '';
+        get('proveedorMinimo').value          = p?.PEDIDO_MINIMO_M || '';
+        get('proveedorNotas').value           = p?.NOTAS || '';
+        get('proveedorActivo').checked        = p ? this._isActive(p) : true;
+
+        get('proveedorModal').classList.add('active');
+        setTimeout(() => get('proveedorNombre').focus(), 50);
+    },
+
+    closeModal() {
+        document.getElementById('proveedorModal').classList.remove('active');
+    },
+
+    async save() {
+        const get = id => document.getElementById(id);
+        const btn = get('btnProveedorSave');
+        btn.disabled = true; btn.textContent = 'Guardando...';
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+            const nombre = get('proveedorNombre').value.trim().toUpperCase();
+            if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
+            const minimoStr = get('proveedorMinimo').value.trim();
+            const minimo = parseFloat(minimoStr);
+            if (isNaN(minimo) || minimo <= 0) {
+                App.toast.show('Pedido mínimo inválido (debe ser > 0)', 'error');
+                return;
+            }
+            const original = get('proveedorOriginalNombre').value;
+            if ((!original || original !== nombre) &&
+                this._data.some(x => x.NOMBRE.toUpperCase() === nombre)) {
+                App.toast.show(`Ya existe el proveedor "${nombre}"`, 'error');
+                return;
+            }
+            const p = {
+                NOMBRE:          nombre,
+                PEDIDO_MINIMO_M: String(minimo),
+                ACTIVO:          get('proveedorActivo').checked ? 'TRUE' : 'FALSE',
+                NOTAS:           get('proveedorNotas').value.trim(),
+            };
+            const row = this._serializeRow(p);
+            if (original) {
+                const existing = this._data.find(x => x.NOMBRE === original);
+                if (!existing) throw new Error(`No se encontró "${original}".`);
+                const range = `${this.TAB}!A${existing._rowIndex}:D${existing._rowIndex}`;
+                await App.sheets.writeRange(sheetId, range, [row]);
+            } else {
+                await App.sheets.appendRows(sheetId, `${this.TAB}!A:D`, [row]);
+            }
+            App.toast.show('Proveedor guardado', 'success');
+            this.closeModal();
+            await this.load(true);
+        } catch (err) {
+            console.error('[proveedores.save]', err);
+            App.toast.show('Error: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Guardar';
+        }
+    },
+
+    async markInactive() {
+        const original = document.getElementById('proveedorOriginalNombre').value;
+        if (!original) return;
+        if (!confirm(`¿Marcar "${original}" como inactivo?`)) return;
+        document.getElementById('proveedorActivo').checked = false;
+        await this.save();
+    },
+};
+
+/* ==========================================================
+   TALLERES_CATALOGO — CRUD del catálogo de talleres con email.
+   Lee/escribe el tab TALLERES del Sheet ESCANDALLOS_<NOMBRE>.
+   El email se usa para el modo restringido del taller (App.isTaller).
+   ========================================================== */
+App.talleresCatalogo = {
+    HEADERS: ['NOMBRE','EMAIL','TELEFONO','ACTIVO','NOTAS'],
+    TAB: 'TALLERES',
+    _data: [],
+    _filtered: [],
+
+    async load(forceRefresh = false) {
+        const cont = document.getElementById('talleresCatContent');
+        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando…</p></div>';
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) {
+                this._data = [];
+                if (cont) cont.innerHTML =
+                    '<div class="alert alert-warning" style="margin:20px;">' +
+                    'No hay <code>ESCANDALLOS_ID</code> configurado.</div>';
+                return;
+            }
+            const range = `${this.TAB}!A2:E`;
+            const rows = await App.sheets.readRange(sheetId, range).catch(() => []);
+            this._data = rows.map((r, i) => this._parseRow(r, i + 2)).filter(t => t.NOMBRE);
+            this.filter();
+        } catch (err) {
+            console.error('[talleresCatalogo.load]', err);
+            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
+        }
+    },
+
+    _parseRow(r, rowIndex) {
+        const cell = i => (r[i] || '').toString().trim();
+        return {
+            NOMBRE:    cell(0),
+            EMAIL:     cell(1).toLowerCase(),
+            TELEFONO:  cell(2),
+            ACTIVO:    cell(3),
+            NOTAS:     cell(4),
+            _rowIndex: rowIndex,
+        };
+    },
+
+    _serializeRow(t) {
+        return [t.NOMBRE || '', t.EMAIL || '', t.TELEFONO || '', t.ACTIVO || '', t.NOTAS || ''];
+    },
+
+    _isActive(t) {
+        const v = (t.ACTIVO || '').toString().toUpperCase().trim();
+        return !['FALSE','NO','0','INACTIVO'].includes(v);
+    },
+
+    /** Devuelve el taller (objeto) cuyo EMAIL coincide con el dado, o null. */
+    findByEmail(email) {
+        const e = (email || '').toLowerCase().trim();
+        if (!e) return null;
+        return this._data.find(t => t.EMAIL === e && this._isActive(t)) || null;
+    },
+
+    filter() {
+        const q = (document.getElementById('talleresCatSearch')?.value || '').toLowerCase().trim();
+        const estadoFiltro = (document.getElementById('talleresCatEstadoFiltro')?.value || 'activos');
+        this._filtered = this._data.filter(t => {
+            if (q && !(t.NOMBRE.toLowerCase().includes(q) || t.EMAIL.includes(q))) return false;
+            const active = this._isActive(t);
+            if (estadoFiltro === 'activos'   && !active) return false;
+            if (estadoFiltro === 'inactivos' && active) return false;
+            return true;
+        });
+        this._render();
+    },
+
+    _render() {
+        const cont = document.getElementById('talleresCatContent');
+        const countEl = document.getElementById('talleresCatCount');
+        if (countEl) countEl.textContent = `${this._filtered.length} taller${this._filtered.length !== 1 ? 'es' : ''}`;
+        if (!cont) return;
+        if (!this._filtered.length) {
+            cont.innerHTML =
+                '<div class="empty-state" style="padding:40px;">' +
+                '<p style="margin-bottom:12px;">No hay talleres que coincidan.</p>' +
+                '<button class="btn btn-primary btn-sm" onclick="App.talleresCatalogo.openModal()">+ Nuevo taller</button></div>';
+            return;
+        }
+        const cards = this._filtered.map(t => this._renderCard(t)).join('');
+        cont.innerHTML =
+            `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:14px;">${cards}</div>`;
+    },
+
+    _renderCard(t) {
+        const active = this._isActive(t);
+        const escName = (t.NOMBRE || '').replace(/'/g, "\\'");
+        const opacity = active ? '' : 'opacity:0.55;';
+        const inactiveBadge = active ? '' :
+            '<span class="chip" style="background:#999; color:white; font-size:10px;">inactivo</span>';
+        return `
+        <div class="card" style="padding:14px; ${opacity} cursor:pointer;"
+             onclick="App.talleresCatalogo.openModal('${escName}')">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <strong style="font-size:15px;">&#x1F3ED; ${t.NOMBRE}</strong>
+                ${inactiveBadge}
+            </div>
+            ${t.EMAIL ? `<div style="font-size:12px; color:#444; margin-bottom:4px;">&#x1F4E7; <span class="mono">${t.EMAIL}</span></div>` : '<div style="font-size:11px; color:#999; margin-bottom:4px;">sin email — el taller no podrá entrar a su vista</div>'}
+            ${t.TELEFONO ? `<div style="font-size:11px; color:#888;">&#x1F4DE; ${t.TELEFONO}</div>` : ''}
+            ${t.NOTAS ? `<div style="font-size:11px; color:var(--text-muted); margin-top:6px;">${t.NOTAS}</div>` : ''}
+        </div>`;
+    },
+
+    openModal(nombre) {
+        const get = id => document.getElementById(id);
+        get('tallerCatOriginalNombre').value = nombre || '';
+        const editing = !!nombre;
+        const t = editing ? this._data.find(x => x.NOMBRE === nombre) : null;
+        get('tallerCatModalTitle').textContent = editing ? `Editar "${nombre}"` : 'Nuevo taller';
+        get('btnTallerCatMarkInactive').style.display = editing && this._isActive(t || {}) ? 'inline-flex' : 'none';
+
+        get('tallerCatNombre').value   = t?.NOMBRE   || '';
+        get('tallerCatEmail').value    = t?.EMAIL    || '';
+        get('tallerCatTelefono').value = t?.TELEFONO || '';
+        get('tallerCatNotas').value    = t?.NOTAS    || '';
+        get('tallerCatActivo').checked = t ? this._isActive(t) : true;
+
+        get('tallerCatModal').classList.add('active');
+        setTimeout(() => get('tallerCatNombre').focus(), 50);
+    },
+
+    closeModal() {
+        document.getElementById('tallerCatModal').classList.remove('active');
+    },
+
+    async save() {
+        const get = id => document.getElementById(id);
+        const btn = get('btnTallerCatSave');
+        btn.disabled = true; btn.textContent = 'Guardando...';
+        try {
+            const sheetId = App.settings.get('escandallosId');
+            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+            const nombre = get('tallerCatNombre').value.trim().toUpperCase();
+            if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
+            const email = get('tallerCatEmail').value.trim().toLowerCase();
+            // Validación email opcional
+            if (email && !email.includes('@')) {
+                App.toast.show('Email inválido', 'error');
+                return;
+            }
+            const original = get('tallerCatOriginalNombre').value;
+            // Duplicados por nombre
+            if ((!original || original !== nombre) &&
+                this._data.some(x => x.NOMBRE.toUpperCase() === nombre)) {
+                App.toast.show(`Ya existe el taller "${nombre}"`, 'error');
+                return;
+            }
+            // Duplicados por email
+            if (email && this._data.some(x => x.EMAIL === email && x.NOMBRE !== original)) {
+                App.toast.show(`El email "${email}" ya está asignado a otro taller`, 'error');
+                return;
+            }
+            const t = {
+                NOMBRE:    nombre,
+                EMAIL:     email,
+                TELEFONO:  get('tallerCatTelefono').value.trim(),
+                ACTIVO:    get('tallerCatActivo').checked ? 'TRUE' : 'FALSE',
+                NOTAS:     get('tallerCatNotas').value.trim(),
+            };
+            const row = this._serializeRow(t);
+            if (original) {
+                const existing = this._data.find(x => x.NOMBRE === original);
+                if (!existing) throw new Error(`No se encontró "${original}".`);
+                const range = `${this.TAB}!A${existing._rowIndex}:E${existing._rowIndex}`;
+                await App.sheets.writeRange(sheetId, range, [row]);
+            } else {
+                await App.sheets.appendRows(sheetId, `${this.TAB}!A:E`, [row]);
+            }
+            App.toast.show('Taller guardado', 'success');
+            this.closeModal();
+            await this.load(true);
+        } catch (err) {
+            console.error('[talleresCatalogo.save]', err);
+            App.toast.show('Error: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Guardar';
+        }
+    },
+
+    async markInactive() {
+        const original = document.getElementById('tallerCatOriginalNombre').value;
+        if (!original) return;
+        if (!confirm(`¿Marcar "${original}" como inactivo?`)) return;
+        document.getElementById('tallerCatActivo').checked = false;
+        await this.save();
+    },
+};
+
+/* ==========================================================
+   MIS_TRAJES — vista de solo lectura para los talleres.
+   Cuando un taller entra con su email, esta es su única sección.
+   ========================================================== */
+App.misTrajes = {
+    _filtered: [],
+
+    /** Nombre del taller del usuario actual (basado en email). null si no es taller. */
+    _currentTallerNombre() {
+        const email = (App.user?.email || '').toLowerCase().trim();
+        if (!email) return null;
+        const t = App.talleresCatalogo?.findByEmail(email);
+        return t?.NOMBRE || null;
+    },
+
+    async load(forceRefresh = false) {
+        const cont = document.getElementById('misTrajesContent');
+        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando tus trajes…</p></div>';
+        try {
+            // Necesitamos el catálogo de talleres para resolver email → nombre del taller
+            if (!App.talleresCatalogo._data?.length) {
+                await App.talleresCatalogo.load();
+            }
+            // Cargar trajes
+            if (forceRefresh || !App.trajes?.data?.length) {
+                await App.trajes.load(forceRefresh);
+            }
+            // Cargar modelos para mostrar adornos / construcción en la ficha
+            if (App.modelos && !App.modelos._data?.length) {
+                await App.modelos.load().catch(()=>{});
+            }
+            this.filter();
+        } catch (err) {
+            console.error('[misTrajes.load]', err);
+            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
+        }
+    },
+
+    filter() {
+        const cont = document.getElementById('misTrajesContent');
+        const countEl = document.getElementById('misTrajesCount');
+        if (!cont) return;
+        const tallerNombre = this._currentTallerNombre();
+        if (!tallerNombre) {
+            cont.innerHTML =
+                '<div class="alert alert-warning" style="margin:20px;">' +
+                'Tu cuenta no está asociada a ningún taller del catálogo. ' +
+                'Pide que te añadan en la sección "Catálogo talleres".</div>';
+            if (countEl) countEl.textContent = '';
+            return;
+        }
+        const COL = App.trajes.COL;
+        const all = App.trajes.data || [];
+        const q = (document.getElementById('misTrajesSearch')?.value || '').toLowerCase().trim();
+        const tallerUpper = tallerNombre.toUpperCase();
+        // Solo trajes de mi taller, no entregados a la clienta todavía
+        this._filtered = all.filter(t => {
+            const tl = (t[COL.taller] || '').toUpperCase().trim();
+            if (tl !== tallerUpper) return false;
+            const ent = (t[COL.trajeEntregado] || '').toUpperCase().trim();
+            if (ent === 'ENTREGADO') return false;
+            if (q) {
+                const hay = `${t[COL.num] || ''} ${t[COL.nombre] || ''} ${t[COL.modelo] || ''} ${t[COL.tipoTela] || ''}`.toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+        if (countEl) countEl.textContent = `${this._filtered.length} traje${this._filtered.length !== 1 ? 's' : ''} en tu taller`;
+        this._render();
+    },
+
+    _render() {
+        const cont = document.getElementById('misTrajesContent');
+        if (!cont) return;
+        if (!this._filtered.length) {
+            cont.innerHTML = '<div class="empty-state" style="padding:40px;"><p>No hay trajes asignados a tu taller en este momento.</p></div>';
+            return;
+        }
+        const COL = App.trajes.COL;
+        const rows = this._filtered.map(t => {
+            const num     = String(t[COL.num] || '').trim();
+            const nombre  = (t[COL.nombre]   || '').trim() || '—';
+            const modelo  = (t[COL.modelo]   || '').trim() || '—';
+            const tipoTela = (t[COL.tipoTela] || '').trim() || '—';
+            const medidas = (t[COL.medidas]  || '').trim();
+            const tallaMatch = medidas.match(/T\.?(\d+)/i);
+            const talla = tallaMatch ? `T.${tallaMatch[1]}` : (medidas || '—');
+            return `
+                <tr style="border-bottom:1px solid var(--border-light); cursor:pointer;"
+                    onclick="App.misTrajes.verFicha(${t._rowIndex})">
+                    <td style="padding:10px 12px; font-weight:600; color:var(--primary);">${num}</td>
+                    <td style="padding:10px 12px;">${nombre}</td>
+                    <td style="padding:10px 12px;">${modelo}</td>
+                    <td style="padding:10px 12px; font-size:12px;">${tipoTela}</td>
+                    <td style="padding:10px 12px; text-align:center;"><strong>${talla}</strong></td>
+                </tr>`;
+        }).join('');
+        cont.innerHTML = `
+            <div class="card" style="padding:0; overflow:hidden;">
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead style="background:#fafafa;">
+                        <tr>
+                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">N&ordm;</th>
+                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Clienta</th>
+                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Modelo</th>
+                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Tela</th>
+                            <th style="padding:10px 12px; text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Talla</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    },
+
+    /** Ficha del traje en solo lectura: solo info del traje (sin teléfono, correo). */
+    verFicha(rowIndex) {
+        const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+        if (!t) return;
+        const COL = App.trajes.COL;
+        const num      = String(t[COL.num] || '').trim();
+        const nombre   = (t[COL.nombre]   || '').trim();
+        const feria    = (t[COL.feria]    || '').trim();
+        const modeloRaw = (t[COL.modelo]   || '').trim();
+        const tipoTela  = (t[COL.tipoTela] || '').trim();
+        const medidas   = (t[COL.medidas]  || '').trim();
+
+        const modeloFull = (App.modelos?._data || []).find(m =>
+            m.NOMBRE && m.NOMBRE.toLowerCase() === modeloRaw.toLowerCase());
+        const adornos     = modeloFull?.ADORNOS         || (t[COL.adornos] || '');
+        const escandalloM = modeloFull?.TELA_PPAL_M     || '';
+        const tipoConstr  = modeloFull?.TIPO_CONSTRUCCION || '';
+
+        document.getElementById('misTrajesFichaTitle').innerHTML =
+            `Traje &nbsp;&middot;&nbsp; <span style="color:var(--primary);">#${num}</span>`;
+        document.getElementById('misTrajesFichaSubtitle').textContent =
+            nombre + (feria ? `  ·  ${feria}` : '');
+
+        const fila = (label, value) =>
+            `<tr><td style="padding:5px 0; color:#666; vertical-align:top; min-width:140px;">${label}</td>` +
+            `<td style="padding:5px 0;"><strong>${value || '—'}</strong></td></tr>`;
+
+        document.getElementById('misTrajesFichaBody').innerHTML =
+            `<table style="width:100%; border-collapse:collapse;">` +
+            fila('Modelo', modeloRaw) +
+            (tipoConstr ? fila('Construcción', tipoConstr) : '') +
+            (escandalloM ? fila('Tela ppal', `${escandalloM} m`) : '') +
+            fila('Tipo tela', tipoTela) +
+            (medidas ? fila('Medidas', medidas) : '') +
+            (adornos ? fila('Adornos', `<span style="font-size:12px; line-height:1.5;">${adornos.replace(/\n/g, '<br>')}</span>`) : '') +
+            `</table>`;
+
+        document.getElementById('misTrajesFichaModal').classList.add('active');
+    },
+
+    closeFicha() {
+        document.getElementById('misTrajesFichaModal').classList.remove('active');
+    },
+};
+
+/* ==========================================================
    TELAS — catálogo + stock por tela (TIPO + VARIANTE)
    Lee/escribe el tab TELAS del Sheet ESCANDALLOS_<NOMBRE>.
    ========================================================== */
@@ -14738,7 +15527,7 @@ App.telas = {
         get('telaStockM').value         = t?.STOCK_M || '';
         get('telaUmbralAlerta').value   = t?.UMBRAL_ALERTA || '10';
         get('telaUbicacion').value      = t?.UBICACION || '';
-        get('telaUnidadPedido').value   = t?.UNIDAD_PEDIDO_M || '';
+        // UNIDAD_PEDIDO_M ya no se edita aquí — se hereda del proveedor (sección Proveedores)
         get('telaActiva').checked       = t ? this._isActive(t) : true;
         get('telaNotas').value          = t?.NOTAS || '';
 
@@ -14798,7 +15587,9 @@ App.telas = {
                 UBICACION:        get('telaUbicacion').value,
                 ACTIVA:           get('telaActiva').checked ? 'TRUE' : 'FALSE',
                 NOTAS:            get('telaNotas').value.trim(),
-                UNIDAD_PEDIDO_M:  get('telaUnidadPedido').value.trim(),
+                // Mantenemos el valor existente de UNIDAD_PEDIDO_M (no se edita en UI;
+                // ahora se hereda del proveedor pero conservamos el sheet column como fallback legacy)
+                UNIDAD_PEDIDO_M:  (this._data.find(x => x.TIPO === tipo && x.VARIANTE === variante)?.UNIDAD_PEDIDO_M || ''),
             };
             const row = this._serializeRow(t);
 
@@ -14833,8 +15624,18 @@ App.telas = {
         await this.save();
     },
 
-    /** Devuelve la unidad de pedido numérica (rollo típico) o 0 si no está definida. */
+    /** Devuelve la unidad de pedido numérica (rollo típico) o 0 si no está definida.
+     *  Prioridad: (1) el catálogo de proveedores → pedido mínimo del proveedor de la tela.
+     *  (2) Fallback al campo UNIDAD_PEDIDO_M legacy de la propia tela.
+     *  El catálogo gana porque centraliza la regla en un único sitio. */
     _unidadNum(t) {
+        if (!t) return 0;
+        // 1) Catálogo de proveedores
+        if (App.proveedores && typeof App.proveedores.getMinimo === 'function') {
+            const m = App.proveedores.getMinimo(t.PROVEEDOR);
+            if (m > 0) return m;
+        }
+        // 2) Fallback legacy: UNIDAD_PEDIDO_M de la propia tela
         const v = parseFloat(t?.UNIDAD_PEDIDO_M);
         return isNaN(v) || v <= 0 ? 0 : v;
     },
