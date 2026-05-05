@@ -285,6 +285,23 @@
         .bandeja-warn:not(.active):hover { border-color: var(--danger); }
         .bandeja-warn.active { background: var(--danger); border-color: var(--danger); }
         .nav-icon { font-size: 18px; min-width: 24px; text-align: center; }
+        /* Badge rojo encima del icono del sidebar — usado para avisos pendientes (pedidos, etc.) */
+        .nav-badge {
+            position: absolute;
+            top: -6px;
+            right: -10px;
+            background: #d32f2f;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            padding: 2px 5px;
+            min-width: 16px;
+            border-radius: 9px;
+            box-shadow: 0 0 0 2px var(--primary, #c2185b);
+            text-align: center;
+            pointer-events: none;
+        }
         .sidebar-footer {
             padding: 15px 20px;
             border-top: 1px solid rgba(255,255,255,0.15);
@@ -1702,7 +1719,10 @@
                 <span class="nav-label">Fichas</span>
             </div>
             <div class="nav-item nav-item-primary" data-section="trajes" onclick="App.ui.navigateTo('trajes')">
-                <span class="nav-icon">&#x1F457;</span>
+                <span class="nav-icon" style="position:relative;">
+                    &#x1F457;
+                    <span id="trajesBadgeSidebar" class="nav-badge" style="display:none;" title="Trajes en bandeja Revisar (incidencias o estancados)">0</span>
+                </span>
                 <span class="nav-label">Trajes</span>
             </div>
             <div class="nav-item nav-item-primary" data-section="corte" onclick="App.ui.navigateTo('corte')">
@@ -1710,7 +1730,10 @@
                 <span class="nav-label">Corte</span>
             </div>
             <div class="nav-item nav-item-primary" data-section="pedidos" onclick="App.ui.navigateTo('pedidos')">
-                <span class="nav-icon">&#x1F4E5;</span>
+                <span class="nav-icon" style="position:relative;">
+                    &#x1F4E5;
+                    <span id="pedidosBadgeSidebar" class="nav-badge" style="display:none;">0</span>
+                </span>
                 <span class="nav-label">Pedidos</span>
             </div>
             <div class="nav-item nav-item-primary" data-section="jose" onclick="App.ui.navigateTo('jose')">
@@ -1724,11 +1747,17 @@
                 <span class="nav-label">Modelos</span>
             </div>
             <div class="nav-item" data-section="telas" onclick="App.ui.navigateTo('telas')">
-                <span class="nav-icon">&#x1F9F5;</span>
+                <span class="nav-icon" style="position:relative;">
+                    &#x1F9F5;
+                    <span id="telasBadgeSidebar" class="nav-badge" style="display:none; box-shadow:0 0 0 2px var(--primary, #c2185b);" title="Telas con retal pendiente de descartar">0</span>
+                </span>
                 <span class="nav-label">Telas</span>
             </div>
             <div class="nav-item" data-section="talleres" onclick="App.ui.navigateTo('talleres')">
-                <span class="nav-icon">&#x1F3ED;</span>
+                <span class="nav-icon" style="position:relative;">
+                    &#x1F3ED;
+                    <span id="talleresBadgeSidebar" class="nav-badge" style="display:none; box-shadow:0 0 0 2px var(--primary, #c2185b);" title="Talleres con trajes atascados">0</span>
+                </span>
                 <span class="nav-label">Vista por taller</span>
             </div>
             <div class="nav-item" data-section="ajustes" onclick="App.ui.navigateTo('ajustes')">
@@ -3592,6 +3621,20 @@ const App = {
             App.ui.setConnection('online');
             // Aplicar restricciones de UI según el rol (Jose ve solo su sección)
             if (App.ui.applyRolePermissions) App.ui.applyRolePermissions();
+            // Cargar pedidos en background para mostrar el badge del sidebar con pendientes
+            if (App.pedidos && typeof App.pedidos.load === 'function') {
+                App.pedidos.load().catch(e => console.warn('[login] pedidos.load:', e.message));
+            }
+            // Cargar telas en background para mostrar el badge de retales pendientes
+            if (App.telas && typeof App.telas.load === 'function') {
+                App.telas.load().then(() => App.telas.refreshBadge && App.telas.refreshBadge())
+                    .catch(e => console.warn('[login] telas.load:', e.message));
+            }
+            // Cargar trajes en background para que los badges de Trajes (Revisar) y
+            // Vista por taller (atascados) aparezcan sin haber entrado a esas secciones.
+            if (App.trajes && typeof App.trajes.load === 'function' && App.trajes.data?.length === 0) {
+                App.trajes.load().catch(e => console.warn('[login] trajes.load:', e.message));
+            }
 
             // Load seasons BEFORE reading any per-season value; safe no-op if no configsFolderId
             try {
@@ -9096,6 +9139,32 @@ App.trajes = {
             const el = document.getElementById('bdCount-' + k);
             if (el) el.textContent = v;
         }
+        // Badge del sidebar: número de trajes en bandeja Revisar (urgencia real)
+        this.refreshBadge(counts.revisar);
+        // De paso, refrescar el badge de Vista por taller (depende de los mismos datos)
+        if (App.talleres && typeof App.talleres.refreshBadge === 'function') {
+            App.talleres.refreshBadge();
+        }
+    },
+
+    /** Actualiza el badge rojo del icono "Trajes" del sidebar con los trajes en revisar.
+     *  Si se le pasa un número, lo usa directamente; si no, lo recalcula. */
+    refreshBadge(count) {
+        let n = count;
+        if (typeof n !== 'number') {
+            n = 0;
+            for (const t of (this.data || [])) {
+                if (this._needsRevisar(t)) n++;
+            }
+        }
+        const el = document.getElementById('trajesBadgeSidebar');
+        if (!el) return;
+        if (n > 0) {
+            el.textContent = n > 99 ? '99+' : String(n);
+            el.style.display = '';
+        } else {
+            el.style.display = 'none';
+        }
     },
 
     async load(forceRefresh = false) {
@@ -13788,6 +13857,7 @@ App.pedidos = {
                 return (b.pedido._rowIndex || 0) - (a.pedido._rowIndex || 0);
             });
             this._render();
+            this.refreshBadge();
         } catch (err) {
             console.error('[pedidos.load]', err);
             if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
@@ -13800,6 +13870,27 @@ App.pedidos = {
             el.classList.toggle('active', el.dataset.pfiltro === this._filtro);
         });
         this._render();
+    },
+
+    /** Cuenta cuántos pedidos están pendientes o parcialmente recibidos.
+     *  Usado para el badge rojo del sidebar "Pedidos". */
+    countAbiertos() {
+        if (!this._data?.length) return 0;
+        return this._data.filter(p => p.estado === 'pendiente' || p.estado === 'parcial').length;
+    },
+
+    /** Actualiza el badge del sidebar/bottom-nav con el número de pedidos pendientes. */
+    refreshBadge() {
+        const n = this.countAbiertos();
+        const el = document.getElementById('pedidosBadgeSidebar');
+        if (el) {
+            if (n > 0) {
+                el.textContent = n > 99 ? '99+' : String(n);
+                el.style.display = '';
+            } else {
+                el.style.display = 'none';
+            }
+        }
     },
 
     /** Suma los metros pendientes de recibir para una tela (TIPO + VARIANTE).
@@ -14155,6 +14246,8 @@ App.telas = {
     _render() {
         const container = document.getElementById('telasContent');
         const countEl = document.getElementById('telasCount');
+        // Badge del sidebar siempre se actualiza con el render
+        this.refreshBadge();
         if (!container) return;
         if (countEl) {
             const bajas = this._filtered.filter(t => this._isLowStock(t)).length;
@@ -14490,6 +14583,19 @@ App.telas = {
             .filter(x => x.metros > 0);
     },
 
+    /** Actualiza el badge del sidebar "Telas" con el número de telas con retal pendiente. */
+    refreshBadge() {
+        const n = this.telasConRetal().length;
+        const el = document.getElementById('telasBadgeSidebar');
+        if (!el) return;
+        if (n > 0) {
+            el.textContent = n > 99 ? '99+' : String(n);
+            el.style.display = '';
+        } else {
+            el.style.display = 'none';
+        }
+    },
+
     /** Tras un movimiento de stock, si la tela queda con un retal candidato,
      *  abre un modal preguntando a Pilar si lo descarta. Default = "Sí, descartar".
      *  contexto: string corto que se muestra en el modal (ej. "corte traje 12"). */
@@ -14581,6 +14687,9 @@ App.telas = {
 App.talleres = {
     _filtered: [],
 
+    // Umbral en días para considerar un traje "atascado" en taller (sale el badge rojo)
+    UMBRAL_ATASCO_DIAS: 14,
+
     COL: {
         num: 'N\u00ba', nombre: 'NOMBRE', feria: 'FERIA', modelo: 'MODELO',
         estado: 'ESTADO', corte: 'CORTE', taller: 'TALLER',
@@ -14602,9 +14711,35 @@ App.talleres = {
             }
             this._populateTallerFilter();
             this.filter();
+            this.refreshBadge();
         } catch (err) {
             if (contentEl) contentEl.innerHTML =
                 `<div class="alert alert-danger" style="margin:20px;">Error cargando talleres: ${err.message}</div>`;
+        }
+    },
+
+    /** Cuenta trajes atascados (> UMBRAL_ATASCO_DIAS dias en taller sin volver). */
+    countAtascados() {
+        const trajes = App.trajes?.data || [];
+        if (!trajes.length || !App.dashboard?._estaAtascado) return 0;
+        const umbral = this.UMBRAL_ATASCO_DIAS;
+        let n = 0;
+        for (const t of trajes) {
+            if (App.dashboard._estaAtascado(t, umbral)) n++;
+        }
+        return n;
+    },
+
+    /** Actualiza el badge del sidebar "Vista por taller" con trajes atascados. */
+    refreshBadge() {
+        const n = this.countAtascados();
+        const el = document.getElementById('talleresBadgeSidebar');
+        if (!el) return;
+        if (n > 0) {
+            el.textContent = n > 99 ? '99+' : String(n);
+            el.style.display = '';
+        } else {
+            el.style.display = 'none';
         }
     },
 
