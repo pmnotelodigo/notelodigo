@@ -10156,6 +10156,8 @@ App.trajes = {
             if (fEnv && !fEnv.value) fEnv.value = hoy;
             if (fRec && !fRec.value) fRec.value = hoy;
         }
+        // Refrescar banner de stock — ya no aplica cuando corte ya empezó
+        this._updateStockBanner();
     },
 
     _onTallerChange(val) {
@@ -10435,14 +10437,21 @@ App.trajes = {
         };
         const hide = () => { banner.style.display = 'none'; banner.innerHTML = ''; };
 
-        // Filtro por estado: solo si el traje aún está pendiente de tela y no entregado
+        // Filtro por estado: el aviso de stock solo tiene sentido en las primeras
+        // etapas (pidiendo/asignando tela). Una vez la tela ya se ha recibido, o
+        // peor, el corte ya está hecho, el aviso es ruido.
         if (cfg.telaRecibidaId) {
-            const telaRec  = (document.getElementById(cfg.telaRecibidaId)?.value || '').toUpperCase().trim();
+            const telaRec = (document.getElementById(cfg.telaRecibidaId)?.value || '').toUpperCase().trim();
             if (telaRec !== '' && telaRec !== 'PENDIENTE') return hide();
         }
         if (cfg.trajeEntregadoId) {
             const trajeEnt = (document.getElementById(cfg.trajeEntregadoId)?.value || '').toUpperCase().trim();
             if (trajeEnt === 'ENTREGADO') return hide();
+        }
+        // Si CORTE ya está en marcha (ENVIADO/RECOGIDO/INCIDENCIA), ya no procede pedir tela
+        if (cfg.corteId) {
+            const corte = (document.getElementById(cfg.corteId)?.value || '').toUpperCase().trim();
+            if (corte && corte !== 'PENDIENTE') return hide();
         }
 
         const nombreModelo = (document.getElementById(cfg.modeloId)?.value || '').trim();
@@ -10527,6 +10536,7 @@ App.trajes = {
             varianteId:      'editTrajeTipoTelaVariante',
             telaRecibidaId:  'editTrajeTelRecibida',
             trajeEntregadoId:'editTrajeTrajeEntregado',
+            corteId:         'editTrajeCorte',
         });
     },
 
@@ -13524,9 +13534,17 @@ App.jose = {
                 `onclick="App.jose.marcarRecogidoCorte(${t._rowIndex})">` +
                 `&#x2713; Marcar recogido</button>`;
         } else if (this._bandeja === 'llevar') {
-            const talleres = (CONFIG.TALLERES || []).slice().sort();
+            // Si Pilar ya asignó un taller, lo preseleccionamos para que Jose lo vea de un vistazo.
+            const talleres = (CONFIG.TALLERES || []).slice();
+            // Asegurar que el taller actual está en las opciones (si es uno custom no presente en CONFIG)
+            if (taller && !talleres.includes(taller)) talleres.push(taller);
+            talleres.sort();
+            const escSel = (s) => (s || '').replace(/"/g, '&quot;');
             const opts = '<option value="">— Elegir taller —</option>' +
-                talleres.map(tl => `<option value="${tl}">${tl}</option>`).join('');
+                talleres.map(tl => {
+                    const selected = tl === taller ? ' selected' : '';
+                    return `<option value="${escSel(tl)}"${selected}>${tl}</option>`;
+                }).join('');
             actions =
                 `<select class="form-input" id="joseLlevarSelect-${t._rowIndex}" ` +
                 `style="font-size:12px; flex:1; min-width:0;">${opts}</select>` +
