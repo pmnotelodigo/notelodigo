@@ -8561,11 +8561,16 @@ App.trajes = {
                 };
             }
             const block = porProv[provKey];
-            // Para Flamentex la regla real es "10 m por traje" sumado, así que redondeamos
-            // sobre la demanda total (suma de escandallos) al múltiplo de 10 superior.
-            // Para TELATER lo importante es cubrir el faltante con un rollo, así que
-            // redondeamos sobre el faltante al múltiplo de 50 superior.
-            const baseM = (block.rounding === 50) ? entry.faltan : entry.demanda;
+            // Cantidad a pedir: SIEMPRE lo que falta (descontando el stock disponible),
+            // redondeado al múltiplo de la unidad de pedido del proveedor.
+            //   · Stock 20, demanda 30 → faltan 10 → Flamentex (mult 10) propone 10, TELATER (mult 50) propone 50.
+            //   · Stock 0,  demanda 30 → faltan 30 → Flamentex propone 30, TELATER propone 50.
+            // Si el estado es "umbral" (faltan = 0 pero stock se quedará por debajo del umbral),
+            // proponemos al menos 1 unidad de pedido para anticiparse.
+            let baseM = entry.faltan || 0;
+            if (entry.status === 'umbral' && baseM === 0) {
+                baseM = block.rounding;   // 1 unidad: 10 m Flamentex, 50 m TELATER
+            }
             const roundedM = this._ceilToMultiple(baseM, block.rounding);
             block.telas.push({
                 tipo: entry.tipo,
