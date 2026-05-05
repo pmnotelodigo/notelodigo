@@ -8639,20 +8639,35 @@ App.trajes = {
         const blocks = provKeys.map(k => {
             const b = desglose[k];
             const escKey = k.replace(/'/g, "\\'");
-            const filas = b.telas.map((t, idx) =>
-                `<tr>
-                    <td style="padding:6px 8px; font-size:12px;"><strong>${t.tipo}</strong> / ${t.variante}</td>
-                    <td style="padding:6px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${t.count} traje${t.count !== 1 ? 's' : ''}</td>
-                    <td style="padding:6px 8px; font-size:11px; color:var(--text-muted); text-align:right;">${Number(t.demanda.toFixed(2))} m demanda</td>
-                    <td style="padding:6px 8px; text-align:right;">
+            const fmt = n => Number(Number(n).toFixed(2)).toString();
+            const filas = b.telas.map((t, idx) => {
+                // Narrativa: stock actual → trajes pendientes (consumo) → quedan/faltan tras confeccionarlos
+                const stockNum = Number(t.stock) || 0;
+                const restante = stockNum - (Number(t.demanda) || 0);
+                const consumoTxt = `${t.count} traje${t.count !== 1 ? 's' : ''} (${fmt(t.demanda)} m)`;
+                const restanteTxt = restante < 0
+                    ? `<span style="color:#b71c1c; font-weight:600;">faltan ${fmt(Math.abs(restante))} m</span>`
+                    : `<span style="color:#7c3a00; font-weight:600;">quedarán ${fmt(restante)} m</span>`;
+                const narrativa =
+                    `<span style="color:#444;">stock <strong>${fmt(stockNum)} m</strong></span>` +
+                    ` <span style="color:#999;">→</span> ` +
+                    `<span style="color:#444;">${consumoTxt}</span>` +
+                    ` <span style="color:#999;">→</span> ` +
+                    restanteTxt +
+                    ` <span style="color:#888; font-style:italic;">tras confeccionar los trajes asignados</span>`;
+                return `<tr>
+                    <td style="padding:8px; font-size:12px; vertical-align:middle;"><strong>${t.tipo}</strong> / ${t.variante}</td>
+                    <td style="padding:8px; font-size:11px; vertical-align:middle; line-height:1.5;">${narrativa}</td>
+                    <td style="padding:8px; text-align:right; vertical-align:middle; white-space:nowrap;">
+                        <span style="font-size:11px; color:var(--text-muted); margin-right:4px;">recomiendo pedir</span>
                         <input type="number" min="0" step="${b.rounding === 50 ? 50 : 10}"
                                value="${t.confirmedM}"
                                style="width:74px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:13px; font-weight:700; color:#c2185b; text-align:right;"
                                oninput="App.trajes._onPedidoMetrosInput('${escKey}', ${idx}, this.value)">
                         <span style="font-size:11px; color:var(--text-muted);"> m</span>
                     </td>
-                </tr>`
-            ).join('');
+                </tr>`;
+            }).join('');
             const wa = this._buildWhatsappText(b);
             const totalPedido = b.telas.reduce((s, t) => s + (Number(t.confirmedM) || 0), 0);
             return `
