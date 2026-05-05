@@ -2604,6 +2604,11 @@
                             </div>
                             <!-- Hidden: valor combinado "TIPO / VARIANTE" que lee guardarEdicion -->
                             <input type="hidden" id="editTrajeTipoTela">
+
+                            <!-- Banner de stock al límite/negativo (se actualiza al cambiar
+                                 modelo/tela/estados, y se oculta cuando ya hay tela recibida o
+                                 corte en marcha — no tiene sentido pedir tela en ese punto). -->
+                            <div id="editTrajeStockBanner" style="display:none; margin-top:8px; padding:8px 10px; border-radius:6px; font-size:12px;"></div>
                         </div>
 
                         <!-- Adornos -->
