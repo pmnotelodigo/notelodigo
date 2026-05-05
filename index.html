@@ -2691,22 +2691,9 @@
                                 <div style="background:var(--background); border:1px solid var(--border-light); border-radius:var(--radius-sm); padding:8px;">
                                     <div class="form-group" style="margin:0 0 4px;">
                                         <label style="font-size:11px;">Taller</label>
-                                        <select class="form-input" id="editTrajeTaller" style="font-size:12px;"
-                                                onchange="App.trajes._onTallerChange(this.value)">
-                                            <option value="">—</option>
-                                            <option value="TALLER">TALLER</option>
-                                            <option value="DOLORES">DOLORES</option>
-                                            <option value="ROCIO">ROCIO</option>
-                                            <option value="BRENES">BRENES</option>
-                                            <option value="YEYE">YEYE</option>
-                                            <option value="TRIANGULO">TRIANGULO</option>
-                                            <option value="ALISON">ALISON</option>
-                                            <option value="NIDIA">NIDIA</option>
-                                            <option value="CARO">CARO</option>
-                                            <option value="GLADIS">GLADIS</option>
-                                            <option value="ALVARO">ALVARO</option>
-                                            <option value="BALDOMERO">BALDOMERO</option>
-                                        </select>
+                                        <input type="text" class="form-input" id="editTrajeTaller" style="font-size:12px;"
+                                               placeholder="—" autocomplete="off"
+                                               onchange="App.trajes._onTallerChange(this.value)">
                                     </div>
                                     <div class="form-group" style="margin:0 0 4px;">
                                         <label style="font-size:10px; color:var(--text-muted);">Fecha entrega al taller <span style="font-size:9px;">(auto)</span></label>
@@ -6814,10 +6801,10 @@ const App = {
         },
 
         // ── Combobox: input con dropdown de opciones existentes + creación libre ──
-        // Uso: App.ui.attachCombobox(inputEl, () => ['op1','op2',...]);
-        // El input se decora con un panel flotante. Click/focus abre, escribir filtra,
-        // click en una opción la elige, "+ Crear X" cuando lo escrito no existe.
-        attachCombobox(input, getOptions) {
+        // Uso: App.ui.attachCombobox(inputEl, () => ['op1','op2',...], onCreate?)
+        // onCreate(value) opcional: se llama al clicar "+ Crear X". Puede devolver
+        // Promise<boolean>. Si devuelve false, no se setea el valor (cancelado).
+        attachCombobox(input, getOptions, onCreate) {
             if (!input || input.dataset.comboboxAttached === '1') return;
             input.dataset.comboboxAttached = '1';
 
@@ -6839,6 +6826,7 @@ const App = {
 
             const close = () => wrap.classList.remove('combobox-open');
             const open = () => { wrap.classList.add('combobox-open'); render(); };
+            const hasCreate = typeof onCreate === 'function';
             const render = () => {
                 const q = input.value.trim().toLowerCase();
                 const all = (typeof getOptions === 'function' ? getOptions() : getOptions) || [];
@@ -6846,7 +6834,10 @@ const App = {
                 const exact = all.some(o => (o || '').toLowerCase() === q);
                 const items = [];
                 if (q && !exact) {
-                    items.push(`<div class="combobox-item combobox-create" data-val="${escapeAttr(q)}">+ Crear "${escapeHtml(q)}"</div>`);
+                    const label = hasCreate
+                        ? `+ Crear "${escapeHtml(q)}" en catálogo`
+                        : `+ Usar "${escapeHtml(q)}"`;
+                    items.push(`<div class="combobox-item combobox-create" data-val="${escapeAttr(q)}" data-create="1">${label}</div>`);
                 }
                 for (const o of filtered) {
                     items.push(`<div class="combobox-item" data-val="${escapeAttr(o)}">${escapeHtml(o)}</div>`);
@@ -6860,11 +6851,27 @@ const App = {
             input.addEventListener('input', () => { render(); wrap.classList.add('combobox-open'); });
             chev.addEventListener('mousedown', (e) => { e.preventDefault(); input.focus(); open(); });
             // mousedown evita que el blur del input cierre el panel antes del click
-            panel.addEventListener('mousedown', (e) => {
+            panel.addEventListener('mousedown', async (e) => {
                 const it = e.target.closest('.combobox-item');
                 if (!it) return;
                 e.preventDefault();
-                input.value = it.dataset.val || '';
+                const val = it.dataset.val || '';
+                const isCreate = it.dataset.create === '1';
+                if (isCreate && hasCreate) {
+                    // Lanzamos la creación. Mostramos feedback en el item mientras tanto.
+                    it.textContent = `Creando "${val}"…`;
+                    it.style.opacity = '0.6';
+                    try {
+                        const ok = await onCreate(val);
+                        if (ok === false) { close(); return; }
+                    } catch (err) {
+                        console.error('[combobox.onCreate]', err);
+                        App.toast?.show?.('Error creando: ' + err.message, 'error');
+                        close();
+                        return;
+                    }
+                }
+                input.value = val;
                 input.dispatchEvent(new Event('change', { bubbles: true }));
                 close();
                 input.focus();
@@ -8278,7 +8285,7 @@ App.clientas = {
                 (App.trajes?.data || []).map(t => (t['MODELO'] || '').trim()).filter(Boolean)
             )];
             return [...new Set([...catalogo, ...enUso])].sort();
-        });
+        }, async (val) => App.modelos.addQuick(val));
         App.ui.attachCombobox(tipoInput, () => {
             const tipos = (App.telas?._data || [])
                 .filter(t => t.TIPO && App.telas._isActive(t)).map(t => t.TIPO);
@@ -8324,7 +8331,7 @@ App.clientas = {
                 (App.trajes?.data || []).map(t => (t['MODELO'] || '').trim()).filter(Boolean)
             )];
             return [...new Set([...catalogo, ...enUso])].sort();
-        });
+        }, async (val) => App.modelos.addQuick(val));
 
         App.ui.attachCombobox(tipoInput, () => {
             const tipos = (App.telas?._data || [])
@@ -10671,9 +10678,11 @@ App.trajes = {
         const modeloInput = document.getElementById('editTrajeModelo');
         const tipoInput   = document.getElementById('editTrajeTipoTelaTipo');
         const varInput    = document.getElementById('editTrajeTipoTelaVariante');
+        const tallerInput = document.getElementById('editTrajeTaller');
         if (!modeloInput || !tipoInput || !varInput) return;
 
         // Modelo: activos del catálogo + modelos vivos en el listado (legacy/sugerencia)
+        // onCreate persiste el modelo nuevo en el catálogo MODELOS.
         App.ui.attachCombobox(modeloInput, () => {
             const catalogo = (App.modelos?._data || [])
                 .filter(m => m.NOMBRE && App.modelos._isActive(m))
@@ -10682,7 +10691,21 @@ App.trajes = {
                 this.data.map(t => (t[this.COL.modelo] || '').trim()).filter(Boolean)
             )];
             return [...new Set([...catalogo, ...enUso])].sort();
-        });
+        }, async (val) => App.modelos.addQuick(val));
+
+        // Taller: catálogo de talleres activos. onCreate añade al catálogo TALLERES.
+        if (tallerInput) {
+            App.ui.attachCombobox(tallerInput, () => {
+                const cat = (App.talleresCatalogo?._data || [])
+                    .filter(t => t.NOMBRE && App.talleresCatalogo._isActive(t))
+                    .map(t => t.NOMBRE);
+                // Incluir también los ya en uso por si hay nombres legacy aún no en catálogo
+                const enUso = [...new Set(
+                    this.data.map(t => (t[this.COL.taller] || '').trim()).filter(Boolean)
+                )];
+                return [...new Set([...cat, ...enUso])].sort();
+            }, async (val) => App.talleresCatalogo.addQuick(val));
+        }
 
         // Tipo de tela: tipos únicos del catálogo de telas (activas)
         App.ui.attachCombobox(tipoInput, () => {
@@ -10987,6 +11010,11 @@ App.trajes = {
         if (App.pedidos && App.pedidos._data.length === 0) {
             App.pedidos.load().then(refreshAfterLoad)
                 .catch(e => console.warn('[showEditModal] App.pedidos.load:', e.message));
+        }
+        // Cargar catálogo de talleres (para que el combobox de TALLER tenga opciones).
+        if (App.talleresCatalogo && App.talleresCatalogo._data.length === 0) {
+            App.talleresCatalogo.load()
+                .catch(e => console.warn('[showEditModal] App.talleresCatalogo.load:', e.message));
         }
         // Combobox: idempotente — no duplica decoradores si ya están attached
         this._attachEditModalComboboxes();
@@ -13302,6 +13330,32 @@ App.modelos = {
         ];
     },
 
+    /**
+     * Crea un modelo mínimo (solo NOMBRE + ACTIVO=TRUE) en el catálogo.
+     * Usado por comboboxes (Trajes/Ficha) para alta rápida.
+     * Devuelve true si se creó o ya existía; false si falló.
+     */
+    async addQuick(nombre) {
+        const n = (nombre || '').trim().toUpperCase();
+        if (!n) return false;
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) {
+            App.toast.show('Falta CATALOGOS_NOTELODIGO en CONFIG', 'error');
+            return false;
+        }
+        if (this._data.some(m => (m.NOMBRE || '').toUpperCase() === n)) return true;
+        const m = {
+            NOMBRE: n, TIPO_CONSTRUCCION: '', TELA_PPAL_M: '', ADORNOS: '',
+            PRECIO_EUR: '', TALLERES_ASIGNADOS: '', FOTO_URL: '',
+            ACTIVO: 'TRUE', NOTAS: '',
+        };
+        await App.sheets.appendRows(sheetId, `${this.TAB}!A:I`, [this._serializeRow(m)]);
+        this.load(true).catch(err => console.warn('[modelos.addQuick.reload]', err));
+        this._data.push({ ...m, _rowIndex: this._data.length + 2 });
+        App.toast.show(`Modelo "${n}" añadido al catálogo`, 'success');
+        return true;
+    },
+
     _isActive(m) {
         const v = (m.ACTIVO || '').toString().toUpperCase().trim();
         // Por defecto activo si está vacío. Solo FALSE/NO/0 lo marca como inactivo.
@@ -14613,6 +14667,28 @@ App.proveedores = {
         return isNaN(v) || v <= 0 ? 0 : v;
     },
 
+    /**
+     * Crea un proveedor mínimo (solo NOMBRE + ACTIVO=TRUE) en el catálogo.
+     * Usado por comboboxes (Telas) para alta rápida.
+     * Devuelve true si se creó o ya existía; false si falló.
+     */
+    async addQuick(nombre) {
+        const n = (nombre || '').trim().toUpperCase();
+        if (!n) return false;
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) {
+            App.toast.show('Falta CATALOGOS_NOTELODIGO en CONFIG', 'error');
+            return false;
+        }
+        if (this._data.some(p => (p.NOMBRE || '').toUpperCase() === n)) return true;
+        const p = { NOMBRE: n, PEDIDO_MINIMO_M: '', ACTIVO: 'TRUE', NOTAS: '' };
+        await App.sheets.appendRows(sheetId, `${this.TAB}!A:D`, [this._serializeRow(p)]);
+        this.load(true).catch(err => console.warn('[proveedores.addQuick.reload]', err));
+        this._data.push({ ...p, _rowIndex: this._data.length + 2 });
+        App.toast.show(`Proveedor "${n}" añadido al catálogo`, 'success');
+        return true;
+    },
+
     filter() {
         const q = (document.getElementById('proveedoresSearch')?.value || '').toLowerCase().trim();
         const estadoFiltro = (document.getElementById('proveedoresEstadoFiltro')?.value || 'activos');
@@ -14799,6 +14875,31 @@ App.talleresCatalogo = {
         const e = (email || '').toLowerCase().trim();
         if (!e) return null;
         return this._data.find(t => t.EMAIL === e && this._isActive(t)) || null;
+    },
+
+    /**
+     * Crea un taller mínimo (solo NOMBRE + ACTIVO=TRUE) en el catálogo.
+     * Usado por comboboxes para alta rápida desde otras secciones.
+     * Devuelve true si se creó o ya existía; false si falló.
+     */
+    async addQuick(nombre) {
+        const n = (nombre || '').trim().toUpperCase();
+        if (!n) return false;
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) {
+            App.toast.show('Falta CATALOGOS_NOTELODIGO en CONFIG', 'error');
+            return false;
+        }
+        // Si ya existe, no duplicar (idempotente)
+        if (this._data.some(t => (t.NOMBRE || '').toUpperCase() === n)) return true;
+        const t = { NOMBRE: n, EMAIL: '', TELEFONO: '', ACTIVO: 'TRUE', NOTAS: '' };
+        await App.sheets.appendRows(sheetId, `${this.TAB}!A:E`, [this._serializeRow(t)]);
+        // Recargar en background para que las próximas lecturas vean el nuevo
+        this.load(true).catch(err => console.warn('[talleresCatalogo.addQuick.reload]', err));
+        // Lo añadimos también al _data en memoria para que esté disponible inmediato
+        this._data.push({ ...t, _rowIndex: this._data.length + 2 });
+        App.toast.show(`Taller "${n}" añadido al catálogo`, 'success');
+        return true;
     },
 
     filter() {
@@ -15476,7 +15577,8 @@ App.telas = {
             return [...new Set(this._data
                 .filter(x => x.TIPO === tipo).map(x => x.VARIANTE).filter(Boolean))].sort();
         });
-        App.ui.attachCombobox(get('telaProveedor'), () => this._allProveedores());
+        App.ui.attachCombobox(get('telaProveedor'), () => this._allProveedores(),
+            async (val) => App.proveedores.addQuick(val));
         App.ui.attachCombobox(get('telaUbicacion'), () => {
             const fromData = this._data.map(x => x.UBICACION).filter(Boolean);
             return [...new Set(['cortador', 'tienda', ...fromData])].sort();
