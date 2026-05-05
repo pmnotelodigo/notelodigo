@@ -1934,12 +1934,26 @@
             <!-- FICHA MODAL -->
             <div class="modal-overlay" id="fichaModal">
                 <div class="modal" style="max-width:720px; width:95%; display:flex; flex-direction:column; max-height:92vh; overflow-y:auto;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
                         <div>
                             <h2 id="fichaModalTitle" style="margin:0;">Clienta</h2>
                             <div style="font-size:13px; color:var(--text-muted);" id="fichaModalSubtitle"></div>
                         </div>
                         <button class="btn btn-secondary btn-sm" onclick="App.clientas.closeModal()">&#x2715; Cerrar</button>
+                    </div>
+
+                    <!-- Banner "Marcar como entregado" — solo visible cuando el traje está
+                         recibido del taller pero aún sin entregar a la clienta. Aparece arriba
+                         para que la dependienta lo vea de un vistazo. -->
+                    <div id="fichaEntregarBanner" style="display:none; margin-bottom:16px; padding:12px 14px; background:#e8f5e9; border:1px solid #81c784; border-left:4px solid #2e7d32; border-radius:6px; display:none; align-items:center; gap:12px;">
+                        <div style="flex:1; font-size:13px; color:#1b5e20;">
+                            <strong>📦 Traje listo para entregar</strong><br>
+                            <span style="font-size:12px;">El traje está en la tienda y aún no se ha entregado a la clienta.</span>
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick="App.clientas.marcarEntregado()" id="btnFichaEntregar"
+                                style="background:#2e7d32; color:#fff; white-space:nowrap;">
+                            &check; Marcar como entregado
+                        </button>
                     </div>
 
                     <!-- Tabs -->
@@ -2086,17 +2100,10 @@
                     </div>
 
                     <div class="modal-actions" style="flex-shrink:0; padding-top:10px; margin-top:6px; border-top:1px solid var(--border-light); justify-content:space-between;">
-                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                            <button class="btn btn-secondary" onclick="App.clientas.nuevoTrajeDesdeActual()" title="Crear otro traje para esta misma clienta"
-                                    style="font-size:12px; gap:4px; display:inline-flex; align-items:center;">
-                                &#x2795; Nuevo traje para esta clienta
-                            </button>
-                            <button class="btn btn-success" onclick="App.clientas.marcarEntregado()" id="btnFichaEntregar"
-                                    style="display:none; font-size:12px; gap:4px; align-items:center; background:#388e3c; color:#fff;"
-                                    title="Marcar el traje como entregado a la clienta">
-                                &check; Marcar como entregado
-                            </button>
-                        </div>
+                        <button class="btn btn-secondary" onclick="App.clientas.nuevoTrajeDesdeActual()" title="Crear otro traje para esta misma clienta"
+                                style="font-size:12px; gap:4px; display:inline-flex; align-items:center;">
+                            &#x2795; Nuevo traje para esta clienta
+                        </button>
                         <div style="display:flex; gap:8px;">
                             <button class="btn btn-secondary" onclick="App.clientas.closeModal()">Cancelar</button>
                             <button class="btn btn-primary" onclick="App.clientas.guardarFicha()" id="btnGuardarFicha"
@@ -6975,14 +6982,14 @@ App.clientas = {
         document.getElementById('fichaAdornos').value = c[this.COL.adornos] || '';
         document.getElementById('fichaDocUrl').value = c[this.COL.ficha] || '';
 
-        // Botón "Marcar como entregado": solo visible si traje ya RECIBIDO del taller
-        // y aún no ENTREGADO a la clienta.
-        const btnEntregar = document.getElementById('btnFichaEntregar');
-        if (btnEntregar) {
+        // Banner "Marcar como entregado" arriba — visible solo si el traje ya está
+        // RECIBIDO del taller y aún no ENTREGADO a la clienta.
+        const banner = document.getElementById('fichaEntregarBanner');
+        if (banner) {
             const recibido  = (c[this.COL.trajeRecibido]  || '').toUpperCase().trim();
             const entregado = (c[this.COL.trajeEntregado] || '').toUpperCase().trim();
             const lista = (recibido === 'RECIBIDO' && entregado !== 'ENTREGADO');
-            btnEntregar.style.display = lista ? 'inline-flex' : 'none';
+            banner.style.display = lista ? 'flex' : 'none';
         }
 
         // Asegurar catálogos cargados (no bloqueante) y attach combobox.
