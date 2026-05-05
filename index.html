@@ -271,7 +271,9 @@
             color: #fff;
             border-color: var(--primary);
         }
-        .bandeja .count {
+        .bandeja .count,
+        .bandeja .bandeja-count {
+            display: inline-block;
             background: rgba(0,0,0,0.08);
             padding: 2px 9px;
             border-radius: 10px;
@@ -279,8 +281,20 @@
             font-weight: 700;
             min-width: 22px;
             text-align: center;
+            color: inherit;
         }
-        .bandeja.active .count { background: rgba(255,255,255,0.28); }
+        .bandeja.active .count,
+        .bandeja.active .bandeja-count { background: rgba(255,255,255,0.28); }
+        /* Cuando la sub-bandeja tiene items pendientes (count > 0), se destaca en rojo
+           para llamar la atención. La clase se aplica desde JS al refrescar el contador. */
+        .bandeja:not(.active) .bandeja-count.has-pending {
+            background: #d32f2f;
+            color: #fff;
+        }
+        .bandeja.active .bandeja-count.has-pending {
+            background: #fff;
+            color: #d32f2f;
+        }
         .bandeja-warn:not(.active) { color: var(--danger); border-color: #ffcdd2; }
         .bandeja-warn:not(.active):hover { border-color: var(--danger); }
         .bandeja-warn.active { background: var(--danger); border-color: var(--danger); }
@@ -1737,7 +1751,10 @@
                 <span class="nav-label">Pedidos</span>
             </div>
             <div class="nav-item nav-item-primary" data-section="jose" onclick="App.ui.navigateTo('jose')">
-                <span class="nav-icon">&#x1F69A;</span>
+                <span class="nav-icon" style="position:relative;">
+                    &#x1F69A;
+                    <span id="joseBadgeSidebar" class="nav-badge" style="display:none;" title="Trajes pendientes de mover (cortador / taller)">0</span>
+                </span>
                 <span class="nav-label">Jose</span>
             </div>
 
@@ -8370,24 +8387,14 @@ App.trajes = {
             const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
             const hdr = headers[0] || [];
             const idxTaller = hdr.indexOf('TALLER');
-            const idxFecha  = hdr.indexOf('FECHA ENTREGA TALLER');
             if (idxTaller < 0) throw new Error('Columna TALLER no encontrada en LISTADO.');
             const tallerLetter = String.fromCharCode(65 + idxTaller);
 
             const updates = [{ range: `${tab}!${tallerLetter}${rowIndex}`, values: [[nombre]] }];
 
-            // Auto-rellenar fecha si está vacía (refleja "he asignado y entregado al taller hoy")
-            let fechaPuesta = false;
-            if (idxFecha >= 0) {
-                const fechaActual = (t[this.COL.fechaEntregaTaller] || '').trim();
-                if (!fechaActual) {
-                    const hoy = this._toSheetDate(this._todayISO());
-                    const fechaLetter = String.fromCharCode(65 + idxFecha);
-                    updates.push({ range: `${tab}!${fechaLetter}${rowIndex}`, values: [[hoy]] });
-                    t[this.COL.fechaEntregaTaller] = hoy;
-                    fechaPuesta = true;
-                }
-            }
+            // ⚠ NO autocompletamos FECHA ENTREGA TALLER aquí — Pilar solo está
+            // ASIGNANDO a qué taller va. El "llevado físicamente" lo marca Jose
+            // desde su sección al pulsar "Llevado" (rellena la fecha entonces).
 
             // Marca FECHA ULTIMA MOD
             const touchUpd = this._touchUltimaModUpdate(rowIndex, hdr, tab);
@@ -8398,14 +8405,11 @@ App.trajes = {
             // Refresh cache local
             t[this.COL.taller] = nombre;
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) {
-                tc[this.COL.taller] = nombre;
-                if (fechaPuesta) tc[this.COL.fechaEntregaTaller] = t[this.COL.fechaEntregaTaller];
-            }
+            if (tc) tc[this.COL.taller] = nombre;
 
             App.toast.show(
-                `Traje #${t[this.COL.num]} asignado a <strong>${nombre}</strong>` +
-                (fechaPuesta ? ' · fecha entrega = hoy' : ''),
+                `Traje #${t[this.COL.num]} asignado a <strong>${nombre}</strong> ` +
+                `<span style="font-size:11px; opacity:0.85;">(Jose lo llevará al taller)</span>`,
                 'success', 3000
             );
             this.filter();   // re-render: el traje sale de la bandeja "Asignar taller"
@@ -9136,15 +9140,23 @@ App.trajes = {
             if (this._isPedirUrgente(t)) counts.pedirTela++;
             if (this._needsAsignarTaller(t)) counts.asignarTaller++;
         }
+        // Bandejas que requieren acción (resaltar en rojo si > 0)
+        const accionables = new Set(['revisar', 'pedirTela', 'esperandoTela', 'asignarTaller']);
         for (const [k, v] of Object.entries(counts)) {
             const el = document.getElementById('bdCount-' + k);
-            if (el) el.textContent = v;
+            if (!el) continue;
+            el.textContent = v;
+            el.classList.toggle('has-pending', accionables.has(k) && v > 0);
         }
         // Badge del sidebar: número de trajes en bandeja Revisar (urgencia real)
         this.refreshBadge(counts.revisar);
         // De paso, refrescar el badge de Vista por taller (depende de los mismos datos)
         if (App.talleres && typeof App.talleres.refreshBadge === 'function') {
             App.talleres.refreshBadge();
+        }
+        // Y el de Jose (suma de sus 3 bandejas, también deriva de App.trajes.data)
+        if (App.jose && typeof App.jose.refreshBadge === 'function') {
+            App.jose.refreshBadge();
         }
     },
 
@@ -13373,17 +13385,25 @@ App.jose = {
         const llevar = [];
         const recoger = [];
         for (const t of all) {
-            const corte     = (t[COL.corte]          || '').toUpperCase().trim();
-            const taller    = (t[COL.taller]         || '').trim();
-            const recibido  = (t[COL.trajeRecibido]  || '').toUpperCase().trim();
-            const entregado = (t[COL.trajeEntregado] || '').toUpperCase().trim();
+            const corte     = (t[COL.corte]              || '').toUpperCase().trim();
+            const fechaEnt  = (t[COL.fechaEntregaTaller] || '').toString().trim();
+            const recibido  = (t[COL.trajeRecibido]      || '').toUpperCase().trim();
+            const entregado = (t[COL.trajeEntregado]     || '').toUpperCase().trim();
             // Filtrar trajes ya entregados a clienta o ya recibidos del taller (cerrados para Jose)
             if (entregado === 'ENTREGADO') continue;
+            // ─ Recoger del cortador: corte enviado, esperando recogida
             if (corte === 'ENVIADO') {
                 cortador.push(t);
-            } else if (corte === 'RECOGIDO' && !taller) {
+            }
+            // ─ Llevar al taller: corte ya recogido pero aún no se ha llevado físicamente
+            //   (FECHA ENTREGA TALLER vacía = Jose aún no ha pulsado "Llevado"). El TALLER
+            //   puede estar ya asignado por Pilar — no nos importa, sigue siendo de Jose.
+            else if (corte === 'RECOGIDO' && !fechaEnt) {
                 llevar.push(t);
-            } else if (corte === 'RECOGIDO' && taller && recibido !== 'RECIBIDO') {
+            }
+            // ─ Recoger del taller: corte recogido + fecha de entrega rellena (ya está en taller)
+            //   y el traje aún no ha vuelto.
+            else if (corte === 'RECOGIDO' && fechaEnt && recibido !== 'RECIBIDO') {
                 recoger.push(t);
             }
         }
@@ -13392,10 +13412,12 @@ App.jose = {
 
     filter() {
         const lists = this._calcLists();
-        // Counts en los chips
+        // Counts en los chips, con resaltado rojo cuando hay items pendientes
         const setCount = (id, n) => {
             const el = document.getElementById(id);
-            if (el) el.textContent = n;
+            if (!el) return;
+            el.textContent = n;
+            el.classList.toggle('has-pending', n > 0);
         };
         setCount('joseCountCortador', lists.cortador.length);
         setCount('joseCountLlevar',   lists.llevar.length);
@@ -13410,8 +13432,29 @@ App.jose = {
         const subt = document.getElementById('joseSubtitle');
         if (subt) subt.textContent = subtitleMap[this._bandeja] || '';
 
+        // Badge del sidebar: total de trajes que Jose tiene pendientes de mover
+        this.refreshBadge(lists.cortador.length + lists.llevar.length + lists.recoger.length);
+
         const list = lists[this._bandeja] || [];
         this._render(list);
+    },
+
+    /** Cuenta total de trajes que requieren acción de Jose (sumas de las 3 bandejas).
+     *  Si se le pasa un número, lo usa; si no, lo recalcula. */
+    refreshBadge(count) {
+        let n = count;
+        if (typeof n !== 'number') {
+            const lists = this._calcLists();
+            n = lists.cortador.length + lists.llevar.length + lists.recoger.length;
+        }
+        const el = document.getElementById('joseBadgeSidebar');
+        if (!el) return;
+        if (n > 0) {
+            el.textContent = n > 99 ? '99+' : String(n);
+            el.style.display = '';
+        } else {
+            el.style.display = 'none';
+        }
     },
 
     _render(list) {
@@ -13761,10 +13804,9 @@ App.jose = {
                 ['TALLER',               nuevoTaller],
                 ['FECHA ULTIMA MOD',     hoy],
             ];
-            // Si se asigna por primera vez (no había taller), poner FECHA ENTREGA TALLER = hoy
-            if (nuevoTaller && !tallerActual) {
-                updates.push(['FECHA ENTREGA TALLER', hoy]);
-            }
+            // ⚠ NO tocamos FECHA ENTREGA TALLER aquí. La fecha solo se rellena
+            // cuando Jose pulsa "Llevado" desde la bandeja "Llevar al taller"
+            // (que es el momento en el que el traje físicamente llega al taller).
             const rangeUpdates = updates
                 .map(([col, val]) => {
                     const letter = colLetter(col);
@@ -13930,9 +13972,15 @@ App.pedidos = {
             else if (p.estado === 'parcial') counts.parciales++;
             else if (p.estado === 'recibido') counts.recibidos++;
         }
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-        set('pedidosCountPend',  counts.pendientes);
-        set('pedidosCountParc',  counts.parciales);
+        const set = (id, v, highlight = false) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = v;
+            // Sólo "Pendientes" y "Parciales" son accionables — los resaltamos en rojo cuando > 0
+            el.classList.toggle('has-pending', highlight && v > 0);
+        };
+        set('pedidosCountPend',  counts.pendientes, true);
+        set('pedidosCountParc',  counts.parciales,  true);
         set('pedidosCountRec',   counts.recibidos);
         set('pedidosCountTodos', this._data.length);
 
