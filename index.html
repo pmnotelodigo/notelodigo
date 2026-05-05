@@ -2975,20 +2975,6 @@
                                    placeholder="50m de 0.9 + 50m de tira bordada">
                         </div>
                         <div class="form-group" style="margin:0; grid-column:1/3;">
-                            <label>Talleres asignados</label>
-                            <div id="modeloTalleresContainer"
-                                 style="display:flex; flex-wrap:wrap; gap:6px; padding:6px; border:1px solid var(--border); border-radius:6px; min-height:42px; align-items:center;">
-                                <input type="text" id="modeloTallerInput" list="modeloTallerList"
-                                       style="border:none; outline:none; flex:1; min-width:140px; font-size:13px;"
-                                       placeholder="Escribe o elige un taller…"
-                                       onkeydown="App.modelos._onTallerKeydown(event)">
-                                <datalist id="modeloTallerList"></datalist>
-                            </div>
-                            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
-                                Elige uno y pulsa Enter, o escribe un nuevo taller. Click en cualquier chip para quitarlo.
-                            </div>
-                        </div>
-                        <div class="form-group" style="margin:0; grid-column:1/3;">
                             <label>Foto del modelo</label>
                             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
                                 <input type="file" id="modeloFotoFile" accept="image/*" capture="environment"
@@ -3628,6 +3614,8 @@ const CONFIG = {
         // --- Temporadas (multi-season) ---
         configsFolderId: 'pilar_configs_folder_id',    // Shared Drive folder with CONFIG_APP_* files
         currentSeason:   'pilar_current_season_name',  // User's currently selected season
+        // --- Catálogos globales (no per-season) ---
+        catalogosId:     'pilar_catalogos_id',         // ID del Sheet "CATALOGOS_NOTELODIGO" (global)
     },
 
     // Mapping: per-season keys that must be read from App.seasons.current()
@@ -3859,6 +3847,23 @@ const App = {
                 App.seasons.renderSelector();
             } catch (e) {
                 console.warn('seasons load failed:', e);
+            }
+
+            // Auto-detectar el sheet de CATALOGOS_NOTELODIGO en la carpeta CONFIG.
+            // Si lo encuentra, se guarda en localStorage para que App.modelos/telas/proveedores/
+            // talleresCatalogo lo usen como sheet global (compartido entre temporadas).
+            try {
+                const folderId = App.settings.getLocal('configsFolderId');
+                if (folderId) {
+                    const file = await App.sheets.findChildFile(folderId, 'CATALOGOS_NOTELODIGO');
+                    if (file) {
+                        App.settings.set('catalogosId', file.id);
+                    } else {
+                        console.warn('[catalogos] No se encontró el archivo CATALOGOS_NOTELODIGO en la carpeta CONFIG.');
+                    }
+                }
+            } catch (e) {
+                console.warn('[catalogos] auto-detección falló:', e.message);
             }
 
             // Cargar el catálogo de talleres ANTES de re-aplicar permisos: si el email
@@ -13247,7 +13252,7 @@ App.modelos = {
                 '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando modelos…</p></div>';
         }
         try {
-            const sheetId = App.settings.get('escandallosId');
+            const sheetId = App.settings.get('catalogosId');
             if (!sheetId) {
                 this._data = [];
                 if (contentEl) contentEl.innerHTML =
@@ -13345,8 +13350,6 @@ App.modelos = {
         const tipo  = m.TIPO_CONSTRUCCION ? `<span class="chip">${m.TIPO_CONSTRUCCION}</span>` : '';
         const tela  = m.TELA_PPAL_M       ? `<span class="chip">&#x1F9F5; ${m.TELA_PPAL_M} m</span>` : '';
         const precio= m.PRECIO_EUR        ? `<span class="chip">${m.PRECIO_EUR} €</span>` : '';
-        const tallChips = (m.TALLERES_ASIGNADOS || '').split(',').map(s => s.trim()).filter(Boolean)
-            .map(t => `<span class="chip" style="font-size:10px;">&#x1F3ED; ${t}</span>`).join('');
         let foto;
         if (m.FOTO_URL) {
             // Normaliza URLs antiguas (drive.google.com/thumbnail) a lh3 al renderizar
@@ -13384,34 +13387,8 @@ App.modelos = {
             <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">
                 ${tipo}${tela}${precio}
             </div>
-            ${tallChips ? `<div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">${tallChips}</div>` : ''}
             ${m.NOTAS ? `<div style="margin-top:6px; font-size:11px; color:var(--text-muted);">${m.NOTAS}</div>` : ''}
         </div>`;
-    },
-
-    // ── Catálogo unificado de talleres (CONFIG + LISTADO + MODELOS) ───────
-    _allTalleres() {
-        const set = new Set(CONFIG.TALLERES || []);
-        // Talleres presentes en LISTADO TRAJES (cache de App.trajes)
-        for (const t of (App.trajes?.data || [])) {
-            const v = (t['TALLER'] || '').trim();
-            if (v) set.add(v);
-        }
-        // Talleres presentes en el catálogo de Modelos (puede haber nuevos asignados aquí)
-        for (const m of this._data) {
-            (m.TALLERES_ASIGNADOS || '').split(',').forEach(s => {
-                const v = s.trim();
-                if (v) set.add(v);
-            });
-        }
-        return [...set].sort();
-    },
-
-    _populateTalleresDatalist() {
-        const dl = document.getElementById('modeloTallerList');
-        if (!dl) return;
-        const all = this._allTalleres();
-        dl.innerHTML = all.map(t => `<option value="${t}">`).join('');
     },
 
     // ── Modal: abrir / cerrar ─────────────────────────────────────────────
@@ -13446,12 +13423,6 @@ App.modelos = {
         get('modeloNotas').value            = m?.NOTAS || '';
         get('modeloActivo').checked         = m ? this._isActive(m) : true;
 
-        // Talleres como chips
-        this._editingTalleres = (m?.TALLERES_ASIGNADOS || '')
-            .split(',').map(s => s.trim()).filter(Boolean);
-        this._populateTalleresDatalist();
-        this._renderTalleresChips();
-
         get('modeloModal').classList.add('active');
         setTimeout(() => get('modeloNombre').focus(), 50);
     },
@@ -13460,67 +13431,14 @@ App.modelos = {
         document.getElementById('modeloModal').classList.remove('active');
     },
 
-    // ── Modal: chips de talleres ──────────────────────────────────────────
-    _renderTalleresChips() {
-        const c = document.getElementById('modeloTalleresContainer');
-        if (!c) return;
-        const input = document.getElementById('modeloTallerInput');
-        // Quita chips previos pero conserva el input + datalist
-        [...c.querySelectorAll('.taller-chip')].forEach(el => el.remove());
-        const frag = document.createDocumentFragment();
-        for (const t of this._editingTalleres) {
-            const chip = document.createElement('span');
-            chip.className = 'chip taller-chip';
-            chip.style.cursor = 'pointer';
-            chip.title = 'Click para quitar';
-            chip.innerHTML = `\u{1F3ED} ${t} <span style="opacity:0.6; margin-left:4px;">×</span>`;
-            chip.onclick = () => App.modelos._removeTaller(t);
-            frag.appendChild(chip);
-        }
-        c.insertBefore(frag, input);
-    },
-
-    _addTaller(name) {
-        const v = (name || '').trim();
-        if (!v) return;
-        if (this._editingTalleres.some(t => t.toLowerCase() === v.toLowerCase())) return;
-        this._editingTalleres.push(v);
-        this._renderTalleresChips();
-    },
-
-    _removeTaller(name) {
-        this._editingTalleres = this._editingTalleres.filter(t => t !== name);
-        this._renderTalleresChips();
-    },
-
-    _onTallerKeydown(e) {
-        if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault();
-            const input = e.target;
-            this._addTaller(input.value);
-            input.value = '';
-        } else if (e.key === 'Backspace' && !e.target.value && this._editingTalleres.length) {
-            // Backspace con input vacío → quitar el último chip
-            this._editingTalleres.pop();
-            this._renderTalleresChips();
-        }
-    },
-
     // ── Guardar (crear o editar) ──────────────────────────────────────────
     async save() {
         const get = id => document.getElementById(id);
         const btn = get('btnModeloSave');
         btn.disabled = true; btn.textContent = 'Guardando...';
         try {
-            // Si quedó algo escrito en el input de tallleres, lo añadimos antes de serializar
-            const tallerInput = get('modeloTallerInput');
-            if (tallerInput && tallerInput.value.trim()) {
-                this._addTaller(tallerInput.value);
-                tallerInput.value = '';
-            }
-
-            const sheetId = App.settings.get('escandallosId');
-            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado en la temporada actual.');
+            const sheetId = App.settings.get('catalogosId');
+            if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
 
             const nombre = get('modeloNombre').value.trim();
             if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
@@ -13533,13 +13451,18 @@ App.modelos = {
                 return;
             }
 
+            // TALLERES_ASIGNADOS se conserva del valor existente (no se edita en UI;
+            // ahora la asignación de taller se hace por traje, no por modelo).
+            const existingTalleresAsignados = (this._data.find(x =>
+                x.NOMBRE === (original || nombre))?.TALLERES_ASIGNADOS) || '';
+
             const m = {
                 NOMBRE:             nombre,
                 TIPO_CONSTRUCCION:  get('modeloTipoConstruccion').value,
                 TELA_PPAL_M:        get('modeloTelaPpalM').value.trim(),
                 ADORNOS:            get('modeloAdornos').value.trim(),
                 PRECIO_EUR:         get('modeloPrecio').value.trim(),
-                TALLERES_ASIGNADOS: this._editingTalleres.join(', '),
+                TALLERES_ASIGNADOS: existingTalleresAsignados,
                 FOTO_URL:           get('modeloFotoUrl').value.trim(),
                 ACTIVO:             get('modeloActivo').checked ? 'TRUE' : 'FALSE',
                 NOTAS:              get('modeloNotas').value.trim(),
@@ -14644,7 +14567,7 @@ App.proveedores = {
         const cont = document.getElementById('proveedoresContent');
         if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando proveedores…</p></div>';
         try {
-            const sheetId = App.settings.get('escandallosId');
+            const sheetId = App.settings.get('catalogosId');
             if (!sheetId) {
                 this._data = [];
                 if (cont) cont.innerHTML =
@@ -14768,8 +14691,8 @@ App.proveedores = {
         const btn = get('btnProveedorSave');
         btn.disabled = true; btn.textContent = 'Guardando...';
         try {
-            const sheetId = App.settings.get('escandallosId');
-            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+            const sheetId = App.settings.get('catalogosId');
+            if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
             const nombre = get('proveedorNombre').value.trim().toUpperCase();
             if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
             const minimoStr = get('proveedorMinimo').value.trim();
@@ -14834,7 +14757,7 @@ App.talleresCatalogo = {
         const cont = document.getElementById('talleresCatContent');
         if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando…</p></div>';
         try {
-            const sheetId = App.settings.get('escandallosId');
+            const sheetId = App.settings.get('catalogosId');
             if (!sheetId) {
                 this._data = [];
                 if (cont) cont.innerHTML =
@@ -14956,8 +14879,8 @@ App.talleresCatalogo = {
         const btn = get('btnTallerCatSave');
         btn.disabled = true; btn.textContent = 'Guardando...';
         try {
-            const sheetId = App.settings.get('escandallosId');
-            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+            const sheetId = App.settings.get('catalogosId');
+            if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
             const nombre = get('tallerCatNombre').value.trim().toUpperCase();
             if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
             const email = get('tallerCatEmail').value.trim().toLowerCase();
@@ -15192,7 +15115,7 @@ App.telas = {
                 '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando telas…</p></div>';
         }
         try {
-            const sheetId = App.settings.get('escandallosId');
+            const sheetId = App.settings.get('catalogosId');
             if (!sheetId) {
                 this._data = [];
                 if (contentEl) contentEl.innerHTML =
@@ -15261,7 +15184,17 @@ App.telas = {
     },
 
     _allProveedores() {
-        return [...new Set(this._data.map(t => t.PROVEEDOR).filter(Boolean))].sort();
+        // Combina dos fuentes:
+        //  1. Catálogo de Proveedores (App.proveedores) — solo activos.
+        //  2. Proveedores ya usados en otras telas (por si alguno aún no está en catálogo).
+        const set = new Set();
+        for (const p of (App.proveedores?._data || [])) {
+            if (p.NOMBRE && App.proveedores._isActive(p)) set.add(p.NOMBRE);
+        }
+        for (const t of this._data) {
+            if (t.PROVEEDOR) set.add(t.PROVEEDOR);
+        }
+        return [...set].sort();
     },
 
     _populateFilters() {
@@ -15486,8 +15419,8 @@ App.telas = {
         input.classList.add('saving');
         input.disabled = true;
         try {
-            const sheetId = App.settings.get('escandallosId');
-            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+            const sheetId = App.settings.get('catalogosId');
+            if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
             t.STOCK_M = newVal;
             const range = `${this.TAB}!D${t._rowIndex}`;
             await App.sheets.writeRange(sheetId, range, [[newVal]]);
@@ -15524,6 +15457,10 @@ App.telas = {
         get('telaTipo').value           = t?.TIPO || '';
         get('telaVariante').value       = t?.VARIANTE || '';
         get('telaProveedor').value      = t?.PROVEEDOR || '';
+        // Asegura que el catálogo de proveedores esté cargado para el combobox
+        if (App.proveedores && !App.proveedores._data?.length) {
+            App.proveedores.load().catch(e => console.warn('[telas] proveedores.load:', e.message));
+        }
         get('telaStockM').value         = t?.STOCK_M || '';
         get('telaUmbralAlerta').value   = t?.UMBRAL_ALERTA || '10';
         get('telaUbicacion').value      = t?.UBICACION || '';
@@ -15561,8 +15498,8 @@ App.telas = {
         const btn = get('btnTelaSave');
         btn.disabled = true; btn.textContent = 'Guardando...';
         try {
-            const sheetId = App.settings.get('escandallosId');
-            if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+            const sheetId = App.settings.get('catalogosId');
+            if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
 
             const tipo = get('telaTipo').value.trim().toUpperCase();
             const variante = get('telaVariante').value.trim();
@@ -15743,8 +15680,8 @@ App.telas = {
         if (!this._data?.length) await this.load();
         const tela = this._data.find(t => t.TIPO === tipo && t.VARIANTE === variante);
         if (!tela) return null;
-        const sheetId = App.settings.get('escandallosId');
-        if (!sheetId) throw new Error('ESCANDALLOS_ID no configurado.');
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
         const stockActual = parseFloat(tela.STOCK_M) || 0;
         const stockNuevo  = Math.max(0, stockActual + Number(deltaM));   // no permitimos stock negativo
         const range = `${this.TAB}!D${tela._rowIndex}`;
