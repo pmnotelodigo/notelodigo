@@ -5278,21 +5278,40 @@ const App = {
                     ['LOGO_FILE_ID', ''],  // vacío → usa el default del Apps Script
                 ]);
 
-                // ESCANDALLOS._CONFIG: metadata de la plantilla + IDs hermanos
+                // ESCANDALLOS._CONFIG: metadata mínima. Tras el refactor a CATALOGOS_NOTELODIGO
+                // global, este sheet ya solo necesita el tab MOVIMIENTOS — los catálogos de
+                // MODELOS/TELAS/PROVEEDORES/TALLERES ya NO viven aquí.
                 const fechaCreacion = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
                 await escribirConfigTab(escandallosCopy.id, [
                     ['CAMPO', 'VALOR'],
                     ['NOMBRE', nombre],
-                    ['MODELOS_TAB', 'MODELOS'],
-                    ['TELAS_TAB', 'TELAS'],
                     ['MOVIMIENTOS_TAB', 'MOVIMIENTOS'],
-                    ['VERSION_PLANTILLA', '1.0'],
+                    ['VERSION_PLANTILLA', '2.0'],   // bump por el refactor a catálogos globales
                     ['FECHA_CREACION', fechaCreacion],
                     ['LISTADO_ID', listadoCopy.spreadsheetId || listadoCopy.id],
                     ['ORDEN_ID', ordenCopy.spreadsheetId || ordenCopy.id],
                 ]);
 
-                // ── 7. Crear CONFIG_APP_<NOMBRE> ───────────────────────────
+                // ── 7. Verificar que CATALOGOS_NOTELODIGO existe (catálogo GLOBAL) ──
+                // Tras el refactor, los catálogos (MODELOS, TELAS, PROVEEDORES, TALLERES)
+                // viven en un único sheet GLOBAL llamado CATALOGOS_NOTELODIGO en CONFIG/.
+                // No se guarda su ID en CONFIG_APP porque es compartido entre temporadas:
+                // la auto-detección al login lo localiza por nombre. Si falta, avisamos.
+                try {
+                    const cat = await App.sheets.findChildFile(folderId, 'CATALOGOS_NOTELODIGO');
+                    if (!cat) {
+                        App.toast.show(
+                            '⚠️ No se encontró CATALOGOS_NOTELODIGO en CONFIG/. ' +
+                            'Créalo manualmente con los tabs MODELOS, TELAS, PROVEEDORES, TALLERES ' +
+                            'antes de empezar a usar la temporada.',
+                            'warning', 10000
+                        );
+                    }
+                } catch (e) {
+                    console.warn('[createFromScratch] búsqueda CATALOGOS_NOTELODIGO:', e.message);
+                }
+
+                // ── 8. Crear CONFIG_APP_<NOMBRE> ───────────────────────────
                 App.toast.show('Creando CONFIG_APP...', 'info', 3000);
                 const payload = {
                     NOMBRE:            nombre,
@@ -5614,10 +5633,13 @@ const App = {
 
             if (!confirm(
                 `Se va a crear la temporada "${clean}" desde cero:\n\n` +
-                `• Se copiarán TEMPLATE_LISTADO_TRAJES y TEMPLATE_ORDEN_DE_CORTE de _PLANTILLAS/\n` +
-                `• Se creará la carpeta TEMPORADA_${clean}/ con subcarpetas FICHAS_${clean}/ y PDFS_${clean}/\n` +
+                `• Se copiarán TEMPLATE_LISTADO_TRAJES, TEMPLATE_ORDEN_DE_CORTE y TEMPLATE_ESCANDALLOS de _PLANTILLAS/\n` +
+                `• Se creará la carpeta TEMPORADA_${clean}/ con subcarpetas FICHAS_CLIENTAS_${clean}/ y ORDENES_DE_CORTE_${clean}/\n` +
                 `• Se escribirán los _CONFIG tabs con los IDs hermanos\n` +
                 `• Se creará el archivo CONFIG_APP_${clean} en la carpeta CONFIG\n\n` +
+                `IMPORTANTE: los catálogos (modelos, telas, proveedores, talleres) son globales\n` +
+                `y viven en CATALOGOS_NOTELODIGO dentro de CONFIG/. Si no existe aún, créalo\n` +
+                `manualmente — esta acción no lo crea por ti.\n\n` +
                 `Si algo falla a mitad, se harán rollback todos los archivos creados.\n\n` +
                 `¿Continuar?`
             )) return;
@@ -14132,8 +14154,11 @@ App.jose = {
                 `&#x2713; Marcar recogido</button>`;
         } else if (this._bandeja === 'llevar') {
             // Si Pilar ya asignó un taller, lo preseleccionamos para que Jose lo vea de un vistazo.
-            const talleres = (CONFIG.TALLERES || []).slice();
-            // Asegurar que el taller actual está en las opciones (si es uno custom no presente en CONFIG)
+            // Lee del catálogo TALLERES (activos) + fallback CONFIG; el helper centraliza la lógica.
+            const talleres = (App.talleres && typeof App.talleres._allTalleres === 'function')
+                ? App.talleres._allTalleres().slice()
+                : (CONFIG.TALLERES || []).slice();
+            // Asegurar que el taller actual está en las opciones (legacy/custom no presente)
             if (taller && !talleres.includes(taller)) talleres.push(taller);
             talleres.sort();
             const escSel = (s) => (s || '').replace(/"/g, '&quot;');
@@ -14439,7 +14464,13 @@ App.jose = {
             nombre + (feria ? `  ·  ${feria}` : '');
 
         // Selector de taller (combobox tipo dropdown). Permite cambiar al vuelo.
-        const talleresOrden = (CONFIG.TALLERES || []).slice().sort();
+        // Lee del catálogo TALLERES (activos) + fallback CONFIG, asegurando que el
+        // taller actual esté incluido aunque sea legacy fuera de catálogo.
+        const talleresOrden = ((App.talleres && typeof App.talleres._allTalleres === 'function')
+            ? App.talleres._allTalleres()
+            : (CONFIG.TALLERES || [])).slice();
+        if (taller && !talleresOrden.includes(taller)) talleresOrden.push(taller);
+        talleresOrden.sort();
         const opts = '<option value="">— sin taller —</option>' +
             talleresOrden.map(tl => `<option value="${tl}"${tl === taller ? ' selected' : ''}>${tl}</option>`).join('');
 
@@ -14882,7 +14913,8 @@ App.proveedores = {
                 this._data = [];
                 if (cont) cont.innerHTML =
                     '<div class="alert alert-warning" style="margin:20px;">' +
-                    'No hay <code>ESCANDALLOS_ID</code> configurado. Ve a Ajustes → Temporadas.</div>';
+                    'No se encontró <code>CATALOGOS_NOTELODIGO</code> en la carpeta CONFIG. ' +
+                    'Crea un Sheet con ese nombre exacto en la raíz de la carpeta CONFIG y recarga la app.</div>';
                 return;
             }
             const range = `${this.TAB}!A2:D`;
@@ -15094,7 +15126,8 @@ App.talleresCatalogo = {
                 this._data = [];
                 if (cont) cont.innerHTML =
                     '<div class="alert alert-warning" style="margin:20px;">' +
-                    'No hay <code>ESCANDALLOS_ID</code> configurado.</div>';
+                    'No se encontró <code>CATALOGOS_NOTELODIGO</code> en la carpeta CONFIG. ' +
+                    'Crea un Sheet con ese nombre exacto en la raíz de la carpeta CONFIG y recarga la app.</div>';
                 return;
             }
             const range = `${this.TAB}!A2:E`;
