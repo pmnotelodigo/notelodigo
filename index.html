@@ -2086,10 +2086,17 @@
                     </div>
 
                     <div class="modal-actions" style="flex-shrink:0; padding-top:10px; margin-top:6px; border-top:1px solid var(--border-light); justify-content:space-between;">
-                        <button class="btn btn-secondary" onclick="App.clientas.nuevoTrajeDesdeActual()" title="Crear otro traje para esta misma clienta"
-                                style="font-size:12px; gap:4px; display:inline-flex; align-items:center;">
-                            &#x2795; Nuevo traje para esta clienta
-                        </button>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button class="btn btn-secondary" onclick="App.clientas.nuevoTrajeDesdeActual()" title="Crear otro traje para esta misma clienta"
+                                    style="font-size:12px; gap:4px; display:inline-flex; align-items:center;">
+                                &#x2795; Nuevo traje para esta clienta
+                            </button>
+                            <button class="btn btn-success" onclick="App.clientas.marcarEntregado()" id="btnFichaEntregar"
+                                    style="display:none; font-size:12px; gap:4px; align-items:center; background:#388e3c; color:#fff;"
+                                    title="Marcar el traje como entregado a la clienta">
+                                &check; Marcar como entregado
+                            </button>
+                        </div>
                         <div style="display:flex; gap:8px;">
                             <button class="btn btn-secondary" onclick="App.clientas.closeModal()">Cancelar</button>
                             <button class="btn btn-primary" onclick="App.clientas.guardarFicha()" id="btnGuardarFicha"
@@ -2795,6 +2802,9 @@
                         </button>
                         <button class="bandeja" data-bandeja="recoger" onclick="App.jose.setBandeja('recoger')">
                             &#x1F4E6; Recoger del taller <span class="bandeja-count" id="joseCountRecoger">0</span>
+                        </button>
+                        <button class="bandeja" data-bandeja="historico" onclick="App.jose.setBandeja('historico')">
+                            &#x1F4DA; Histórico <span class="bandeja-count" id="joseCountHistorico">0</span>
                         </button>
                         <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
                             <button class="btn btn-secondary btn-sm" onclick="App.jose.load(true)"
@@ -6965,6 +6975,16 @@ App.clientas = {
         document.getElementById('fichaAdornos').value = c[this.COL.adornos] || '';
         document.getElementById('fichaDocUrl').value = c[this.COL.ficha] || '';
 
+        // Botón "Marcar como entregado": solo visible si traje ya RECIBIDO del taller
+        // y aún no ENTREGADO a la clienta.
+        const btnEntregar = document.getElementById('btnFichaEntregar');
+        if (btnEntregar) {
+            const recibido  = (c[this.COL.trajeRecibido]  || '').toUpperCase().trim();
+            const entregado = (c[this.COL.trajeEntregado] || '').toUpperCase().trim();
+            const lista = (recibido === 'RECIBIDO' && entregado !== 'ENTREGADO');
+            btnEntregar.style.display = lista ? 'inline-flex' : 'none';
+        }
+
         // Asegurar catálogos cargados (no bloqueante) y attach combobox.
         // Tras cargar, refrescar el banner de stock por si la dependienta lo abrió antes
         // de que estuvieran disponibles los datos.
@@ -7140,6 +7160,85 @@ App.clientas = {
         const url = document.getElementById('fichaDocUrl').value.trim();
         if (!url) { App.toast.show('No hay URL de ficha para esta clienta', 'warning'); return; }
         window.open(url, '_blank');
+    },
+
+    /** Marcar el traje de la clienta actual como entregado.
+     *  Pide confirmación explícita para evitar despistes. */
+    async marcarEntregado() {
+        if (!this.current) return;
+        const c = this.current;
+        const num = c[this.COL.num] || '?';
+        const nombre = c[this.COL.nombre] || '—';
+        const modelo = c[this.COL.modelo] || '';
+
+        const recibido = (c[this.COL.trajeRecibido] || '').toUpperCase().trim();
+        if (recibido !== 'RECIBIDO') {
+            App.toast.show('El traje aún no se ha recibido del taller. No se puede entregar todavía.', 'warning', 5000);
+            return;
+        }
+
+        const answer = await App.ui.confirmDialog({
+            title: '✅ Confirmar entrega del traje',
+            message:
+                `¿Confirmas que <strong>${nombre}</strong> se va con su traje?<br><br>` +
+                `· Nº&nbsp;${num}` + (modelo ? ` · ${modelo}` : '') + `<br><br>` +
+                `Esta acción marca <strong>TRAJE ENTREGADO = ENTREGADO</strong> y cierra el traje.`,
+            actions: [
+                { label: '✅ Sí, entregar el traje', value: 'ok',   style: 'primary' },
+                { label: 'Cancelar',                  value: null, style: 'secondary' },
+            ],
+        });
+        if (answer !== 'ok') return;
+
+        try {
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = (headers[0] || []).map(h => (h || '').trim());
+            const colLetter = (name) => {
+                const idx = hdr.indexOf(name);
+                return idx === -1 ? null : String.fromCharCode(65 + idx);
+            };
+            const hoy = (() => {
+                const d = new Date();
+                return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+            })();
+            const row = c._rowIndex;
+
+            const updates = [
+                ['TRAJE ENTREGADO',  'ENTREGADO'],
+                ['FECHA ULTIMA MOD', hoy],
+            ];
+            const rangeUpdates = updates
+                .map(([col, val]) => {
+                    const letter = colLetter(col);
+                    return letter ? { range: `${tab}!${letter}${row}`, values: [[val]] } : null;
+                })
+                .filter(Boolean);
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+
+            // Sincronizar memoria
+            updates.forEach(([col, val]) => { c[col] = val; });
+            const trajeRow = App.trajes?.data?.find(r => r._rowIndex === row);
+            if (trajeRow) updates.forEach(([col, val]) => { trajeRow[col] = val; });
+
+            await App.sheets.invalidateListadoCache();
+
+            App.toast.show(
+                `🎉 Traje #${num} entregado a <strong>${nombre}</strong>`,
+                'success', 4000
+            );
+
+            // Refrescar UI
+            this.closeModal();
+            if (typeof this.filter === 'function') this.filter();
+            if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
+                App.trajes._updateBandejaCounts();
+            }
+        } catch (err) {
+            console.error('[clientas.marcarEntregado]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
     },
 
     async guardarFicha() {
@@ -13397,12 +13496,19 @@ App.jose = {
         const cortador = [];
         const llevar = [];
         const recoger = [];
+        const historico = [];   // trajes ya recogidos del taller (referencia/consulta)
         for (const t of all) {
             const corte     = (t[COL.corte]              || '').toUpperCase().trim();
             const fechaEnt  = (t[COL.fechaEntregaTaller] || '').toString().trim();
             const recibido  = (t[COL.trajeRecibido]      || '').toUpperCase().trim();
             const entregado = (t[COL.trajeEntregado]     || '').toUpperCase().trim();
-            // Filtrar trajes ya entregados a clienta o ya recibidos del taller (cerrados para Jose)
+            // ─ Histórico: trajes ya recogidos del taller (incluye los entregados a clienta)
+            //   Es la referencia "ya hice lo mío" de Jose.
+            if (recibido === 'RECIBIDO') {
+                historico.push(t);
+                continue;
+            }
+            // Filtrar trajes ya entregados a clienta (cerrados para Jose y no recibidos = caso raro)
             if (entregado === 'ENTREGADO') continue;
             // ─ Recoger del cortador: corte enviado, esperando recogida
             if (corte === 'ENVIADO') {
@@ -13416,36 +13522,39 @@ App.jose = {
             }
             // ─ Recoger del taller: corte recogido + fecha de entrega rellena (ya está en taller)
             //   y el traje aún no ha vuelto.
-            else if (corte === 'RECOGIDO' && fechaEnt && recibido !== 'RECIBIDO') {
+            else if (corte === 'RECOGIDO' && fechaEnt) {
                 recoger.push(t);
             }
         }
-        return { cortador, llevar, recoger };
+        return { cortador, llevar, recoger, historico };
     },
 
     filter() {
         const lists = this._calcLists();
         // Counts en los chips, con resaltado rojo cuando hay items pendientes
-        const setCount = (id, n) => {
+        const setCount = (id, n, highlight = true) => {
             const el = document.getElementById(id);
             if (!el) return;
             el.textContent = n;
-            el.classList.toggle('has-pending', n > 0);
+            // El histórico no es accionable → nunca se resalta en rojo
+            el.classList.toggle('has-pending', highlight && n > 0);
         };
-        setCount('joseCountCortador', lists.cortador.length);
-        setCount('joseCountLlevar',   lists.llevar.length);
-        setCount('joseCountRecoger',  lists.recoger.length);
+        setCount('joseCountCortador',  lists.cortador.length);
+        setCount('joseCountLlevar',    lists.llevar.length);
+        setCount('joseCountRecoger',   lists.recoger.length);
+        setCount('joseCountHistorico', lists.historico.length, false);
 
         // Subtítulo según bandeja activa
         const subtitleMap = {
-            cortador: 'Trajes en el cortador esperando ser recogidos.',
-            llevar:   'Trajes recogidos del cortador, en el coche, pendientes de llevar al taller.',
-            recoger:  'Trajes en talleres, pendientes de recoger.',
+            cortador:  'Trajes en el cortador esperando ser recogidos.',
+            llevar:    'Trajes recogidos del cortador, en el coche, pendientes de llevar al taller.',
+            recoger:   'Trajes en talleres, pendientes de recoger.',
+            historico: 'Trajes ya recogidos del taller — referencia para consulta (solo lectura).',
         };
         const subt = document.getElementById('joseSubtitle');
         if (subt) subt.textContent = subtitleMap[this._bandeja] || '';
 
-        // Badge del sidebar: total de trajes que Jose tiene pendientes de mover
+        // Badge del sidebar: total de trajes pendientes (las 3 bandejas accionables, no histórico)
         this.refreshBadge(lists.cortador.length + lists.llevar.length + lists.recoger.length);
 
         const list = lists[this._bandeja] || [];
@@ -13474,12 +13583,13 @@ App.jose = {
         const cont = document.getElementById('joseContent');
         if (!cont) return;
         if (!list.length) {
-            cont.innerHTML =
-                '<div class="empty-state" style="padding:40px;">' +
-                '<p>Nada pendiente en esta bandeja.</p></div>';
+            const msg = this._bandeja === 'historico'
+                ? 'Aún no has recogido ningún traje del taller esta temporada.'
+                : 'Nada pendiente en esta bandeja.';
+            cont.innerHTML = `<div class="empty-state" style="padding:40px;"><p>${msg}</p></div>`;
             return;
         }
-        if (this._bandeja === 'recoger') {
+        if (this._bandeja === 'recoger' || this._bandeja === 'historico') {
             // Agrupar por taller
             const groups = {};
             for (const t of list) {
@@ -13522,9 +13632,12 @@ App.jose = {
         } else if (this._bandeja === 'llevar') {
             const d = App.trajes._diasDesde(t[COL.fechaRecogidoCorte]);
             if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} en el coche`;
-        } else {
+        } else if (this._bandeja === 'recoger') {
             const d = App.trajes._diasDesde(t[COL.fechaEntregaTaller]);
             if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} en taller`;
+        } else if (this._bandeja === 'historico') {
+            const fechaRec = (t[COL.fechaRecibido] || '').toString().trim();
+            if (fechaRec) diasInfo = `Recogido ${fechaRec}`;
         }
 
         let actions = '';
@@ -13552,11 +13665,17 @@ App.jose = {
                 `<button class="btn btn-primary btn-sm" ` +
                 `onclick="App.jose.asignarTaller(${t._rowIndex}, document.getElementById('joseLlevarSelect-${t._rowIndex}').value)">` +
                 `&#x1F69B; Llevado</button>`;
-        } else {
+        } else if (this._bandeja === 'recoger') {
             actions =
                 `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
                 `onclick="App.jose.marcarRecibidoTaller(${t._rowIndex})">` +
                 `&#x1F4E6; Marcar recibido</button>`;
+        } else if (this._bandeja === 'historico') {
+            // Solo lectura — mostrar estado final
+            const entregado = (t[COL.trajeEntregado] || '').toUpperCase().trim() === 'ENTREGADO';
+            actions = entregado
+                ? `<span class="chip" style="background:#c8e6c9; color:#1b5e20; font-size:11px;">&check; Entregado a clienta</span>`
+                : `<span class="chip" style="background:#fff8e1; color:#7c3a00; font-size:11px;">&#x1F4E6; En tienda · pendiente de entregar</span>`;
         }
 
         return (
