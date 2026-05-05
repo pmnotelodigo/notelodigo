@@ -10143,19 +10143,28 @@ App.trajes = {
     },
 
     _onCorteChange(val) {
-        // NOTA: recoger el corte NO implica entregarlo a un taller.
-        // La fecha de entrega al taller se autorellena cuando se asigna el Taller,
-        // no aquí. Se deja este hook por si hay que añadir lógica futura.
+        // Auto-rellenar visualmente las fechas de corte cuando cambia el estado.
+        // El usuario las puede borrar a mano y el save las respetará vacías.
+        const v = (val || '').toUpperCase().trim();
+        const hoy = this._todayISO();
+        const fEnv = document.getElementById('editTrajeFechaEnviadoCorte');
+        const fRec = document.getElementById('editTrajeFechaRecogidoCorte');
+        if (v === 'ENVIADO') {
+            if (fEnv && !fEnv.value) fEnv.value = hoy;
+        } else if (v === 'RECOGIDO') {
+            // Si se salta directo a RECOGIDO, asumimos que también se envió hoy
+            if (fEnv && !fEnv.value) fEnv.value = hoy;
+            if (fRec && !fRec.value) fRec.value = hoy;
+        }
     },
 
     _onTallerChange(val) {
-        // Al asignar un taller, autorrellenamos FECHA ENTREGA TALLER con la fecha de hoy
-        // (solo si está vacía) — refleja la acción real de "he mandado el corte al taller".
-        // Si el taller se vacía/cambia, no tocamos la fecha (respeta lo que haya puesto el usuario).
-        if (val && val.trim()) {
-            const fEl = document.getElementById('editTrajeFechaEntregaTaller');
-            if (fEl && !fEl.value) fEl.value = this._todayISO();
-        }
+        // ⚠ NO autocompletamos FECHA ENTREGA TALLER al elegir taller. Pilar puede
+        // asignar a qué taller irá un traje desde el primer momento, sin que eso
+        // signifique que ya está físicamente entregado. La fecha solo se rellena
+        // cuando Jose pulsa "Llevado" en su bandeja (App.jose.asignarTaller),
+        // o cuando alguien la teclea a mano en este input.
+        // Hook reservado por si hay que añadir lógica futura al cambio de taller.
     },
 
     _onTrajeRecibidoChange(val) {
@@ -10906,24 +10915,12 @@ App.trajes = {
                 return idx === -1 ? null : String.fromCharCode(65 + idx);
             };
 
-            // ── Auto-stamping de fechas de corte ─────────────────────────────
-            // Si CORTE pasa a ENVIADO/RECOGIDO y la fecha correspondiente está vacía,
-            // ponemos hoy. Pilar puede sobreescribirla a mano desde el modal.
-            const hoy = this._toSheetDate(this._todayISO());
-            const fechaEnvFromInput = (document.getElementById('editTrajeFechaEnviadoCorte')?.value  || '').trim();
-            const fechaRecFromInput = (document.getElementById('editTrajeFechaRecogidoCorte')?.value || '').trim();
-            const fechaEnvOld = (tPrev?.[this.COL.fechaEnviadoCorte]  || '').toString().trim();
-            const fechaRecOld = (tPrev?.[this.COL.fechaRecogidoCorte] || '').toString().trim();
-            // Valor a escribir: respetamos lo que Pilar tecleó; si vacío y CORTE entró
-            // en la fase correspondiente, ponemos hoy; si no, mantenemos lo que había.
-            let fechaEnvNueva = this._toSheetDate(fechaEnvFromInput) || fechaEnvOld;
-            let fechaRecNueva = this._toSheetDate(fechaRecFromInput) || fechaRecOld;
-            if (!fechaEnvNueva && (corteNew === 'ENVIADO' || corteNew === 'RECOGIDO')) {
-                fechaEnvNueva = hoy;
-            }
-            if (!fechaRecNueva && corteNew === 'RECOGIDO') {
-                fechaRecNueva = hoy;
-            }
+            // ── Fechas: respetar lo que esté en el input ────────────────────
+            // Si Pilar borró una fecha (input vacío), se guarda vacía.
+            // El auto-stamp visual al cambiar CORTE se hace en _onCorteChange,
+            // no aquí en el save — para que el borrado sea respetable.
+            const fechaEnvNueva = this._toSheetDate((document.getElementById('editTrajeFechaEnviadoCorte')?.value  || '').trim());
+            const fechaRecNueva = this._toSheetDate((document.getElementById('editTrajeFechaRecogidoCorte')?.value || '').trim());
 
             const updates = [
                 ['ESTADO',               (document.getElementById('editTrajeEstado')?.value             || '').trim()],
