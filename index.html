@@ -13242,7 +13242,6 @@ App.modelos = {
 
     _data: [],
     _filtered: [],
-    _editingTalleres: [],  // chips actuales del modal
 
     // ── Carga ─────────────────────────────────────────────────────────────
     async load(forceRefresh = false) {
@@ -13257,15 +13256,14 @@ App.modelos = {
                 this._data = [];
                 if (contentEl) contentEl.innerHTML =
                     '<div class="alert alert-warning" style="margin:20px;">' +
-                    'No hay <code>ESCANDALLOS_ID</code> configurado para esta temporada. ' +
-                    'Ve a Ajustes → Temporadas y enlaza el Sheet de escandallos.</div>';
+                    'No se encontró <code>CATALOGOS_NOTELODIGO</code> en la carpeta CONFIG. ' +
+                    'Crea un Sheet con ese nombre exacto en la raíz de la carpeta CONFIG y recarga la app.</div>';
                 return;
             }
             // Lee A2:I (los headers fijos están en row 1)
             const range = `${this.TAB}!A2:I`;
             const rows = await App.sheets.readRange(sheetId, range);
             this._data = rows.map((r, i) => this._parseRow(r, i + 2)); // _rowIndex = 2-based
-            this._populateTalleresDatalist();
             this.filter();
         } catch (err) {
             console.error('[modelos.load]', err);
@@ -15120,8 +15118,8 @@ App.telas = {
                 this._data = [];
                 if (contentEl) contentEl.innerHTML =
                     '<div class="alert alert-warning" style="margin:20px;">' +
-                    'No hay <code>ESCANDALLOS_ID</code> configurado para esta temporada. ' +
-                    'Ve a Ajustes → Temporadas y enlaza el Sheet de escandallos.</div>';
+                    'No se encontró <code>CATALOGOS_NOTELODIGO</code> en la carpeta CONFIG. ' +
+                    'Crea un Sheet con ese nombre exacto en la raíz de la carpeta CONFIG y recarga la app.</div>';
                 return;
             }
             const range = `${this.TAB}!A2:I`;
