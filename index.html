@@ -2811,6 +2811,8 @@
                             &#x1F4DA; Histórico <span class="bandeja-count" id="joseCountHistorico">0</span>
                         </button>
                         <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <span id="joseLastLoad" style="font-size:11px; color:var(--text-muted); font-style:italic;"
+                                  title="Hora de la última lectura del Sheet. La sección se autorefresca cada 30 s."></span>
                             <button class="btn btn-secondary btn-sm" onclick="App.jose.load(true)"
                                     title="Recargar datos desde Google Sheets">
                                 &#x21BB; Actualizar
@@ -6906,6 +6908,47 @@ const App = {
             this._confirmResolve = null;
             if (r) r(null);
         },
+        /**
+         * Tras guardar un form, asegura que los valores escritos en campos conectados
+         * a catálogos (modelo, taller, proveedor) existen como entradas. Si no existen,
+         * los crea silenciosamente vía addQuick — que ya muestra toast solo cuando crea.
+         *
+         * Recibe un objeto con las claves opcionales: { modelo, taller, proveedor }.
+         * Cualquier clave faltante o valor vacío se ignora.
+         *
+         * Idempotente y best-effort: si una creación falla, lo registra en consola
+         * pero no bloquea (el save principal ya tuvo éxito).
+         */
+        async ensureCatalogEntries({ modelo, taller, proveedor } = {}) {
+            const tasks = [];
+            const norm = v => (v || '').toString().trim().toUpperCase();
+            const m = norm(modelo);
+            const t = norm(taller);
+            const p = norm(proveedor);
+            if (m && App.modelos) {
+                const exists = (App.modelos._data || [])
+                    .some(x => (x.NOMBRE || '').toUpperCase() === m);
+                if (!exists) tasks.push(App.modelos.addQuick(m).catch(e => {
+                    console.warn('[ensureCatalogEntries.modelo]', e); return false;
+                }));
+            }
+            if (t && App.talleresCatalogo) {
+                const exists = (App.talleresCatalogo._data || [])
+                    .some(x => (x.NOMBRE || '').toUpperCase() === t);
+                if (!exists) tasks.push(App.talleresCatalogo.addQuick(t).catch(e => {
+                    console.warn('[ensureCatalogEntries.taller]', e); return false;
+                }));
+            }
+            if (p && App.proveedores) {
+                const exists = (App.proveedores._data || [])
+                    .some(x => (x.NOMBRE || '').toUpperCase() === p);
+                if (!exists) tasks.push(App.proveedores.addQuick(p).catch(e => {
+                    console.warn('[ensureCatalogEntries.proveedor]', e); return false;
+                }));
+            }
+            if (tasks.length) await Promise.all(tasks);
+        },
+
         confirmDialog({ title = 'Confirmar', message = '', actions = [] } = {}) {
             return new Promise(resolve => {
                 this._confirmResolve = resolve;
@@ -7549,6 +7592,10 @@ App.clientas = {
                 })
                 .filter(Boolean);
             await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+
+            // Auto-añadir el modelo al catálogo si Pilar escribió uno nuevo
+            App.ui.ensureCatalogEntries({ modelo: document.getElementById('fichaModelo').value })
+                .catch(e => console.warn('[guardarFicha.ensureCatalog]', e));
 
             // Actualizar datos locales — sincronizar AMBAS fuentes en memoria
             updates.forEach(([col, val]) => { this.current[col] = val; });
@@ -8512,6 +8559,10 @@ App.clientas = {
 
             await App.sheets.invalidateListadoCache();
             this._proximaFila = null;
+
+            // Auto-añadir el modelo al catálogo si Pilar escribió uno nuevo al crear la ficha
+            App.ui.ensureCatalogEntries({ modelo: v('nuevaModelo') })
+                .catch(e => console.warn('[crearClienta.ensureCatalog]', e));
 
             this._clearDraft(); // Ficha guardada con éxito → borrar borrador
             App.toast.show(`Ficha de "${nombre}" creada — Nº ${numId}${esIncidencia ? ' (INCIDENCIA)' : ''}`, 'success', 4000);
@@ -11363,6 +11414,13 @@ App.trajes = {
             }
             await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
 
+            // Auto-añadir al catálogo si Pilar escribió un MODELO o TALLER nuevo
+            // que no existe aún. addQuick es idempotente y solo toasta si crea.
+            App.ui.ensureCatalogEntries({
+                modelo: (document.getElementById('editTrajeModelo')?.value || '').trim(),
+                taller: (document.getElementById('editTrajeTaller')?.value || '').trim(),
+            }).catch(e => console.warn('[guardarEdicion.ensureCatalog]', e));
+
             // Actualizar datos locales — sincronizar AMBAS fuentes en memoria
             const t  = this.data.find(r => r._rowIndex === row);
             const tc = App.clientas.data.find(r => r._rowIndex === row);
@@ -11861,8 +11919,9 @@ App.corte = {
         contentEl.innerHTML =
             `<div style="padding:24px; color:var(--text-muted); font-size:13px;">Cargando ${tabName}&#x2026;</div>`;
         try {
-            // Leer desde fila 4 (cabeceras) hasta fila 200
-            const raw         = await App.sheets.readRange(ordenId, `${tabName}!A4:T200`);
+            // Leer desde fila 4 (cabeceras) hasta fila 200. Rango A:Z para acomodar
+            // columnas auxiliares (PDF_URL u otras añadidas dinámicamente).
+            const raw         = await App.sheets.readRange(ordenId, `${tabName}!A4:Z200`);
             this._headers    = raw[0] || [];   // fila 4 — cabeceras
             this._subHeaders = raw[1] || [];   // fila 5 — números de talla
             const iNum       = this._headers.indexOf('Nº');
@@ -11950,6 +12009,7 @@ App.corte = {
         const iEnviar  = this._colIdx('ENVIAR A CORTE');
         const iImprimir = this._colIdx('IMPRIMIR');
         const iImpreso  = this._colIdx('IMPRESO');
+        const iPdfUrl   = this._colIdx('PDF_URL');
 
         // Stats
         const total    = this._data.length;
@@ -12018,10 +12078,24 @@ App.corte = {
             const isImpreso  = impreso.toString().toUpperCase() === 'TRUE'  || impreso === '✓';
             const rowBg      = rIdx % 2 !== 0 ? 'background:var(--background);' : '';
 
-            // Visual de "impreso": badge verde claro cuando ya fue impreso
-            const impresoHtml = isImpreso
-                ? '<span style="display:inline-block; background:#d1fae5; color:#065f46; font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px;">&#x1F5A8; Impreso</span>'
-                : '<span style="color:var(--text-muted); font-size:11px;">—</span>';
+            // Visual de "impreso": badge verde claro. Si hay URL del PDF en Drive
+            // (columna PDF_URL), el badge se vuelve un enlace clicable que abre el PDF.
+            const pdfUrl = (iPdfUrl >= 0 ? row[iPdfUrl] : '') || '';
+            let impresoHtml;
+            if (isImpreso) {
+                const badgeStyle = 'display:inline-block; background:#d1fae5; color:#065f46; font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px;';
+                if (pdfUrl) {
+                    const safeUrl = pdfUrl.toString().replace(/"/g, '&quot;');
+                    impresoHtml =
+                        `<a href="${safeUrl}" target="_blank" rel="noopener" ` +
+                        `style="${badgeStyle} text-decoration:none;" ` +
+                        `title="Abrir PDF en Drive">&#x1F5A8; Impreso &#x1F517;</a>`;
+                } else {
+                    impresoHtml = `<span style="${badgeStyle}">&#x1F5A8; Impreso</span>`;
+                }
+            } else {
+                impresoHtml = '<span style="color:var(--text-muted); font-size:11px;">—</span>';
+            }
 
             // Visual de "enviar a corte": misma forma de píldora con color para que se
             // lea claro de un vistazo (igual de prominente que IMPRESO).
@@ -12809,16 +12883,52 @@ App.corte = {
                 `\uD83D\uDCC4 PDF guardado en Drive: <a href="${driveUrl}" target="_blank" style="color:inherit; text-decoration:underline;">Abrir</a>`,
                 'success', 12000
             );
+            // Devolver la URL para que imprimirOrden pueda guardarla en cada fila impresa
+            return { driveUrl, fileId: file.id };
 
         } catch (err) {
             console.error('[_savePdfToDrive]', err);
             App.toast.show('Error guardando PDF en Drive: ' + err.message, 'error', 8000);
+            return null;
         } finally {
             // Siempre borrar la hoja temporal
             if (tempSheetId !== null) {
                 try { await App.sheets.deleteTempSheet(spreadsheetId, tempSheetId); }
                 catch (e) { console.warn('[_savePdfToDrive] No se pudo borrar hoja temporal:', e); }
             }
+        }
+    },
+
+    /**
+     * Asegura que existe una columna "PDF_URL" en la fila 4 (cabeceras) del tab actual.
+     * Si no existe, la añade en la primera columna libre tras las cabeceras existentes.
+     * Devuelve el índice (0-based) de la columna PDF_URL, o -1 si no se pudo resolver.
+     */
+    async _ensurePdfUrlColumn() {
+        let idx = this._colIdx('PDF_URL');
+        if (idx >= 0) return idx;
+        const ordenId = App.settings.get('ordenId');
+        if (!ordenId || !this._currentTab || !this._headers) return -1;
+        // Última columna ocupada en la fila 4
+        let lastUsed = -1;
+        for (let i = this._headers.length - 1; i >= 0; i--) {
+            if ((this._headers[i] || '').toString().trim()) { lastUsed = i; break; }
+        }
+        const newIdx = lastUsed + 1;
+        if (newIdx > 25) {
+            console.warn('[_ensurePdfUrlColumn] No queda hueco antes de Z para añadir PDF_URL');
+            return -1;
+        }
+        const letter = String.fromCharCode(65 + newIdx);
+        try {
+            await App.sheets.writeRange(ordenId, `${this._currentTab}!${letter}4`, [['PDF_URL']]);
+            // Actualizar headers en memoria — extender array si hace falta
+            while (this._headers.length <= newIdx) this._headers.push('');
+            this._headers[newIdx] = 'PDF_URL';
+            return newIdx;
+        } catch (err) {
+            console.warn('[_ensurePdfUrlColumn]', err);
+            return -1;
         }
     },
 
@@ -13015,8 +13125,10 @@ App.corte = {
         // ── Guardar en Drive (si está configurada la carpeta PDF) ────────────
         const pdfFolderId = App.settings.get('pdfFolderId');
         const ordenId2    = App.settings.get('ordenId');
+        let pdfDriveUrl   = '';   // URL del PDF generado, para guardarla en cada fila
         if (pdfFolderId && ordenId2) {
-            await this._savePdfToDrive(pdfFolderId, ordenId2, filas, modelo, hoyStr, horaStr, tallasVisibles);
+            const result = await this._savePdfToDrive(pdfFolderId, ordenId2, filas, modelo, hoyStr, horaStr, tallasVisibles);
+            if (result && result.driveUrl) pdfDriveUrl = result.driveUrl;
         }
 
         // ── Marcar filas como IMPRESO = TRUE ANTES de abrir la ventana ───────
@@ -13030,9 +13142,27 @@ App.corte = {
                 range:  `${this._currentTab}!${letter}${row._sheetRow}`,
                 values: [['TRUE']],
             }));
+            // Si hay PDF en Drive, asegurar columna PDF_URL y añadir su update al batch
+            let iPdfUrl = -1;
+            if (pdfDriveUrl) {
+                iPdfUrl = await this._ensurePdfUrlColumn();
+                if (iPdfUrl >= 0) {
+                    const pdfLetter = String.fromCharCode(65 + iPdfUrl);
+                    filas.forEach(row => updates.push({
+                        range:  `${this._currentTab}!${pdfLetter}${row._sheetRow}`,
+                        values: [[pdfDriveUrl]],
+                    }));
+                }
+            }
             try {
                 await App.sheets.batchWriteRanges(ordenId, updates);
-                filas.forEach(row => { row[iImpreso] = 'TRUE'; });
+                filas.forEach(row => {
+                    row[iImpreso] = 'TRUE';
+                    if (iPdfUrl >= 0) {
+                        while (row.length <= iPdfUrl) row.push('');
+                        row[iPdfUrl] = pdfDriveUrl;
+                    }
+                });
                 this._render();
                 App.toast.show(`${filas.length} fila${filas.length !== 1 ? 's' : ''} marcada${filas.length !== 1 ? 's' : ''} como impresas`, 'success');
             } catch (err) {
@@ -13699,16 +13829,34 @@ App.modelos = {
    Reutiliza el cache de App.trajes (LISTADO TRAJES) y App.modelos (escandallos).
    ========================================================== */
 App.jose = {
-    _bandeja: 'cortador',  // cortador | llevar | recoger
+    _bandeja: 'cortador',     // cortador | llevar | recoger | historico
+    _selectedTaller: null,    // null = vista de carpetas; "BRENES" = trajes de BRENES.
+                              // Solo aplica a las bandejas "recoger" e "historico".
+    _lastLoadAt: 0,           // timestamp ms de la última recarga real desde el sheet
+    _pollingId: null,         // setInterval id del auto-refresh
+    _POLL_MS: 30000,          // cada 30 segundos refresca si la sección Jose está activa
 
-    async load(forceRefresh = false) {
+    /**
+     * Carga la sección. La sección Jose es colaborativa (Pilar + Andrés actuando
+     * sobre los mismos trajes), así que aquí el caché de App.trajes resulta más
+     * un perjuicio que una ayuda: si Pilar pulsa "Llevado" en su sesión, Andrés
+     * debe ver el cambio sin tener que recargar manualmente. Por eso la entrada
+     * a Jose siempre fuerza la lectura del sheet (forceRefresh=true).
+     *
+     * El polling auto-refresca cada _POLL_MS mientras la sección Jose esté visible.
+     */
+    async load(forceRefresh = true) {
         const cont = document.getElementById('joseContent');
-        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando…</p></div>';
+        const isFirstLoad = !App.trajes?.data?.length;
+        // Solo mostramos spinner en la primera carga — los refresh silenciosos
+        // (polling) no deben hacer parpadear la pantalla.
+        if (cont && isFirstLoad) {
+            cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando…</p></div>';
+        }
         try {
-            // App.trajes.load se encarga de leer LISTADO con cache de 5min
-            if (forceRefresh || !App.trajes?.data?.length) {
-                await App.trajes.load(forceRefresh);
-            }
+            // SIEMPRE forzar refresh — la sección colaborativa exige datos frescos.
+            await App.trajes.load(true);
+            this._lastLoadAt = Date.now();
             // Cargar modelos y telas si aún no — necesarios para la ficha
             if (App.modelos && !App.modelos._data?.length) {
                 await App.modelos.load().catch(()=>{});
@@ -13717,18 +13865,78 @@ App.jose = {
                 await App.telas.load().catch(()=>{});
             }
             this.filter();
+            this._updateLastLoadIndicator();
+            this._ensurePolling();
         } catch (err) {
             console.error('[jose.load]', err);
-            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
+            if (cont && isFirstLoad) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
         }
+    },
+
+    /** Inicia el polling si no está corriendo. Idempotente. */
+    _ensurePolling() {
+        if (this._pollingId) return;
+        this._pollingId = setInterval(() => this._tick(), this._POLL_MS);
+    },
+
+    /** Detiene el polling. Útil para liberar recursos al salir de la sección. */
+    _stopPolling() {
+        if (!this._pollingId) return;
+        clearInterval(this._pollingId);
+        this._pollingId = null;
+    },
+
+    /** Tick del polling: solo refresca si la sección Jose está visible y la pestaña en foco. */
+    async _tick() {
+        const sec = document.getElementById('sec-jose');
+        const visible = sec && sec.classList.contains('active');
+        if (!visible) return;
+        if (document.hidden) return;  // pestaña no en foco → no malgastar API quota
+        try {
+            await App.trajes.load(true);
+            this._lastLoadAt = Date.now();
+            this.filter();
+            this._updateLastLoadIndicator();
+        } catch (err) {
+            console.warn('[jose.poll]', err.message);
+        }
+    },
+
+    /** Pinta el indicador "actualizado hace X" en el header de Jose. */
+    _updateLastLoadIndicator() {
+        const el = document.getElementById('joseLastLoad');
+        if (!el) return;
+        if (!this._lastLoadAt) { el.textContent = ''; return; }
+        const sec = Math.round((Date.now() - this._lastLoadAt) / 1000);
+        let txt;
+        if (sec < 5)        txt = 'actualizado ahora mismo';
+        else if (sec < 60)  txt = `actualizado hace ${sec}s`;
+        else if (sec < 3600) txt = `actualizado hace ${Math.round(sec/60)} min`;
+        else                txt = `actualizado hace ${Math.round(sec/3600)} h`;
+        el.textContent = txt;
     },
 
     setBandeja(name) {
         this._bandeja = name || 'cortador';
+        // Al cambiar de bandeja, siempre volvemos a la vista de carpetas
+        // (relevante para "recoger" e "historico").
+        this._selectedTaller = null;
         document.querySelectorAll('#joseBandejas .bandeja').forEach(el => {
             el.classList.toggle('active', el.dataset.bandeja === this._bandeja);
         });
         this.filter();
+    },
+
+    /** Entrar en la "carpeta" de un taller concreto (vista detalle). */
+    abrirTaller(nombre) {
+        this._selectedTaller = nombre || null;
+        this._render(this._calcLists()[this._bandeja] || []);
+    },
+
+    /** Volver a la vista de carpetas desde el detalle de un taller. */
+    volverATalleres() {
+        this._selectedTaller = null;
+        this._render(this._calcLists()[this._bandeja] || []);
     },
 
     /** Tres listas de trajes según fase. */
@@ -13831,6 +14039,9 @@ App.jose = {
             cont.innerHTML = `<div class="empty-state" style="padding:40px;"><p>${msg}</p></div>`;
             return;
         }
+        // En "recoger" e "historico" usamos vista tipo "carpetas":
+        //   - Si _selectedTaller es null → grid de carpetas (una por taller).
+        //   - Si _selectedTaller tiene valor → trajes de ese taller con botón Volver.
         if (this._bandeja === 'recoger' || this._bandeja === 'historico') {
             // Agrupar por taller
             const groups = {};
@@ -13838,19 +14049,49 @@ App.jose = {
                 const tl = (t[App.trajes.COL.taller] || '?').trim() || '?';
                 (groups[tl] ||= []).push(t);
             }
+            // Vista DETALLE de un taller concreto
+            if (this._selectedTaller && groups[this._selectedTaller]) {
+                const trajes = groups[this._selectedTaller];
+                const cards = trajes.map(t => this._renderCard(t)).join('');
+                cont.innerHTML =
+                    `<div style="margin-bottom:14px; display:flex; align-items:center; gap:10px;">` +
+                        `<button class="btn btn-secondary btn-sm" onclick="App.jose.volverATalleres()" ` +
+                            `style="font-size:13px;">&larr; Volver a talleres</button>` +
+                        `<span style="font-size:18px; font-weight:600; color:var(--primary);">` +
+                            `&#x1F3ED; ${this._selectedTaller}` +
+                        `</span>` +
+                        `<span style="font-size:13px; color:var(--text-muted);">` +
+                            `(${trajes.length} traje${trajes.length !== 1 ? 's' : ''})` +
+                        `</span>` +
+                    `</div>` +
+                    `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>`;
+                return;
+            }
+            // Vista CARPETAS — un card grande por taller
             const tipos = Object.keys(groups).sort();
-            cont.innerHTML = tipos.map(tl => {
-                const cards = groups[tl].map(t => this._renderCard(t)).join('');
+            const folderCards = tipos.map(tl => {
+                const n = groups[tl].length;
+                const escTl = (tl || '').replace(/'/g, "\\'");
                 return (
-                    `<div style="margin-bottom:18px;">` +
-                    `<div style="font-weight:600; color:var(--primary); padding:6px 4px; font-size:14px;">` +
-                    `&#x1F3ED; ${tl} <span style="opacity:0.65; font-weight:400;">(${groups[tl].length})</span></div>` +
-                    `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>` +
+                    `<div class="card" style="padding:24px; cursor:pointer; text-align:center; ` +
+                            `border:2px solid var(--border-light); transition:transform 0.1s;" ` +
+                         `onmouseover="this.style.transform='scale(1.02)'; this.style.borderColor='var(--primary)';" ` +
+                         `onmouseout="this.style.transform=''; this.style.borderColor='var(--border-light)';" ` +
+                         `onclick="App.jose.abrirTaller('${escTl}')">` +
+                        `<div style="font-size:48px; margin-bottom:8px;">&#x1F4C1;</div>` +
+                        `<div style="font-size:18px; font-weight:600; color:var(--primary); margin-bottom:6px;">` +
+                            `&#x1F3ED; ${tl}` +
+                        `</div>` +
+                        `<div style="font-size:14px; color:#444;">` +
+                            `<strong>${n}</strong> traje${n !== 1 ? 's' : ''}` +
+                        `</div>` +
                     `</div>`
                 );
             }).join('');
+            cont.innerHTML =
+                `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px;">${folderCards}</div>`;
         } else {
-            // Lista plana
+            // Lista plana (cortador, llevar)
             const cards = list.map(t => this._renderCard(t)).join('');
             cont.innerHTML =
                 `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>`;
@@ -13865,6 +14106,7 @@ App.jose = {
         const tipoTela = (t[COL.tipoTela] || '').trim();
         const feria    = (t[COL.feria]    || '').trim();
         const taller   = (t[COL.taller]   || '').trim();
+        const talla    = (t[COL.medidas]  || '').trim();
 
         // Días en fase actual
         let diasInfo = '';
@@ -13920,15 +14162,31 @@ App.jose = {
                 : `<span class="chip" style="background:#fff8e1; color:#7c3a00; font-size:11px;">&#x1F4E6; En tienda · pendiente de entregar</span>`;
         }
 
+        // Chip de taller — prominente, color morado claro. Solo si hay valor.
+        // En la vista "carpeta de taller" (detalle), lo ocultamos para no repetir.
+        const tallerChip = (taller && this._selectedTaller !== taller)
+            ? `<span class="chip" style="background:#e6dff1; color:#3b1d6e; font-size:11px; ` +
+              `font-weight:600; padding:2px 8px; border-radius:10px; white-space:nowrap;">` +
+              `&#x1F3ED; ${taller}</span>`
+            : '';
+
+        // Talla — línea propia entre el modelo/tela y la feria. Normaliza "T.42" → "42".
+        const tallaTxt = talla.replace(/^T\.?\s*/i, '').trim();
+        const tallaLine = tallaTxt
+            ? `<div style="font-size:13px; font-weight:600; color:#444; margin-bottom:4px;">TALLA ${tallaTxt}</div>`
+            : '';
+
         return (
             `<div class="card" style="padding:12px; cursor:pointer;" ` +
             `onclick="App.jose.verFicha(${t._rowIndex})">` +
-            `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">` +
-            `<strong style="font-size:14px;">#${num} · ${nombre || '—'}</strong></div>` +
+            `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">` +
+                `<strong style="font-size:14px;">#${num} · ${nombre || '—'}</strong>` +
+                tallerChip +
+            `</div>` +
             `<div style="font-size:13px; color:#444; margin-bottom:4px;">${modelo}` +
             (tipoTela ? ` · <span style="color:#666;">${tipoTela}</span>` : '') + `</div>` +
+            tallaLine +
             (feria  ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F4CD; ${feria}</div>` : '') +
-            (taller ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F3ED; Taller: ${taller}</div>` : '') +
             (diasInfo ? `<div style="font-size:11px; color:#888; margin-bottom:8px;">&#x23F1; ${diasInfo}</div>` : '') +
             `<div style="display:flex; gap:6px; align-items:center; margin-top:8px;" ` +
             `onclick="event.stopPropagation();">${actions}</div>` +
@@ -15640,6 +15898,10 @@ App.telas = {
                 await App.sheets.appendRows(sheetId, `${this.TAB}!A:I`, [row]);
             }
 
+            // Auto-añadir el proveedor al catálogo si es nuevo
+            App.ui.ensureCatalogEntries({ proveedor: t.PROVEEDOR })
+                .catch(e => console.warn('[telas.save.ensureCatalog]', e));
+
             App.toast.show('Tela guardada', 'success');
             this.closeModal();
             await this.load(true);
@@ -15863,7 +16125,13 @@ App.talleres = {
             const v = (t[this.COL.taller] || '').trim();
             if (v) fromData.add(v);
         }
-        return [...new Set([...(CONFIG.TALLERES || []), ...fromData])].sort();
+        // Catálogo TALLERES (activos) — fuente principal con los nombres oficiales.
+        const catalogo = (App.talleresCatalogo?._data || [])
+            .filter(t => t.NOMBRE && App.talleresCatalogo._isActive(t))
+            .map(t => t.NOMBRE);
+        // CONFIG.TALLERES queda como fallback histórico por si alguien aún no
+        // tiene catálogo cargado. La unión y dedupe garantiza orden estable.
+        return [...new Set([...catalogo, ...(CONFIG.TALLERES || []), ...fromData])].sort();
     },
 
     _populateTallerFilter() {
