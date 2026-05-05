@@ -13547,7 +13547,8 @@ App.jose = {
                 }).join('');
             actions =
                 `<select class="form-input" id="joseLlevarSelect-${t._rowIndex}" ` +
-                `style="font-size:12px; flex:1; min-width:0;">${opts}</select>` +
+                `style="font-size:12px; flex:1; min-width:0;" ` +
+                `onchange="App.jose.actualizarTaller(${t._rowIndex}, this.value)">${opts}</select>` +
                 `<button class="btn btn-primary btn-sm" ` +
                 `onclick="App.jose.asignarTaller(${t._rowIndex}, document.getElementById('joseLlevarSelect-${t._rowIndex}').value)">` +
                 `&#x1F69B; Llevado</button>`;
@@ -13639,6 +13640,70 @@ App.jose = {
     },
 
     /** Acción inline: asigna TALLER + auto-stamp fecha entrega taller. */
+    /** Acción inline: solo cambia el TALLER asignado (no marca como llevado).
+     *  Útil para que Jose pueda seleccionar/cambiar el destino sin disparar el "Llevado".
+     *  NO toca la fecha de entrega — eso lo hace asignarTaller(). */
+    async actualizarTaller(rowIndex, taller) {
+        try {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (!t) return;
+            const COL = App.trajes.COL;
+            const tallerLimpio = (taller || '').trim();
+            // Si vacío y antes había, confirmar
+            if (!tallerLimpio && (t[COL.taller] || '').trim()) {
+                if (!confirm(`¿Quitar el taller asignado al traje #${t[COL.num]}?`)) {
+                    // Restaurar el valor visual del select y salir
+                    const sel = document.getElementById('joseLlevarSelect-' + rowIndex);
+                    if (sel) sel.value = t[COL.taller] || '';
+                    return;
+                }
+            }
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
+            const hdr = (headers[0] || []).map(h => h.trim());
+            const idxTaller = hdr.indexOf('TALLER');
+            if (idxTaller < 0) throw new Error('Columna TALLER no encontrada en LISTADO.');
+            const tallerLetter = String.fromCharCode(65 + idxTaller);
+            const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
+
+            const updates = [
+                { range: `${tab}!${tallerLetter}${rowIndex}`, values: [[tallerLimpio]] },
+            ];
+            const idxFmod = hdr.indexOf('FECHA ULTIMA MOD');
+            if (idxFmod >= 0) {
+                const lf = String.fromCharCode(65 + idxFmod);
+                updates.push({ range: `${tab}!${lf}${rowIndex}`, values: [[hoy]] });
+            }
+            await App.sheets.batchWriteRanges(sheetId, updates);
+
+            // Sincronizar caches en memoria para que la ficha de la clienta lo refleje
+            t[COL.taller] = tallerLimpio;
+            t[COL.fechaUltimaMod] = hoy;
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) {
+                tc[COL.taller] = tallerLimpio;
+                tc[COL.fechaUltimaMod] = hoy;
+            }
+            await App.sheets.invalidateListadoCache();
+
+            App.toast.show(
+                tallerLimpio
+                    ? `Traje #${t[COL.num]} → taller <strong>${tallerLimpio}</strong> (pendiente de llevar)`
+                    : `Traje #${t[COL.num]}: taller desasignado`,
+                'info', 2500
+            );
+            // No llamamos a filter() para no perder el dropdown si Jose lo está usando.
+            // Refrescamos los badges (sidebar) y la card del traje en sitio.
+            if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
+                App.trajes._updateBandejaCounts();
+            }
+        } catch (err) {
+            console.error('[jose.actualizarTaller]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
     async asignarTaller(rowIndex, taller) {
         if (!taller || !taller.trim()) {
             App.toast.show('Elige un taller antes de marcar como llevado.', 'warning', 3000);
