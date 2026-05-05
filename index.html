@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Atelier — Moda Flamenca | NOTELODIGO</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
@@ -45,7 +45,8 @@
             color: var(--text);
             line-height: 1.6;
             overflow: hidden;
-            height: 100vh;
+            height: 100vh;        /* fallback para navegadores antiguos */
+            height: 100dvh;        /* iOS Safari respeta la barra dinámica */
         }
 
         /* ---- LOGIN SCREEN ---- */
@@ -54,6 +55,7 @@
             align-items: center;
             justify-content: center;
             height: 100vh;
+            height: 100dvh;
             background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 40%, var(--primary-light) 100%);
         }
         .login-box {
@@ -142,6 +144,7 @@
         .app-container {
             display: none;
             height: 100vh;
+            height: 100dvh;        /* iPad/iOS Safari: respeta la barra dinámica */
             overflow: hidden;
         }
         .app-container.active {
@@ -416,7 +419,11 @@
         .content-body {
             flex: 1;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;   /* scroll inercial en iOS */
             padding: 25px 30px;
+            /* Margen extra al fondo para que el último elemento no quede pegado al
+               borde (y como red de seguridad si dvh no descuenta la barra de Safari). */
+            padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
         }
 
         /* ---- SECTIONS ---- */
@@ -1935,6 +1942,8 @@
                             <!-- Hidden combinado "TIPO / VARIANTE" que lee el guardado -->
                             <input type="hidden" id="fichaTipoTela">
                         </div>
+                        <!-- Aviso de stock al límite/negativo (solo se muestra si hay alerta) -->
+                        <div id="fichaStockBanner" style="display:none; margin-top:10px; padding:8px 10px; border-radius:6px; font-size:12px;"></div>
                         <div class="form-group" style="margin-top:14px;">
                             <label>Adornos</label>
                             <textarea class="form-input" id="fichaAdornos" rows="3"
@@ -6895,14 +6904,30 @@ App.clientas = {
         document.getElementById('fichaAdornos').value = c[this.COL.adornos] || '';
         document.getElementById('fichaDocUrl').value = c[this.COL.ficha] || '';
 
-        // Asegurar catálogos cargados (no bloqueante) y attach combobox
+        // Asegurar catálogos cargados (no bloqueante) y attach combobox.
+        // Tras cargar, refrescar el banner de stock por si la dependienta lo abrió antes
+        // de que estuvieran disponibles los datos.
+        const refreshStockBanner = () => {
+            if (App.trajes && typeof App.trajes._updateStockBannerFicha === 'function') {
+                App.trajes._updateStockBannerFicha();
+            }
+        };
         if (App.modelos && App.modelos._data.length === 0) {
-            App.modelos.load().catch(e => console.warn('[ficha] modelos.load:', e.message));
+            App.modelos.load().then(refreshStockBanner)
+                .catch(e => console.warn('[ficha] modelos.load:', e.message));
         }
         if (App.telas && App.telas._data.length === 0) {
-            App.telas.load().catch(e => console.warn('[ficha] telas.load:', e.message));
+            App.telas.load().then(refreshStockBanner)
+                .catch(e => console.warn('[ficha] telas.load:', e.message));
+        }
+        // Pedidos en background para que el banner pueda mencionar lo que está en camino
+        if (App.pedidos && App.pedidos._data.length === 0) {
+            App.pedidos.load().then(refreshStockBanner)
+                .catch(e => console.warn('[ficha] pedidos.load:', e.message));
         }
         this._attachFichaComboboxes();
+        // Calcular banner inicial con los datos ya cargados (si los hay)
+        refreshStockBanner();
 
         // Medidas — mostrar talla asignada + intentar parsear detalles
         const medVal = (c[this.COL.medidas] || '').trim();
@@ -7849,6 +7874,10 @@ App.clientas = {
             const hidden = document.getElementById('fichaTipoTela');
             if (!hidden) return;
             hidden.value = (tipo && vari) ? `${tipo} / ${vari}` : (tipo || vari);
+            // Refrescar banner de stock con cada cambio de tela
+            if (App.trajes && typeof App.trajes._updateStockBannerFicha === 'function') {
+                App.trajes._updateStockBannerFicha();
+            }
         };
         if (!tipoInput.dataset.changeWired) {
             tipoInput.dataset.changeWired = '1';
@@ -7857,6 +7886,15 @@ App.clientas = {
         if (!varInput.dataset.changeWired) {
             varInput.dataset.changeWired = '1';
             varInput.addEventListener('change', sync);
+        }
+        // Refrescar banner cuando cambia el modelo también
+        if (!modeloInput.dataset.stockBannerWired) {
+            modeloInput.dataset.stockBannerWired = '1';
+            modeloInput.addEventListener('change', () => {
+                if (App.trajes && typeof App.trajes._updateStockBannerFicha === 'function') {
+                    App.trajes._updateStockBannerFicha();
+                }
+            });
         }
     },
 
@@ -8505,12 +8543,13 @@ App.trajes = {
     },
 
     /** Construye el desglose de pedido agrupado por PROVEEDOR → tela.
-     *  Solo entra demanda agregada urgente (status='falta'). */
+     *  Entran tanto las telas urgentes (status='falta') como las que están al límite
+     *  (status='umbral'). Pilar puede ajustar las cantidades antes de mandar. */
     _buildPedidoDesglose() {
         const map = this._stockAggregate();
         const porProv = {};   // { 'FLAMENTEX': { telas:[{tipo,variante,demanda,roundedM,trajeRowIndices}], rounding } , ... }
         for (const entry of map.values()) {
-            if (entry.status !== 'falta') continue;
+            if (entry.status !== 'falta' && entry.status !== 'umbral') continue;
             const prov = entry.proveedor || '— sin proveedor —';
             const provKey = prov.toUpperCase();
             if (!porProv[provKey]) {
@@ -8783,13 +8822,13 @@ App.trajes = {
         }
     },
 
-    /** ¿Este traje urge pedir tela? — solo cuando la demanda agregada supera el stock.
-     *  Lo de "stock bajo" (umbral) no se cuenta aquí: es informativo en la fila pero
-     *  no entra en la bandeja "Pedir tela" ni en su contador. Así la bandeja queda
-     *  como indicador de URGENCIA real, no de "ojo, queda poco". */
+    /** ¿Este traje requiere pedir tela? Incluye los dos casos:
+     *    · 'falta'  — la demanda agregada supera el stock (urgente).
+     *    · 'umbral' — el stock cae por debajo del umbral configurado (aviso).
+     *  Pilar puede pedir en cualquiera de los dos casos para anticiparse. */
     _isPedirUrgente(t) {
         const e = this._stockStatusForTraje(t);
-        return !!(e && e.status === 'falta');
+        return !!(e && (e.status === 'falta' || e.status === 'umbral'));
     },
 
     /** Asegura que los catálogos de Modelos y Telas estén cargados.
@@ -8842,6 +8881,16 @@ App.trajes = {
         if (!d) return null;
         const ahora = new Date();
         const diffMs = ahora.getTime() - d.getTime();
+        return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    },
+
+    /** Días desde una fecha cualquiera del sheet. Acepta varios formatos. null si no parseable o futura. */
+    _diasDesde(rawFecha) {
+        const d = this._parseSheetDate(rawFecha);
+        if (!d) return null;
+        const ahora = new Date();
+        const diffMs = ahora.getTime() - d.getTime();
+        if (diffMs < 0) return 0;
         return Math.floor(diffMs / (1000 * 60 * 60 * 24));
     },
 
@@ -9364,8 +9413,8 @@ App.trajes = {
                 if (stockEntry.status === 'umbral') {
                     const restante = stockEntry.stock - stockEntry.demanda;
                     const tooltip = `Tras los pendientes quedarán ${fmt(restante)} m de ${stockEntry.tipo} ${stockEntry.variante} ` +
-                                    `(umbral: ${fmt(stockEntry.umbral)} m)${provLabel}.`;
-                    return ` <span class="chip" style="background:#f57c00; color:white; font-size:10px; cursor:help;" title="${tooltip.replace(/"/g,'&quot;')}">🔻 stock bajo</span>`;
+                                    `(umbral: ${fmt(stockEntry.umbral)} m)${provLabel}. Conviene pedir más para anticiparse.`;
+                    return ` <span class="chip" style="background:#f57c00; color:white; font-size:10px; cursor:help;" title="${tooltip.replace(/"/g,'&quot;')}">🔻 stock bajo · pedir</span>`;
                 }
                 return '';
             })() : '';
@@ -10247,13 +10296,18 @@ App.trajes = {
         chip.innerHTML = parts.join(' &nbsp;·&nbsp; ');
     },
 
-    /** Banner del modal de editar traje. Usa el cálculo AGREGADO (mismo que la lista):
-     *  stock vs demanda total de TODOS los pendientes que comparten esa tela.
-     *  Solo aparece si el traje está en estado "pedir" (TELA RECIBIDA = PENDIENTE/vacío
-     *  y TRAJE ENTREGADO != ENTREGADO). Si modelo o tela no encajan con catálogo, sale
-     *  un aviso suave en lugar del cálculo. */
-    _updateStockBanner() {
-        const banner = document.getElementById('editTrajeStockBanner');
+    /** Banner reusable para cualquier modal con campos de modelo + tela.
+     *  Se aprovecha del cálculo AGREGADO de stock (mismo que la lista de trajes).
+     *  Solo aparece si la tela está al límite o en negativo.
+     *
+     *  cfg = {
+     *    bannerId, modeloId, tipoId, varianteId,
+     *    telaRecibidaId  (opcional, si no se pasa siempre se considera "pendiente"),
+     *    trajeEntregadoId (opcional)
+     *  }
+     */
+    _renderStockBannerInto(cfg) {
+        const banner = document.getElementById(cfg.bannerId);
         if (!banner) return;
         const fmt = n => Number(Number(n).toFixed(2)).toString();
         const showInfo = (msg) => {
@@ -10264,15 +10318,19 @@ App.trajes = {
         };
         const hide = () => { banner.style.display = 'none'; banner.innerHTML = ''; };
 
-        // Filtro por estado: solo trajes pendientes de pedir tela.
-        const telaRec  = (document.getElementById('editTrajeTelRecibida')?.value     || '').toUpperCase().trim();
-        const trajeEnt = (document.getElementById('editTrajeTrajeEntregado')?.value || '').toUpperCase().trim();
-        const enPedir  = (telaRec === '' || telaRec === 'PENDIENTE') && trajeEnt !== 'ENTREGADO';
-        if (!enPedir) return hide();
+        // Filtro por estado: solo si el traje aún está pendiente de tela y no entregado
+        if (cfg.telaRecibidaId) {
+            const telaRec  = (document.getElementById(cfg.telaRecibidaId)?.value || '').toUpperCase().trim();
+            if (telaRec !== '' && telaRec !== 'PENDIENTE') return hide();
+        }
+        if (cfg.trajeEntregadoId) {
+            const trajeEnt = (document.getElementById(cfg.trajeEntregadoId)?.value || '').toUpperCase().trim();
+            if (trajeEnt === 'ENTREGADO') return hide();
+        }
 
-        const nombreModelo = (document.getElementById('editTrajeModelo')?.value || '').trim();
-        const tipo         = (document.getElementById('editTrajeTipoTelaTipo')?.value || '').trim().toUpperCase();
-        const variante     = (document.getElementById('editTrajeTipoTelaVariante')?.value || '').trim();
+        const nombreModelo = (document.getElementById(cfg.modeloId)?.value || '').trim();
+        const tipo         = (document.getElementById(cfg.tipoId)?.value || '').trim().toUpperCase();
+        const variante     = (document.getElementById(cfg.varianteId)?.value || '').trim();
         if (!nombreModelo || !tipo || !variante) return hide();
 
         const modelo = (App.modelos?._data || []).find(m =>
@@ -10285,35 +10343,27 @@ App.trajes = {
         const necesita = parseFloat(modelo.TELA_PPAL_M);
         if (isNaN(necesita)) return showInfo(`&#x2139;&#xFE0F; El modelo "${modelo.NOMBRE}" no tiene definidos los metros de tela ppal en su escandallo.`);
 
-        // Recalcular el agregado fresco (lee los datos actuales de App.telas y App.trajes.data).
-        // Esto cubre el caso de stocks editados en Telas mientras el modal está abierto.
+        // Recalcular el agregado fresco
         this._stockMap = this._stockAggregate();
         const entry = this._stockMap.get(`${tipo}|${variante}`);
 
-        // Si la tela no aparece en el agregado (caso raro: este traje no estaba contado
-        // por alguna razón), caemos a un cálculo per-traje básico para no quedarnos sin info.
         const stock  = parseFloat(tela.STOCK_M);
         const umbral = parseFloat(tela.UMBRAL_ALERTA);
-        const proveedor = tela.PROVEEDOR || 'sin proveedor asignado';
 
-        // Pendiente de recibir de pedidos en curso para esta tela (si App.pedidos está cargado)
+        // Pendiente de recibir de pedidos en curso para esta tela
         const pendienteRec = (App.pedidos && typeof App.pedidos.pendienteRecepcion === 'function')
             ? App.pedidos.pendienteRecepcion(tipo, variante)
             : 0;
 
-        // Calcular estado y métricas (entry agregado o fallback per-traje)
-        let status, demanda, restante, faltan, count, otros;
+        let status, restante, faltan, count, otros;
         if (entry) {
             status = entry.status;
-            demanda = entry.demanda;
-            restante = entry.stock - demanda;
+            restante = entry.stock - entry.demanda;
             faltan = entry.faltan || 0;
             count = entry.count || 1;
             otros = Math.max(0, count - 1);
         } else {
-            // Fallback per-traje cuando no hay agregado disponible
             const stockNum = isNaN(stock) ? 0 : stock;
-            demanda  = necesita;
             restante = stockNum - necesita;
             faltan   = Math.max(0, necesita - stockNum);
             count = 1; otros = 0;
@@ -10322,7 +10372,7 @@ App.trajes = {
             else status = 'ok';
         }
 
-        // SOLO mostramos el aviso si hay alerta (límite/negativo). Si todo OK, nada de banner.
+        // SOLO mostramos si hay alerta (límite/negativo)
         if (status === 'ok') return hide();
 
         const otrosLabel = otros === 0
@@ -10338,18 +10388,41 @@ App.trajes = {
             bg = '#fff8e1'; fg = '#7c3a00'; icon = '🔻 Tela al límite';
             mensaje = `Quedan justo <strong>${fmt(restante)} m</strong> tras ${otrosLabel}` +
                       (!isNaN(entry?.umbral) ? ` (por debajo del umbral ${fmt(entry.umbral)} m)` : '') + `.` +
-                      ` <br>Pregunta a Pilar si conviene seguir o pedir más al proveedor (${proveedor}).`;
+                      ` <br>Pregunta a Pilar si conviene seguir con esta tela o cambiar de modelo.`;
         }
 
         const pendienteMsg = pendienteRec > 0.001
-            ? `<br><span style="font-size:11px; opacity:0.85;">ℹ️ Hay ${fmt(pendienteRec)} m en camino (pedido pendiente de recibir).</span>`
+            ? `<br><span style="font-size:11px; opacity:0.85;">ℹ️ Hay tela en camino: ${fmt(pendienteRec)} m pedidos pendientes de llegar.</span>`
             : '';
 
         banner.style.display = 'block';
         banner.style.background = bg;
         banner.style.color = fg;
-        banner.innerHTML =
-            `<strong>${icon}</strong> ${mensaje}${pendienteMsg}`;
+        banner.innerHTML = `<strong>${icon}</strong> ${mensaje}${pendienteMsg}`;
+    },
+
+    /** Wrapper: banner del modal de editar traje (los IDs editTraje*). */
+    _updateStockBanner() {
+        this._renderStockBannerInto({
+            bannerId:        'editTrajeStockBanner',
+            modeloId:        'editTrajeModelo',
+            tipoId:          'editTrajeTipoTelaTipo',
+            varianteId:      'editTrajeTipoTelaVariante',
+            telaRecibidaId:  'editTrajeTelRecibida',
+            trajeEntregadoId:'editTrajeTrajeEntregado',
+        });
+    },
+
+    /** Wrapper: banner del modal de FICHA de clienta (los IDs ficha*).
+     *  La dependienta no ve estados de traje en este modal, así que el banner se considera
+     *  siempre "en pedir" mientras el traje no esté entregado. */
+    _updateStockBannerFicha() {
+        this._renderStockBannerInto({
+            bannerId:   'fichaStockBanner',
+            modeloId:   'fichaModelo',
+            tipoId:     'fichaTipoTelaTipo',
+            varianteId: 'fichaTipoTelaVariante',
+        });
     },
 
     // -------- Editar traje --------
