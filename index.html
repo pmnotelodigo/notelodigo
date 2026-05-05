@@ -7206,6 +7206,12 @@ App.clientas = {
 
             await App.sheets.invalidateListadoCache();
 
+            // Refrescar badges del sidebar — pilar puede haber cambiado tela/modelo/taller
+            // desde la ficha y eso afecta a Jose (Llevar/Recoger) y otros badges.
+            if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
+                App.trajes._updateBandejaCounts();
+            }
+
             // Sincronizar medidas con el Google Doc (si existe y hay algún valor)
             const docUrl = document.getElementById('fichaDocUrl').value.trim();
             const docMatch = docUrl && docUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
@@ -15140,6 +15146,10 @@ App.talleres = {
 
             this._populateTallerFilter();
             this.filter();
+            // Refrescar badges del sidebar (cambio de taller afecta badges de Jose/Talleres)
+            if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
+                App.trajes._updateBandejaCounts();
+            }
         } catch (err) {
             App.toast.show('Error al cambiar taller: ' + err.message, 'error');
             console.error('[talleres.cambiarTaller]', err);
@@ -15197,6 +15207,10 @@ App.talleres = {
                 : `\u21A9 N\u00ba ${traje[this.COL.num] || '?'} devuelto a pendiente`, 'success');
 
             this.filter();
+            // Refrescar badges del sidebar (afecta a Jose: el traje sale de "Recoger del taller")
+            if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
+                App.trajes._updateBandejaCounts();
+            }
         } catch (err) {
             App.toast.show('Error al marcar recibido: ' + err.message, 'error');
             console.error('[talleres.marcarRecibido]', err);
