@@ -3621,20 +3621,6 @@ const App = {
             App.ui.setConnection('online');
             // Aplicar restricciones de UI según el rol (Jose ve solo su sección)
             if (App.ui.applyRolePermissions) App.ui.applyRolePermissions();
-            // Cargar pedidos en background para mostrar el badge del sidebar con pendientes
-            if (App.pedidos && typeof App.pedidos.load === 'function') {
-                App.pedidos.load().catch(e => console.warn('[login] pedidos.load:', e.message));
-            }
-            // Cargar telas en background para mostrar el badge de retales pendientes
-            if (App.telas && typeof App.telas.load === 'function') {
-                App.telas.load().then(() => App.telas.refreshBadge && App.telas.refreshBadge())
-                    .catch(e => console.warn('[login] telas.load:', e.message));
-            }
-            // Cargar trajes en background para que los badges de Trajes (Revisar) y
-            // Vista por taller (atascados) aparezcan sin haber entrado a esas secciones.
-            if (App.trajes && typeof App.trajes.load === 'function' && App.trajes.data?.length === 0) {
-                App.trajes.load().catch(e => console.warn('[login] trajes.load:', e.message));
-            }
 
             // Load seasons BEFORE reading any per-season value; safe no-op if no configsFolderId
             try {
@@ -3642,6 +3628,21 @@ const App = {
                 App.seasons.renderSelector();
             } catch (e) {
                 console.warn('seasons load failed:', e);
+            }
+
+            // Cargar en background los datos necesarios para los badges del sidebar.
+            // ⚠ DEPENDENCIA: tiene que ir DESPUÉS de App.seasons.load() porque las
+            // funciones de carga leen App.settings.get('listadoId'/'escandallosId'), que
+            // sólo devuelve valor cuando la temporada activa está cargada.
+            if (App.pedidos && typeof App.pedidos.load === 'function') {
+                App.pedidos.load().catch(e => console.warn('[login] pedidos.load:', e.message));
+            }
+            if (App.telas && typeof App.telas.load === 'function') {
+                App.telas.load().then(() => App.telas.refreshBadge && App.telas.refreshBadge())
+                    .catch(e => console.warn('[login] telas.load:', e.message));
+            }
+            if (App.trajes && typeof App.trajes.load === 'function' && App.trajes.data?.length === 0) {
+                App.trajes.load().catch(e => console.warn('[login] trajes.load:', e.message));
             }
 
             App.settings.loadToUI();
