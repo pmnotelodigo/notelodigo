@@ -1627,6 +1627,31 @@
                 background: transparent !important;
             }
         }
+
+        /* ── Rol Dependienta ──────────────────────────────────────────────
+           Modelos en modo solo-lectura: ocultamos botones de creación,
+           guardado y borrado, y deshabilitamos los inputs del modal. */
+        body.role-dependienta #sec-modelos button[onclick*="openModal()"],
+        body.role-dependienta #modeloModal #btnModeloSave,
+        body.role-dependienta #modeloModal #btnModeloMarkInactive,
+        body.role-dependienta #modeloModal #btnModeloFotoUpload,
+        body.role-dependienta #modeloModal button[onclick*="removeFoto"],
+        body.role-dependienta #modeloModal #modeloFotoFile {
+            display: none !important;
+        }
+        body.role-dependienta #modeloModal input,
+        body.role-dependienta #modeloModal select,
+        body.role-dependienta #modeloModal textarea {
+            pointer-events: none;
+            background: #f5f5f5 !important;
+            color: #555 !important;
+        }
+        body.role-dependienta #modeloModalTitle::after {
+            content: " (solo lectura)";
+            font-size: 0.8em;
+            color: var(--text-muted);
+            font-weight: normal;
+        }
     </style>
 </head>
 <body>
@@ -1903,11 +1928,24 @@
                                 onchange="App.clientas.filter()">
                             <option value="">Todos los modelos</option>
                         </select>
+                        <select class="form-input" id="clientaFilterTela"
+                                style="max-width:160px; margin:0;"
+                                onchange="App.clientas.filter()">
+                            <option value="">Todas las telas</option>
+                        </select>
+                        <select class="form-input" id="clientaFilterTelaRecibida"
+                                style="max-width:180px; margin:0;"
+                                onchange="App.clientas.filter()">
+                            <option value="">Estado tela: cualquiera</option>
+                            <option value="PENDIENTE">Tela: Pendiente</option>
+                            <option value="PEDIDA">Tela: Pedida</option>
+                            <option value="RECIBIDA">Tela: Recibida</option>
+                            <option value="INCIDENCIA">Tela: Incidencia</option>
+                        </select>
                         <select class="form-input" id="clientaFilterCorte"
                                 style="max-width:160px; margin:0;"
                                 onchange="App.clientas.filter()">
-                            <option value="">Todos los estados</option>
-                            <option value="">— Estado corte —</option>
+                            <option value="">Todos los cortes</option>
                             <option value="PENDIENTE">Corte: Pendiente</option>
                             <option value="ENVIADO">Corte: Enviado</option>
                             <option value="RECOGIDO">Corte: Recogido</option>
@@ -3529,6 +3567,23 @@
                     </div>
                 </div>
 
+                <!-- ========= 2.7. ROLES Y PERMISOS ========= -->
+                <div class="card">
+                    <div class="card-title">&#x1F465; Roles y permisos</div>
+                    <div class="settings-section">
+                        <p style="font-size:13px; color:var(--text-light); margin:0 0 14px;">
+                            Controla qué ve cada usuario según su email Google. Los emails que no estén en ninguna lista entran como <strong>admin</strong> (ven toda la app).
+                            Cambios efectivos en el siguiente inicio de sesión del usuario.
+                        </p>
+                        <div id="permisosUIContainer">
+                            <div class="empty-state" style="padding:20px;">
+                                <div class="spinner"></div>
+                                <p style="font-size:12px; margin-top:8px;">Cargando permisos…</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ========= 3. MANTENIMIENTO ========= -->
                 <div class="card">
                     <div class="card-title">&#x1F527; Mantenimiento</div>
@@ -3636,6 +3691,12 @@ const CONFIG = {
     JOSE_EMAILS: [
         // Pega aquí el email Google de Jose, p. ej.: 'jose.padre@gmail.com'
     ],
+    // Emails Google (lowercase) restringidos al rol "Dependienta": solo ven
+    // la sección Clientas (con permiso de crear/editar fichas) y la sección
+    // Modelos (solo lectura — sin crear/editar/borrar). El resto del menú queda oculto.
+    DEPENDIENTAS_EMAILS: [
+        // Pega aquí los emails Google de las dependientas, p. ej.: 'maria@gmail.com'
+    ],
     TALLERES: ['BRENES','BALDOMERO','ROCIO','CARO','ALISON','NIDIA','GLADIS','TRIANGULO','ALVARO','DOLORES','YEYE','TALLER'],
     ESTADOS_CORTE: ['PENDIENTE','ENVIADO','RECOGIDO','INCIDENCIA'],
     ESTADOS_TRAJE: ['PENDIENTE','RECIBIDO'],
@@ -3701,11 +3762,26 @@ const App = {
     user: null,       // {name, email}
     tokenClient: null, // GIS token client
 
-    /** True si el email del usuario actual está en CONFIG.JOSE_EMAILS. */
+    /** True si el email del usuario actual está en la lista Jose.
+     *  Lee de App.permisos (tab PERMISOS del Sheet) si está cargado, sino fallback a CONFIG.JOSE_EMAILS. */
     isJose() {
         const email = (this.user?.email || '').toLowerCase().trim();
         if (!email) return false;
-        return (CONFIG.JOSE_EMAILS || []).map(e => e.toLowerCase().trim()).includes(email);
+        const list = App.permisos && typeof App.permisos.joseEmails === 'function'
+            ? App.permisos.joseEmails()
+            : (CONFIG.JOSE_EMAILS || []).map(e => e.toLowerCase().trim());
+        return list.includes(email);
+    },
+    /** True si el email del usuario actual está en la lista Dependientas.
+     *  Las dependientas ven solo Clientas (CRUD) y Modelos (read-only). */
+    isDependienta() {
+        const email = (this.user?.email || '').toLowerCase().trim();
+        if (!email) return false;
+        if (this.isJose()) return false;   // Jose tiene precedencia
+        const list = App.permisos && typeof App.permisos.dependientasEmails === 'function'
+            ? App.permisos.dependientasEmails()
+            : (CONFIG.DEPENDIENTAS_EMAILS || []).map(e => e.toLowerCase().trim());
+        return list.includes(email);
     },
     /** True si el email del usuario actual es un taller.
      *  Dos vías de detección:
@@ -3723,7 +3799,7 @@ const App = {
         return !!taller;
     },
     /** True si el usuario actual NO está restringido (ve toda la app). */
-    isAdmin() { return !this.isJose() && !this.isTaller(); },
+    isAdmin() { return !this.isJose() && !this.isTaller() && !this.isDependienta(); },
 
     /* -------------------------------------------------------
        AUTH — Google OAuth2 via GIS
@@ -3924,6 +4000,17 @@ const App = {
                 }
             } catch (e) {
                 console.warn('[catalogos] auto-detección falló:', e.message);
+            }
+
+            // Cargar permisos (Jose / Dependientas) desde tab PERMISOS del catalogosId.
+            // Importante hacerlo ANTES de re-aplicar permisos UI para que isJose() y
+            // isDependienta() devuelvan el resultado correcto.
+            if (App.permisos && typeof App.permisos.load === 'function') {
+                try {
+                    await App.permisos.load();
+                } catch (e) {
+                    console.warn('[login] permisos.load:', e.message);
+                }
             }
 
             // Si hay un proxy de talleres configurado, preguntarle "whoami" antes de
@@ -6950,6 +7037,11 @@ const App = {
             if (App.isTaller && App.isTaller() && sectionId !== 'mis-trajes') {
                 sectionId = 'mis-trajes';
             }
+            // Si el usuario es Dependienta, solo puede entrar a clientas o modelos.
+            // Cualquier otra sección la mandamos a 'clientas' por defecto.
+            if (App.isDependienta && App.isDependienta() && sectionId !== 'clientas' && sectionId !== 'modelos') {
+                sectionId = 'clientas';
+            }
             // Update sidebar
             document.querySelectorAll('.nav-item').forEach(el => {
                 el.classList.toggle('active', el.dataset.section === sectionId);
@@ -6990,22 +7082,36 @@ const App = {
             if (sectionId === 'mis-trajes' && App.misTrajes && typeof App.misTrajes.load === 'function') {
                 App.misTrajes.load().catch(e => console.warn('[misTrajes.load]', e.message));
             }
+            // Auto-render Permisos UI cuando se entra a Ajustes (datos ya cargados al login)
+            if (sectionId === 'ajustes' && App.permisos && typeof App.permisos._renderUI === 'function') {
+                // Refrescar la lista del sheet por si otro admin la modificó
+                App.permisos.load()
+                    .then(() => App.permisos._renderUI())
+                    .catch(e => {
+                        console.warn('[permisos.load on ajustes nav]', e.message);
+                        App.permisos._renderUI();
+                    });
+            }
         },
 
-        /** Aplica restricciones de UI según el rol (admin vs Jose vs Taller).
+        /** Aplica restricciones de UI según el rol (admin vs Jose vs Taller vs Dependienta).
          *  - Jose ve solo la sección "jose".
          *  - Taller ve solo la sección "mis-trajes".
+         *  - Dependienta ve "clientas" (CRUD) y "modelos" (read-only).
          *  - Admin ve todo.
          *  Oculta nav-items, group-labels y bottom-nav-items según corresponda. */
         applyRolePermissions() {
-            const isJose   = App.isJose && App.isJose();
-            const isTaller = App.isTaller && App.isTaller();
-            const restricted = isJose || isTaller;
+            const isJose        = App.isJose && App.isJose();
+            const isTaller      = App.isTaller && App.isTaller();
+            const isDependienta = App.isDependienta && App.isDependienta();
+            const restricted = isJose || isTaller || isDependienta;
             const allowed = isJose
                 ? new Set(['jose'])
                 : isTaller
                     ? new Set(['mis-trajes'])
-                    : null;   // admin: todo permitido
+                    : isDependienta
+                        ? new Set(['clientas', 'modelos'])
+                        : null;   // admin: todo permitido
 
             // Sidebar nav-items
             document.querySelectorAll('.nav-item[data-section]').forEach(el => {
@@ -7034,6 +7140,12 @@ const App = {
                     el.style.display = 'none';
                 }
             });
+
+            // ── Modelos en modo solo-lectura para Dependientas ──
+            // Ocultamos botones de crear/editar/borrar en sección Modelos.
+            // El usuario aún puede abrir el modal para ver detalles, pero no puede guardar/borrar.
+            document.body.classList.toggle('role-dependienta', !!isDependienta);
+
             // Forzar navegación a la única sección permitida
             if (isJose) {
                 const activeSec = document.querySelector('.section.active');
@@ -7041,6 +7153,10 @@ const App = {
             } else if (isTaller) {
                 const activeSec = document.querySelector('.section.active');
                 if (!activeSec || activeSec.id !== 'sec-mis-trajes') this.navigateTo('mis-trajes');
+            } else if (isDependienta) {
+                const activeSec = document.querySelector('.section.active');
+                const okSec = activeSec && (activeSec.id === 'sec-clientas' || activeSec.id === 'sec-modelos');
+                if (!okSec) this.navigateTo('clientas');
             }
         },
 
@@ -7435,6 +7551,16 @@ App.clientas = {
         const selModelo = document.getElementById('clientaFilterModelo');
         selModelo.innerHTML = '<option value="">Todos los modelos</option>' +
             modelos.map(m => `<option value="${m}">${m}</option>`).join('');
+
+        // Telas únicas (tipo + variante completos, p.ej. "BAMBULA / BLANCA")
+        const telas = [...new Set(this.data.map(c =>
+            (c[this.COL.tipoTela] || '').trim()
+        ).filter(Boolean))].sort();
+        const selTela = document.getElementById('clientaFilterTela');
+        if (selTela) {
+            selTela.innerHTML = '<option value="">Todas las telas</option>' +
+                telas.map(t => `<option value="${t}">${t}</option>`).join('');
+        }
     },
 
     filter() {
@@ -7446,13 +7572,17 @@ App.clientas = {
         const feria = document.getElementById('clientaFilterFeria').value;
         const modelo = document.getElementById('clientaFilterModelo').value;
         const corte = document.getElementById('clientaFilterCorte').value;
+        const telaRec = document.getElementById('clientaFilterTelaRecibida')?.value || '';
+        const tela = document.getElementById('clientaFilterTela')?.value || '';
 
         this.filtered = this.data.filter(c => {
             if (q && !( (c[this.COL.nombre] || '').toLowerCase().includes(q) ))
                 return false;
             if (feria && c[this.COL.feria] !== feria) return false;
             if (modelo && !(c[this.COL.modelo] || '').startsWith(modelo)) return false;
+            if (tela && (c[this.COL.tipoTela] || '').trim() !== tela) return false;
             if (corte && c[this.COL.corte] !== corte) return false;
+            if (telaRec && (c[this.COL.telaRecibida] || '').toUpperCase() !== telaRec) return false;
             return true;
         });
 
@@ -7482,24 +7612,27 @@ App.clientas = {
         html += `<tr>
             <th style="width:50px;">Nº</th>
             <th>Nombre</th>
-            <th>Telefono</th>
+            <th>Teléfono</th>
             <th>Feria</th>
             <th>Modelo</th>
+            <th>Tela</th>
+            <th style="text-align:center;">Entregado</th>
+            <th>Tela recibida</th>
             <th>Corte</th>
-            <th>Taller</th>
-            <th>Entregado</th>
+            <th style="text-align:center;">Entregado al taller</th>
             <th style="width:40px;"></th>
         </tr>`;
 
         pageData.forEach((c, i) => {
-            const corteVal = c[this.COL.corte] || '';
-            const corteBadge = corteVal === 'ENVIADO' ? 'badge-info' :
-                               corteVal === 'RECOGIDO' ? 'badge-success' :
-                               corteVal === 'INCIDENCIA' ? 'badge-danger' :
-                               corteVal === 'PENDIENTE' ? 'badge-warning' : 'badge-neutral';
             const entregadoVal = (c[this.COL.trajeEntregado] || '').toUpperCase();
             const entregado = entregadoVal === 'ENTREGADO';
+            const fechaEntTaller = (c[this.COL.fechaEntregaTaller] || '').toString().trim();
+            const llevadoTaller = !!fechaEntTaller;
             const idx = start + i;
+
+            // Reusamos los chips de App.trajes para mantener coherencia visual
+            const telaChip  = (App.trajes && App.trajes._telaChip)  ? App.trajes._telaChip(c[this.COL.telaRecibida])  : (c[this.COL.telaRecibida]  || '—');
+            const corteChip = (App.trajes && App.trajes._corteChip) ? App.trajes._corteChip(c[this.COL.corte])         : (c[this.COL.corte]         || '—');
 
             html += `<tr style="cursor:pointer;" onclick="App.clientas.openFicha(${idx})">
                 <td data-label="N&ordm;" style="font-weight:600; color:var(--text-muted);">${c[this.COL.num] || '—'}</td>
@@ -7507,9 +7640,11 @@ App.clientas = {
                 <td data-label="Tel&eacute;fono">${c[this.COL.telefono] || '—'}</td>
                 <td data-label="Feria">${c[this.COL.feria] || '—'}</td>
                 <td data-label="Modelo">${c[this.COL.modelo] || '—'}</td>
-                <td data-label="Corte">${corteVal ? `<span class="badge ${corteBadge}">${corteVal}</span>` : '<span class="badge badge-neutral">—</span>'}</td>
-                <td data-label="Taller">${c[this.COL.taller] || '—'}</td>
-                <td data-label="Entregado">${entregado ? '&#x2705;' : entregadoVal === 'ARREGLO' ? '&#x1F527;' : entregadoVal === 'INCIDENCIA' ? '&#x274C;' : '&#x23F3;'}</td>
+                <td data-label="Tela">${c[this.COL.tipoTela] || '—'}</td>
+                <td data-label="Entregado" style="text-align:center;">${entregado ? '&#x2705;' : entregadoVal === 'ARREGLO' ? '&#x1F527;' : entregadoVal === 'INCIDENCIA' ? '&#x274C;' : '&#x23F3;'}</td>
+                <td data-label="Tela recibida">${telaChip}</td>
+                <td data-label="Corte">${corteChip}</td>
+                <td data-label="Entregado al taller" style="text-align:center;" title="${fechaEntTaller || 'Aún no llevado'}">${llevadoTaller ? '&#x2705;' : '&#x23F3;'}</td>
                 <td><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); App.clientas.openFicha(${idx})">Ver</button></td>
             </tr>`;
         });
@@ -10290,11 +10425,11 @@ App.trajes = {
                     <div style="font-size:11px; color:var(--text-muted);">${t[this.COL.feria] || ''}${noteIconFor(this.COL.feria)}</div>
                 </td>
                 <td data-label="Modelo"><span style="font-size:12px; color:var(--text-light);">${t[this.COL.modelo] || '<span class="badge-sin-modelo">sin modelo</span>'}</span>${noteIconFor(this.COL.modelo)}</td>
-                <td data-label="Tela recibida">${this._telaChip(t[this.COL.telaRecibida])}${noteIconFor(this.COL.telaRecibida)}</td>
+                <td data-label="Talla" style="text-align:center; font-size:13px;">${tallaStr}${noteIconFor(this.COL.medidas)}</td>
                 <td data-label="Tela" style="font-size:12px;">${telaCell}${noteIconFor(this.COL.tipoTela)}</td>
+                <td data-label="Tela recibida">${this._telaChip(t[this.COL.telaRecibida])}${noteIconFor(this.COL.telaRecibida)}</td>
                 <td data-label="Corte">${this._corteChip(t[this.COL.corte])}${noteIconFor(this.COL.corte)}</td>
                 <td data-label="Taller" style="text-align:center; font-size:12px;">${tallerCell}${noteIconFor(this.COL.taller)}</td>
-                <td data-label="Talla" style="text-align:center; font-size:13px;">${tallaStr}${noteIconFor(this.COL.medidas)}</td>
                 <td data-label="Entrega" style="text-align:center;">${this._entregaChip(t)}${noteIconFor(this.COL.trajeEntregado)}${noteIconFor(this.COL.trajeRecibido)}</td>
                 <td onclick="event.stopPropagation()">${actionHtml}</td>
             </tr>`;
@@ -10304,11 +10439,11 @@ App.trajes = {
             <th style="width:46px;">N&ordm;</th>
             <th>Clienta</th>
             <th class="${fClass('modelo')}" onclick="App.trajes._openColFilter('modelo', this)">Modelo ${fIcon('modelo')}</th>
-            <th class="${fClass('telaRecibida')}" onclick="App.trajes._openColFilter('telaRecibida', this)">Tela recibida ${fIcon('telaRecibida')}</th>
+            <th class="${fClass('talla')}" onclick="App.trajes._openColFilter('talla', this)" style="text-align:center;">Talla ${fIcon('talla')}</th>
             <th class="${fClass('tela')}" onclick="App.trajes._openColFilter('tela', this)">Tela ${fIcon('tela')}</th>
+            <th class="${fClass('telaRecibida')}" onclick="App.trajes._openColFilter('telaRecibida', this)">Tela recibida ${fIcon('telaRecibida')}</th>
             <th class="${fClass('corte')}" onclick="App.trajes._openColFilter('corte', this)">Corte ${fIcon('corte')}</th>
             <th class="${fClass('taller')}" onclick="App.trajes._openColFilter('taller', this)">Taller ${fIcon('taller')}</th>
-            <th class="${fClass('talla')}" onclick="App.trajes._openColFilter('talla', this)" style="text-align:center;">Talla ${fIcon('talla')}</th>
             <th class="${fClass('entrega')}" onclick="App.trajes._openColFilter('entrega', this)" style="text-align:center;">Entrega ${fIcon('entrega')}</th>
             <th style="width:90px;"></th>
         </tr>`;
@@ -15676,6 +15811,249 @@ App.talleresCatalogo = {
         if (!confirm(`¿Marcar "${original}" como inactivo?`)) return;
         document.getElementById('tallerCatActivo').checked = false;
         await this.save();
+    },
+};
+
+/* ==========================================================
+   PERMISOS — Roles y emails con acceso especial.
+   Tab `PERMISOS` en CATALOGOS_NOTELODIGO. Headers: ROL | EMAIL
+   ROL: 'JOSE' o 'DEPENDIENTA' (los talleres se gestionan en talleresCatalogo).
+   Si el tab no existe o catalogosId no está configurado, se cae a CONFIG.JOSE_EMAILS / CONFIG.DEPENDIENTAS_EMAILS.
+   ========================================================== */
+App.permisos = {
+    HEADERS: ['ROL', 'EMAIL'],
+    TAB: 'PERMISOS',
+    _data: { jose: [], dependientas: [] },  // arrays de emails lowercase
+    _loaded: false,
+
+    /** Lista efectiva de emails Jose: tab PERMISOS si está cargado, sino CONFIG hardcoded. */
+    joseEmails() {
+        return this._loaded
+            ? this._data.jose.slice()
+            : (CONFIG.JOSE_EMAILS || []).map(e => e.toLowerCase().trim()).filter(Boolean);
+    },
+
+    /** Lista efectiva de emails Dependienta. */
+    dependientasEmails() {
+        return this._loaded
+            ? this._data.dependientas.slice()
+            : (CONFIG.DEPENDIENTAS_EMAILS || []).map(e => e.toLowerCase().trim()).filter(Boolean);
+    },
+
+    /** Lee el tab PERMISOS del catalogosId. Si no existe, _loaded=false (fallback CONFIG). */
+    async load(forceRefresh = false) {
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) { this._loaded = false; return; }
+        try {
+            const range = `${this.TAB}!A2:B`;
+            const rows = await App.sheets.readRange(sheetId, range).catch(() => null);
+            if (rows === null) {
+                // Tab no existe — _loaded=false → fallback a CONFIG
+                this._loaded = false;
+                return;
+            }
+            const jose = [];
+            const dependientas = [];
+            for (const r of rows || []) {
+                const rol = (r[0] || '').toString().toUpperCase().trim();
+                const email = (r[1] || '').toString().toLowerCase().trim();
+                if (!email) continue;
+                if (rol === 'JOSE') jose.push(email);
+                else if (rol === 'DEPENDIENTA') dependientas.push(email);
+            }
+            this._data = { jose, dependientas };
+            this._loaded = true;
+        } catch (err) {
+            console.warn('[permisos.load]', err);
+            this._loaded = false;
+        }
+    },
+
+    /** Crea el tab PERMISOS si no existe y escribe headers. */
+    async _ensureTab() {
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) throw new Error('Falta CATALOGOS_NOTELODIGO en CONFIG');
+        const r = await App.sheets.readRange(sheetId, `${this.TAB}!A1:B1`).catch(() => null);
+        if (r !== null) return;   // ya existe
+        await App.sheets.createTempSheet(sheetId, this.TAB);
+        await App.sheets.writeRange(sheetId, `${this.TAB}!A1:B1`, [this.HEADERS]);
+    },
+
+    /** Añade un email a un rol (JOSE o DEPENDIENTA). */
+    async addEmail(rol, email) {
+        const r = (rol || '').toString().toUpperCase().trim();
+        const e = (email || '').toString().toLowerCase().trim();
+        if (!['JOSE', 'DEPENDIENTA'].includes(r)) {
+            App.toast.show('Rol no válido', 'error'); return false;
+        }
+        if (!e || !e.includes('@')) {
+            App.toast.show('Email no válido', 'error'); return false;
+        }
+        await this.load(true);   // refrescar antes de comprobar duplicados
+        const lista = r === 'JOSE' ? this._data.jose : this._data.dependientas;
+        if (lista.includes(e)) {
+            App.toast.show('Ese email ya está en la lista', 'info'); return false;
+        }
+        try {
+            await this._ensureTab();
+            const sheetId = App.settings.get('catalogosId');
+            await App.sheets.appendRows(sheetId, `${this.TAB}!A:B`, [[r, e]]);
+            await this.load(true);
+            this._renderUI();
+            // Reaplicar permisos por si el usuario actual cambió de rol
+            if (App.ui && typeof App.ui.applyRolePermissions === 'function') {
+                App.ui.applyRolePermissions();
+            }
+            App.toast.show(`Email añadido a ${r === 'JOSE' ? 'Jose' : 'Dependientas'}`, 'success');
+            return true;
+        } catch (err) {
+            console.error('[permisos.addEmail]', err);
+            App.toast.show('Error al guardar: ' + err.message, 'error');
+            return false;
+        }
+    },
+
+    /** Elimina un email de un rol. */
+    async removeEmail(rol, email) {
+        const r = (rol || '').toString().toUpperCase().trim();
+        const e = (email || '').toString().toLowerCase().trim();
+        if (!confirm(`¿Quitar ${e} del rol ${r === 'JOSE' ? 'Jose' : 'Dependientas'}?`)) return false;
+        try {
+            const sheetId = App.settings.get('catalogosId');
+            const all = await App.sheets.readRange(sheetId, `${this.TAB}!A2:B`);
+            const rowIdx = (all || []).findIndex(row => {
+                const rr = (row[0] || '').toString().toUpperCase().trim();
+                const ee = (row[1] || '').toString().toLowerCase().trim();
+                return rr === r && ee === e;
+            });
+            if (rowIdx < 0) {
+                App.toast.show('No encontrado en el sheet', 'error'); return false;
+            }
+            // Filas absolutas: header en fila 1, datos desde fila 2
+            const absRow = rowIdx + 2;
+            // Necesitamos sheetId numérico del tab para deleteDimension
+            const meta = await App.sheets._fetch(
+                `${CONFIG.SHEETS_API}/${sheetId}?fields=sheets(properties(sheetId,title))`
+            );
+            const tabSheet = meta.sheets.find(s => s.properties.title === this.TAB);
+            if (!tabSheet) throw new Error('Tab PERMISOS no encontrado');
+            await App.sheets._fetch(`${CONFIG.SHEETS_API}/${sheetId}:batchUpdate`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    requests: [{
+                        deleteDimension: {
+                            range: {
+                                sheetId: tabSheet.properties.sheetId,
+                                dimension: 'ROWS',
+                                startIndex: absRow - 1,
+                                endIndex: absRow,
+                            }
+                        }
+                    }]
+                }),
+            });
+            await this.load(true);
+            this._renderUI();
+            if (App.ui && typeof App.ui.applyRolePermissions === 'function') {
+                App.ui.applyRolePermissions();
+            }
+            App.toast.show(`Email quitado de ${r === 'JOSE' ? 'Jose' : 'Dependientas'}`, 'success');
+            return true;
+        } catch (err) {
+            console.error('[permisos.removeEmail]', err);
+            App.toast.show('Error al quitar: ' + err.message, 'error');
+            return false;
+        }
+    },
+
+    /** Pinta la UI del card en Ajustes. */
+    _renderUI() {
+        const cont = document.getElementById('permisosUIContainer');
+        if (!cont) return;
+
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) {
+            cont.innerHTML =
+                '<div class="alert alert-warning">' +
+                'Necesitas configurar la carpeta CONFIG primero (sección Temporadas arriba).' +
+                '</div>';
+            return;
+        }
+
+        const renderList = (rol, emails) => {
+            if (!emails.length) {
+                return '<div style="font-size:13px; color:var(--text-muted); padding:8px; font-style:italic;">— Ninguno —</div>';
+            }
+            const escRol = rol.replace(/'/g, "\\'");
+            return '<ul style="list-style:none; padding:0; margin:0; border:1px solid var(--border-light); border-radius:4px;">' +
+                emails.map(e => {
+                    const escE = e.replace(/'/g, "\\'");
+                    return '<li style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border-bottom:1px solid var(--border-light); font-size:13px;">' +
+                    `<span class="mono" style="word-break:break-all;">${e}</span>` +
+                    `<button class="btn btn-danger btn-sm" style="padding:2px 8px; font-size:11px; flex-shrink:0; margin-left:8px;" ` +
+                            `onclick="App.permisos.removeEmail('${escRol}', '${escE}')" ` +
+                            `title="Quitar del rol">&times;</button>` +
+                    '</li>';
+                }).join('') +
+                '</ul>';
+        };
+
+        const fallbackNote = !this._loaded
+            ? '<div class="alert alert-info" style="margin-bottom:12px; font-size:12px;">' +
+                'El tab <code>PERMISOS</code> aún no existe en <code>CATALOGOS_NOTELODIGO</code>. ' +
+                'Se creará automáticamente al añadir el primer email. Mientras tanto se usan los emails hardcoded en <code>CONFIG</code>.' +
+              '</div>'
+            : '';
+
+        cont.innerHTML =
+            fallbackNote +
+            '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">' +
+                // Jose
+                '<div>' +
+                    '<h4 style="margin:0 0 4px; font-size:14px;">&#x1F69B; Jose (logística)</h4>' +
+                    '<p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">Solo ven la sección Jose: cortador, llevar al taller, recoger del taller.</p>' +
+                    renderList('JOSE', this.joseEmails()) +
+                    '<div style="display:flex; gap:6px; margin-top:8px;">' +
+                        '<input type="email" class="form-input" id="permisoEmailJose" ' +
+                               'style="flex:1; font-size:12px; padding:4px 8px; margin:0;" ' +
+                               'placeholder="email@gmail.com" ' +
+                               'onkeydown="if(event.key===\'Enter\') App.permisos._addFromInput(\'JOSE\')">' +
+                        '<button class="btn btn-primary btn-sm" ' +
+                                'style="font-size:12px; padding:4px 10px;" ' +
+                                'onclick="App.permisos._addFromInput(\'JOSE\')">' +
+                            '+ Añadir</button>' +
+                    '</div>' +
+                '</div>' +
+                // Dependientas
+                '<div>' +
+                    '<h4 style="margin:0 0 4px; font-size:14px;">&#x1F6CD;&#xFE0F; Dependientas</h4>' +
+                    '<p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">Ven solo Clientas (CRUD) y Modelos (solo lectura).</p>' +
+                    renderList('DEPENDIENTA', this.dependientasEmails()) +
+                    '<div style="display:flex; gap:6px; margin-top:8px;">' +
+                        '<input type="email" class="form-input" id="permisoEmailDependienta" ' +
+                               'style="flex:1; font-size:12px; padding:4px 8px; margin:0;" ' +
+                               'placeholder="email@gmail.com" ' +
+                               'onkeydown="if(event.key===\'Enter\') App.permisos._addFromInput(\'DEPENDIENTA\')">' +
+                        '<button class="btn btn-primary btn-sm" ' +
+                                'style="font-size:12px; padding:4px 10px;" ' +
+                                'onclick="App.permisos._addFromInput(\'DEPENDIENTA\')">' +
+                            '+ Añadir</button>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<p style="margin-top:14px; font-size:12px; color:var(--text-muted);">' +
+                '<strong>Nota:</strong> Cualquier email que no esté en estas listas se trata como <strong>admin</strong> (acceso completo). ' +
+                'Los talleres se gestionan en el <a href="javascript:void(0)" onclick="App.ui.navigateTo(\'talleres-catalogo\')">Catálogo de talleres</a>.' +
+            '</p>';
+    },
+
+    _addFromInput(rol) {
+        const inputId = rol === 'JOSE' ? 'permisoEmailJose' : 'permisoEmailDependienta';
+        const inp = document.getElementById(inputId);
+        if (!inp) return;
+        const email = (inp.value || '').trim();
+        if (!email) return;
+        this.addEmail(rol, email).then(ok => { if (ok) inp.value = ''; });
     },
 };
 
