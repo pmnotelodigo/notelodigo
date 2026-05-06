@@ -4266,7 +4266,11 @@ const App = {
             ]);
             if (rows.length < 2) return [];
 
-            const headers = rows[0];
+            // Normalizamos las cabeceras con .trim() para que un espacio extra
+            // accidental en el sheet (p.ej. " FECHA ENTREGA TALLER" con espacio
+            // inicial) no rompa el acceso por nombre de columna en el resto del
+            // código (que usa los nombres "limpios" como p.ej. App.trajes.COL).
+            const headers = rows[0].map(h => String(h || '').trim());
             const data = rows.slice(1).map((row, idx) => {
                 const obj = { _rowIndex: idx + 2, _notes: {} }; // 1-based, skip header
                 headers.forEach((h, i) => {
