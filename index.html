@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Atelier | NOTELODIGO</title>
+    <title>Atelier — Moda Flamenca | NOTELODIGO</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         /* ============================================
@@ -3932,9 +3932,7 @@ const App = {
             let tallerIdentificado = false;
             if (proxyUrl && App.token) {
                 try {
-                    const fullUrl = `${proxyUrl}?token=${encodeURIComponent(App.token)}&action=whoami`;
-                    const resp = await fetch(fullUrl, { method: 'GET', redirect: 'follow' });
-                    const data = await resp.json();
+                    const data = await App.auth.fetchTallerProxy('whoami');
                     if (data.ok && data.taller) {
                         // Es taller. Guardamos el nombre — App.isTaller() lo usará.
                         App.user.tallerNombre = data.taller;
@@ -4023,6 +4021,44 @@ const App = {
                 };
                 App.tokenClient.requestAccessToken({ prompt: '' });
             });
+        },
+
+        /**
+         * Fuerza un refresh del access_token (lo invalida y pide uno nuevo).
+         * Útil para cuando el servidor (ej: el proxy de talleres) reporta
+         * que el token actual ha expirado.
+         */
+        async forceRefreshToken() {
+            App.token = null;
+            localStorage.removeItem(CONFIG.keys.accessToken);
+            return this.getToken();
+        },
+
+        /**
+         * Llama al proxy de talleres con reintento automático si el token expiró.
+         * Recibe la URL base del proxy y los parámetros de query (sin token).
+         * Devuelve el JSON parseado del proxy o lanza un Error.
+         */
+        async fetchTallerProxy(action, extraParams = {}) {
+            const baseUrl = App.settings.get('tallerProxyUrl');
+            if (!baseUrl) throw new Error('Proxy de talleres no configurado.');
+            const buildUrl = (token) => {
+                const params = new URLSearchParams({ token: token, action: action, ...extraParams });
+                return `${baseUrl}?${params.toString()}`;
+            };
+            const callOnce = async (token) => {
+                const resp = await fetch(buildUrl(token), { method: 'GET', redirect: 'follow' });
+                return resp.json();
+            };
+            // 1er intento con el token actual
+            let token = await this.getToken();
+            let data = await callOnce(token);
+            // Si el proxy reporta token caducado, refrescamos y reintentamos UNA vez
+            if (data && data.error === 'invalid_token') {
+                token = await this.forceRefreshToken();
+                data = await callOnce(token);
+            }
+            return data;
         },
     },
 
@@ -5751,9 +5787,7 @@ const App = {
                 status.style.color = 'var(--text-muted)';
             }
             try {
-                const fullUrl = `${url}?token=${encodeURIComponent(App.token)}&action=list`;
-                const resp = await fetch(fullUrl, { method: 'GET', redirect: 'follow' });
-                const data = await resp.json();
+                const data = await App.auth.fetchTallerProxy('list');
                 if (!data.ok) {
                     if (status) {
                         status.textContent = `Respuesta del proxy: ${data.error} — ${data.message || ''}`;
@@ -15584,9 +15618,8 @@ App.misTrajes = {
         try {
             if (proxyUrl && App.token) {
                 // ── Modo proxy: el script identifica al taller y filtra por nosotros ──
-                const fullUrl = `${proxyUrl}?token=${encodeURIComponent(App.token)}&action=list`;
-                const resp = await fetch(fullUrl, { method: 'GET', redirect: 'follow' });
-                const data = await resp.json();
+                // fetchTallerProxy gestiona refresh automático del token si caducó.
+                const data = await App.auth.fetchTallerProxy('list');
                 if (!data.ok) {
                     if (data.error === 'no_taller_for_email') {
                         if (cont) cont.innerHTML =
