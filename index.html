@@ -626,6 +626,7 @@
             overflow-x: auto;
             border-radius: var(--radius-sm);
             border: 1px solid var(--border-light);
+            background: var(--surface);   /* fondo blanco uniforme — evita que se vea el page bg crema en filas sin .card */
         }
         table {
             width: 100%;
@@ -658,6 +659,14 @@
            Activable con clase `table-compact` en `.table-container`. */
         .table-container.table-compact th { padding: 7px 8px; font-size: 11px; }
         .table-container.table-compact td { padding: 7px 8px; font-size: 12px; }
+        /* Lock width de la columna Nº (col 1) para que sticky col 2 no se solape.
+           Sin esto, el navegador podía ensanchar Nº 1-2px y la col Nombre quedaba mal. */
+        .table-container.table-compact th:nth-child(1),
+        .table-container.table-compact td:nth-child(1) {
+            width: 46px;
+            min-width: 46px;
+            max-width: 46px;
+        }
         .table-container.table-compact .chip {
             font-size: 10px;
             padding: 2px 7px;
@@ -689,7 +698,7 @@
         .table-container.table-sticky-cols th:nth-child(2),
         .table-container.table-sticky-cols td:nth-child(2) {
             position: sticky;
-            left: 40px;     /* ancho aproximado de la columna Nº (compact) */
+            left: 46px;     /* tiene que coincidir con el width fijado de la col Nº */
             z-index: 2;
             box-shadow: 1px 0 0 var(--border-light); /* divisor visual al hacer scroll */
         }
@@ -1906,13 +1915,6 @@
             <div class="nav-item" data-section="talleres-catalogo" onclick="App.ui.navigateTo('talleres-catalogo')">
                 <span class="nav-icon">&#x1F4DD;</span>
                 <span class="nav-label">Catálogo talleres</span>
-            </div>
-            <div class="nav-item" data-section="talleres" onclick="App.ui.navigateTo('talleres')">
-                <span class="nav-icon" style="position:relative;">
-                    &#x1F3ED;
-                    <span id="talleresBadgeSidebar" class="nav-badge" style="display:none; box-shadow:0 0 0 2px var(--primary, #c2185b);" title="Talleres con trajes atascados">0</span>
-                </span>
-                <span class="nav-label">Vista por taller</span>
             </div>
             <div class="nav-item" data-section="ajustes" onclick="App.ui.navigateTo('ajustes')">
                 <span class="nav-icon">&#x2699;&#xFE0F;</span>
@@ -3464,45 +3466,9 @@
                 </div>
             </div>
 
-            <!-- SECTION: Talleres (Phase 5) -->
-            <div class="section" id="sec-talleres">
-
-                <!-- Toolbar -->
-                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
-                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                        <input type="text" class="form-input" id="tallerSearch"
-                               placeholder="&#x1F50D; Buscar por nombre, modelo, n&ordm;..."
-                               style="flex:1; min-width:180px; max-width:280px; margin:0;"
-                               oninput="App.talleres.filter()">
-                        <select class="form-input" id="tallerFiltroTaller"
-                                style="max-width:170px; margin:0; font-size:12px;"
-                                onchange="App.talleres.filter()">
-                            <option value="">Todos los talleres</option>
-                        </select>
-                        <select class="form-input" id="tallerEstadoFiltro"
-                                style="max-width:200px; margin:0; font-size:12px;"
-                                onchange="App.talleres.filter()">
-                            <option value="">Todos los estados</option>
-                            <option value="pendientes">&#x23F3; En taller (pendientes)</option>
-                            <option value="recibidos">&#x1F4E6; Recibidos del taller</option>
-                            <option value="entregados">&#x2713; Entregados a clienta</option>
-                        </select>
-                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-                            <button class="btn btn-secondary btn-sm" onclick="App.talleres.load(true)"
-                                    title="Recargar datos desde Google Sheets">
-                                &#x21BB; Actualizar
-                            </button>
-                        </div>
-                    </div>
-                    <div id="talleresActiveFilters" style="display:none; margin-top:8px; gap:6px; flex-wrap:wrap; align-items:center;"></div>
-                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="talleresCount"></div>
-                </div>
-
-                <!-- Contenido -->
-                <div id="talleresContent">
-                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
-                </div>
-            </div>
+            <!-- SECTION: Talleres — eliminada 2026-05-06 (vista "Vista por taller").
+                 Los helpers de App.talleres se mantienen como stub porque otros
+                 módulos (trajes, jose, pedidos) consumen App.talleres._allTalleres(). -->
 
             <!-- SECTION: Ajustes -->
             <div class="section" id="sec-ajustes">
@@ -7626,10 +7592,24 @@ App.clientas = {
     _colFilters: {},   // { colKey: Set(['val1','val2']) }
     _currentFilterCol: null,
 
+    /** Extrae la talla desde un campo MEDIDAS heterogéneo. Acepta:
+     *    "T.32", "T32", "T 32", "TALLA 32", "TALLA: 32", "talla 32"...
+     *  Devuelve "T.32" normalizado, o cadena vacía si no encuentra nada parseable. */
+    _extractTalla(medidas) {
+        const s = (medidas || '').toString();
+        let m = s.match(/T\.?\s*(\d{2,3})/i);
+        if (m) return 'T.' + m[1];
+        m = s.match(/TALLA\s*:?\s*(\d{2,3})/i);
+        if (m) return 'T.' + m[1];
+        return '';
+    },
+
     _filterableCols: {
         feria:           { label: 'Feria',          get: (c, self) => (c[self.COL.feria] || '').trim() || '' },
         modelo:          { label: 'Modelo',         get: (c, self) => (c[self.COL.modelo] || '').split('/')[0].trim() || '' },
         tela:            { label: 'Tela',           get: (c, self) => (c[self.COL.tipoTela] || '').trim() || '' },
+        talla:           { label: 'Talla',          emptyLabel: '(Sin talla)',
+                                                    get: (c, self) => self._extractTalla(c[self.COL.medidas]) },
         telaRecibida:    { label: 'Tela recibida',  get: (c, self) => (c[self.COL.telaRecibida] || '').toUpperCase() || '' },
         corte:           { label: 'Corte',          get: (c, self) => (c[self.COL.corte] || '').toUpperCase() || '' },
         entregadoTaller: { label: 'Entregado al taller', get: (c, self) => {
@@ -7661,7 +7641,8 @@ App.clientas = {
                 const def = this._filterableCols[colKey];
                 if (!def) continue;
                 const val = def.get(c, this);
-                const displayVal = val || '(vacío)';
+                const emptyLabel = def.emptyLabel || '(vacío)';
+                const displayVal = val || emptyLabel;
                 if (!allowedSet.has(displayVal)) return false;
             }
             return true;
@@ -7690,14 +7671,16 @@ App.clientas = {
         if (!def) return;
 
         // Recopilar valores únicos de TODOS los datos (no solo filtered)
+        const emptyLabel = def.emptyLabel || '(vacío)';
         const valuesSet = new Set();
         this.data.forEach(c => {
             const v = def.get(c, this);
-            valuesSet.add(v || '(vacío)');
+            valuesSet.add(v || emptyLabel);
         });
         const values = [...valuesSet].sort((a, b) => {
-            if (a === '(vacío)') return 1;
-            if (b === '(vacío)') return -1;
+            // Empuja siempre el valor "vacío" personalizado al final del listado
+            if (a === emptyLabel) return 1;
+            if (b === emptyLabel) return -1;
             return a.localeCompare(b);
         });
 
@@ -7849,6 +7832,7 @@ App.clientas = {
                 <div class="${fClass('modelo')}" onclick="App.clientas._openColFilter('modelo', this.parentElement)" style="cursor:pointer;">Modelo ${fIcon('modelo')}</div>
                 <div class="${fClass('tela')}" onclick="event.stopPropagation(); App.clientas._openColFilter('tela', this.parentElement)" style="font-size:10px; font-weight:500; color:var(--text-muted); text-transform:none; letter-spacing:0; cursor:pointer;">Tela ${fIcon('tela')}</div>
             </th>
+            <th class="${fClass('talla')}"           onclick="App.clientas._openColFilter('talla', this)" style="text-align:center;">Talla ${fIcon('talla')}</th>
             <th class="${fClass('telaRecibida')}"    onclick="App.clientas._openColFilter('telaRecibida', this)">Tela rec. ${fIcon('telaRecibida')}</th>
             <th class="${fClass('corte')}"           onclick="App.clientas._openColFilter('corte', this)">Corte ${fIcon('corte')}</th>
             <th class="${fClass('entregadoTaller')}" onclick="App.clientas._openColFilter('entregadoTaller', this)" style="text-align:center;">Taller ${fIcon('entregadoTaller')}</th>
@@ -7869,6 +7853,8 @@ App.clientas = {
             const feria  = c[this.COL.feria]  || '';
             const modelo = c[this.COL.modelo] || '—';
             const tela   = c[this.COL.tipoTela] || '';
+            const tallaParsed = this._extractTalla(c[this.COL.medidas]);
+            const tallaStr    = tallaParsed ? `<strong>${tallaParsed}</strong>` : '<span style="color:var(--text-muted);">—</span>';
 
             html += `<tr style="cursor:pointer;" onclick="App.clientas.openFicha(${idx})">
                 <td data-label="N&ordm;" style="font-weight:600; color:var(--text-muted);">${c[this.COL.num] || '—'}</td>
@@ -7881,6 +7867,7 @@ App.clientas = {
                     <div title="${modelo}">${modelo}</div>
                     ${tela ? `<div class="cell-sub" title="${tela}">${tela}</div>` : ''}
                 </td>
+                <td data-label="Talla" style="text-align:center;">${tallaStr}</td>
                 <td data-label="Tela rec.">${telaRecChip}</td>
                 <td data-label="Corte">${corteChip}</td>
                 <td data-label="Taller" style="text-align:center;">${entTallerChip}</td>
@@ -10208,6 +10195,26 @@ App.trajes = {
         this.filter();
     },
 
+    /** Atajo desde el chip "📦 pedir": cambia a bandeja "Pedir tela" filtrando
+     *  por la tela específica del traje clicado. Útil cuando el usuario ve un
+     *  traje con stock bajo y quiere generar el pedido al proveedor. */
+    _goToPedirTela(telaFull) {
+        // Limpiar filtros previos por columna y aplicar filtro de tela específica
+        this._colFilters = {};
+        if (telaFull) {
+            this._colFilters.tela = new Set([telaFull]);
+        }
+        // Limpiar la búsqueda libre por nombre/modelo
+        const searchEl = document.getElementById('trajeSearch');
+        if (searchEl) searchEl.value = '';
+        // Cambiar bandeja a "Pedir tela" y refrescar
+        this.setBandeja('pedirTela');
+        // Asegurar que la sección Trajes esté visible (por si se llama desde otro contexto)
+        if (App.ui && typeof App.ui.navigateTo === 'function') {
+            App.ui.navigateTo('trajes');
+        }
+    },
+
     _updateBandejaCounts() {
         const counts = {
             todos: this.data.length,
@@ -10309,13 +10316,22 @@ App.trajes = {
         corte:        { label: 'Corte',         get: (t, self) => (t[self.COL.corte] || '').toUpperCase() || '' },
         taller:       { label: 'Taller',        get: (t, self) => (t[self.COL.taller] || '').trim() || '' },
         talla:        { label: 'Talla',         get: (t, self) => { const m = (t[self.COL.medidas] || '').match(/T\.?(\d+)/i); return m ? 'T.' + m[1] : ''; } },
-        entrega:      { label: 'Entrega',       get: (t, self) => {
-            const e = (t[self.COL.trajeEntregado] || '').toUpperCase();
-            if (e === 'ENTREGADO') return 'ENTREGADO';
-            if (e === 'ARREGLO') return 'ARREGLO';
-            const r = (t[self.COL.trajeRecibido] || '').toUpperCase();
-            if (r === 'RECIBIDO') return 'RECIBIDO';
-            return '';
+        delTaller:    { label: 'Del taller',    get: (t, self) => {
+            const r = (t[self.COL.trajeRecibido]  || '').toUpperCase().trim();
+            const e = (t[self.COL.trajeEntregado] || '').toUpperCase().trim();
+            const fechaEnt = (t[self.COL.fechaEntregaTaller] || '').toString().trim();
+            if (e === 'ENTREGADO' || e === 'ARREGLO') return 'RECIBIDO';
+            if (r === 'INCIDENCIA') return 'INCIDENCIA';
+            if (r === 'RECIBIDO')   return 'RECIBIDO';
+            if (fechaEnt)           return 'EN TALLER';
+            return 'SIN LLEVAR';
+        }},
+        entregado:    { label: 'Entregado',     get: (t, self) => {
+            const e = (t[self.COL.trajeEntregado] || '').toUpperCase().trim();
+            if (e === 'ENTREGADO')  return 'ENTREGADO';
+            if (e === 'ARREGLO')    return 'ARREGLO';
+            if (e === 'INCIDENCIA') return 'INCIDENCIA';
+            return 'PENDIENTE';
         }},
     },
 
@@ -10605,16 +10621,23 @@ App.trajes = {
             const stockBadge = stockEntry ? (() => {
                 const fmt = n => Number(Number(n).toFixed(2)).toString();
                 const provLabel = stockEntry.proveedor ? ` · proveedor ${stockEntry.proveedor}` : '';
+                // Tela completa para auto-filtrar al ir a la bandeja "Pedir tela".
+                // Doble escape: ' para JS y &quot; para HTML attr.
+                const telaFull = (t[this.COL.tipoTela] || '').trim()
+                    .replace(/'/g, "\\'")
+                    .replace(/"/g, '&quot;');
+                const goToPedir = `event.stopPropagation(); App.trajes._goToPedirTela('${telaFull}');`;
                 if (stockEntry.status === 'falta') {
                     const tooltip = `Faltan ${fmt(stockEntry.faltan)} m de ${stockEntry.tipo} ${stockEntry.variante}. ` +
-                                    `Demanda total ${fmt(stockEntry.demanda)} m vs stock ${fmt(stockEntry.stock)} m${provLabel}.`;
-                    return ` <span class="chip" style="background:#c62828; color:white; font-size:10px; cursor:help;" title="${tooltip.replace(/"/g,'&quot;')}">📦 pedir</span>`;
+                                    `Demanda total ${fmt(stockEntry.demanda)} m vs stock ${fmt(stockEntry.stock)} m${provLabel}. ` +
+                                    `Click para ir a "Pedir tela".`;
+                    return ` <span class="chip" style="background:#c62828; color:white; font-size:10px; cursor:pointer;" title="${tooltip.replace(/"/g,'&quot;')}" onclick="${goToPedir}">📦 pedir</span>`;
                 }
                 if (stockEntry.status === 'umbral') {
                     const restante = stockEntry.stock - stockEntry.demanda;
                     const tooltip = `Tras los pendientes quedarán ${fmt(restante)} m de ${stockEntry.tipo} ${stockEntry.variante} ` +
-                                    `(umbral: ${fmt(stockEntry.umbral)} m)${provLabel}. Conviene pedir más para anticiparse.`;
-                    return ` <span class="chip" style="background:#f57c00; color:white; font-size:10px; cursor:help;" title="${tooltip.replace(/"/g,'&quot;')}">🔻 stock bajo · pedir</span>`;
+                                    `(umbral: ${fmt(stockEntry.umbral)} m)${provLabel}. Click para ir a "Pedir tela".`;
+                    return ` <span class="chip" style="background:#f57c00; color:white; font-size:10px; cursor:pointer;" title="${tooltip.replace(/"/g,'&quot;')}" onclick="${goToPedir}">🔻 stock bajo · pedir</span>`;
                 }
                 return '';
             })() : '';
@@ -10670,21 +10693,22 @@ App.trajes = {
                 </td>
                 <td data-label="Modelo / Tela" class="cell-truncate">
                     <div title="${modeloVal}">${modeloDisp}${noteIconFor(this.COL.modelo)}</div>
-                    ${telaVal
-                        ? `<div class="cell-sub" title="${telaVal}">${telaVal}${stockBadge}${noteIconFor(this.COL.tipoTela)}</div>`
-                        : (stockBadge ? `<div class="cell-sub">${stockBadge}</div>` : '')}
+                    ${telaVal ? `<div class="cell-sub" title="${telaVal}">${telaVal}${noteIconFor(this.COL.tipoTela)}</div>` : ''}
+                    ${stockBadge ? `<div style="margin-top:3px; white-space:normal;">${stockBadge}</div>` : ''}
                 </td>
                 <td data-label="Talla" style="text-align:center;">${tallaStr}${noteIconFor(this.COL.medidas)}</td>
                 <td data-label="Tela rec.">${this._telaChip(t[this.COL.telaRecibida])}${noteIconFor(this.COL.telaRecibida)}</td>
                 <td data-label="Corte">${this._corteChip(t[this.COL.corte])}${noteIconFor(this.COL.corte)}</td>
                 <td data-label="Taller" style="text-align:center;">${tallerCell}${noteIconFor(this.COL.taller)}</td>
-                <td data-label="Entrega" style="text-align:center;">${this._entregaChip(t)}${noteIconFor(this.COL.trajeEntregado)}${noteIconFor(this.COL.trajeRecibido)}</td>
+                <td data-label="Del taller" style="text-align:center;">${this._delTallerChip(t)}${noteIconFor(this.COL.trajeRecibido)}</td>
+                <td data-label="Entregado" style="text-align:center;">${this._entregadoClientaChip(t)}${noteIconFor(this.COL.trajeEntregado)}</td>
                 <td onclick="event.stopPropagation()">${actionHtml}</td>
             </tr>`;
         };
 
         // Cabecera compacta — Modelo y Tela combinados en una sola columna,
         // con dos sub-cabeceras filtrables independientemente.
+        // Entrega separada en dos columnas: "Del taller" (Pilar) + "Entregado" (clienta).
         const tableHeader = `<tr>
             <th style="width:40px;">N&ordm;</th>
             <th style="min-width:130px;">Clienta</th>
@@ -10696,7 +10720,8 @@ App.trajes = {
             <th class="${fClass('telaRecibida')}" onclick="App.trajes._openColFilter('telaRecibida', this)">Tela rec. ${fIcon('telaRecibida')}</th>
             <th class="${fClass('corte')}" onclick="App.trajes._openColFilter('corte', this)">Corte ${fIcon('corte')}</th>
             <th class="${fClass('taller')}" onclick="App.trajes._openColFilter('taller', this)">Taller ${fIcon('taller')}</th>
-            <th class="${fClass('entrega')}" onclick="App.trajes._openColFilter('entrega', this)" style="text-align:center;">Entrega ${fIcon('entrega')}</th>
+            <th class="${fClass('delTaller')}" onclick="App.trajes._openColFilter('delTaller', this)" style="text-align:center;">Del taller ${fIcon('delTaller')}</th>
+            <th class="${fClass('entregado')}" onclick="App.trajes._openColFilter('entregado', this)" style="text-align:center;">Entregado ${fIcon('entregado')}</th>
             <th style="width:90px;"></th>
         </tr>`;
 
@@ -10830,13 +10855,37 @@ App.trajes = {
         container.innerHTML = html;
     },
 
+    /** DEPRECATED — usar _delTallerChip + _entregadoClientaChip por separado.
+     *  Mantenido por compatibilidad con código legacy que aún lo invoca. */
     _entregaChip(t) {
         const e = (t[this.COL.trajeEntregado] || '').toUpperCase();
-        if (e === 'ENTREGADO') return '<span class="chip chip-correcto" style="font-size:11px;">&#x2713; Entregado</span>';
-        if (e === 'ARREGLO')   return '<span class="chip chip-revisar" style="font-size:11px;">&#x1F527; Arreglo</span>';
+        if (e === 'ENTREGADO') return '<span class="chip chip-correcto">&#x2713; Entregado</span>';
+        if (e === 'ARREGLO')   return '<span class="chip chip-revisar">&#x1F527; Arreglo</span>';
         const r = (t[this.COL.trajeRecibido] || '').toUpperCase();
-        if (r === 'RECIBIDO')  return '<span class="chip chip-recibida" style="font-size:11px;">&#x1F4E6; De taller</span>';
-        return '<span class="chip chip-empty" style="font-size:11px;">&mdash;</span>';
+        if (r === 'RECIBIDO')  return '<span class="chip chip-recibida">&#x1F4E6; De taller</span>';
+        return '<span class="chip chip-empty">&mdash;</span>';
+    },
+
+    /** Chip para "Del taller" — refleja si el traje ya volvió del taller a la tienda. */
+    _delTallerChip(t) {
+        const r = (t[this.COL.trajeRecibido]  || '').toUpperCase().trim();
+        const e = (t[this.COL.trajeEntregado] || '').toUpperCase().trim();
+        const fechaEnt = (t[this.COL.fechaEntregaTaller] || '').toString().trim();
+        // Si ya se entregó a la clienta o está en arreglo, implícitamente se recibió del taller
+        if (e === 'ENTREGADO' || e === 'ARREGLO') return '<span class="chip chip-correcto">&#x2713; Recibido</span>';
+        if (r === 'INCIDENCIA') return '<span class="chip chip-incidencia">&#x2715; Incidencia</span>';
+        if (r === 'RECIBIDO')   return '<span class="chip chip-recibida">&#x2713; Recibido</span>';
+        if (fechaEnt)           return '<span class="chip chip-pendiente">&#x1F3ED; En taller</span>';
+        return '<span class="chip chip-empty">&#x1F69B; Sin llevar</span>';
+    },
+
+    /** Chip para "Entregado" — refleja si la clienta ya recogió el traje. */
+    _entregadoClientaChip(t) {
+        const e = (t[this.COL.trajeEntregado] || '').toUpperCase().trim();
+        if (e === 'ENTREGADO')  return '<span class="chip chip-correcto">&#x2713; Entregado</span>';
+        if (e === 'ARREGLO')    return '<span class="chip chip-revisar">&#x1F527; Arreglo</span>';
+        if (e === 'INCIDENCIA') return '<span class="chip chip-incidencia">&#x2715; Incidencia</span>';
+        return '<span class="chip chip-pendiente">&#x23F3; Pendiente</span>';
     },
 
     async enviarACorteByRow(rowIndex) {
@@ -12235,12 +12284,7 @@ App.trajes = {
             this.closeEditModal();
             this.filter();
             if (App.clientas.data.length > 0) App.clientas.filter();
-            // Refrescar la vista de Talleres si está activa/cargada
-            if (App.talleres && typeof App.talleres.filter === 'function'
-                && document.getElementById('sec-talleres')?.classList.contains('active')) {
-                App.talleres._populateTallerFilter();
-                App.talleres.filter();
-            }
+            // (Sección "Vista por taller" eliminada — ya no hay nada que refrescar aquí.)
 
             // ── Stock dinámico: si TELA RECIBIDA o CORTE cambiaron, aplicar movimientos
             // de stock automáticamente. No bloqueamos el resto del flujo si falla (try/catch).
@@ -17165,493 +17209,32 @@ App.telas = {
 };
 
 /* ==========================================================
-   TALLERES — Phase 5
-   Vista agrupada por taller. Comparte la fuente de datos con
-   App.trajes (App.sheets.getListadoTrajes → cache de 5 min).
+   TALLERES — stub mínimo (vista "Vista por taller" eliminada 2026-05-06).
+   Solo se mantienen los helpers consumidos por otros módulos:
+   - _allTalleres() → trajes / jose / pedidos lo usan para dropdowns de talleres.
+   - refreshBadge()  → llamado por trajes._updateBandejaCounts; ahora no-op.
    ========================================================== */
 App.talleres = {
-    _filtered: [],
+    COL: { taller: 'TALLER' },
 
-    // Umbral en días para considerar un traje "atascado" en taller (sale el badge rojo)
-    UMBRAL_ATASCO_DIAS: 14,
-
-    COL: {
-        num: 'N\u00ba', nombre: 'NOMBRE', feria: 'FERIA', modelo: 'MODELO',
-        estado: 'ESTADO', corte: 'CORTE', taller: 'TALLER',
-        fechaEntregaTaller: 'FECHA ENTREGA TALLER',
-        trajeRecibido: 'TRAJE RECIBIDO', fechaRecibido: 'FECHA RECIBIDO',
-        trajeEntregado: 'TRAJE ENTREGADO',
-    },
-
-    // ── Carga inicial: apoyarse en App.trajes.data (mismo cache) ─────────────
-    async load(forceRefresh = false) {
-        const contentEl = document.getElementById('talleresContent');
-        if (contentEl) {
-            contentEl.innerHTML =
-                '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando talleres\u2026</p></div>';
-        }
-        try {
-            if (App.trajes.data.length === 0 || forceRefresh) {
-                await App.trajes.load(forceRefresh);
-            }
-            this._populateTallerFilter();
-            this.filter();
-            this.refreshBadge();
-        } catch (err) {
-            if (contentEl) contentEl.innerHTML =
-                `<div class="alert alert-danger" style="margin:20px;">Error cargando talleres: ${err.message}</div>`;
-        }
-    },
-
-    /** Cuenta trajes atascados (> UMBRAL_ATASCO_DIAS dias en taller sin volver). */
-    countAtascados() {
-        const trajes = App.trajes?.data || [];
-        if (!trajes.length || !App.dashboard?._estaAtascado) return 0;
-        const umbral = this.UMBRAL_ATASCO_DIAS;
-        let n = 0;
-        for (const t of trajes) {
-            if (App.dashboard._estaAtascado(t, umbral)) n++;
-        }
-        return n;
-    },
-
-    /** Actualiza el badge del sidebar "Vista por taller" con trajes atascados. */
-    refreshBadge() {
-        const n = this.countAtascados();
-        const el = document.getElementById('talleresBadgeSidebar');
-        if (!el) return;
-        if (n > 0) {
-            el.textContent = n > 99 ? '99+' : String(n);
-            el.style.display = '';
-        } else {
-            el.style.display = 'none';
-        }
-    },
-
-    // ── Lista única de talleres (CONFIG + valores presentes en los datos) ────
+    /** Lista única y ordenada de nombres de talleres. Combina:
+     *  - catálogo TALLERES activos (App.talleresCatalogo._data)
+     *  - CONFIG.TALLERES (fallback histórico)
+     *  - valores ya en uso en LISTADO (App.trajes.data) */
     _allTalleres() {
         const fromData = new Set();
-        for (const t of (App.trajes.data || [])) {
+        for (const t of (App.trajes && App.trajes.data || [])) {
             const v = (t[this.COL.taller] || '').trim();
             if (v) fromData.add(v);
         }
-        // Catálogo TALLERES (activos) — fuente principal con los nombres oficiales.
-        const catalogo = (App.talleresCatalogo?._data || [])
+        const catalogo = (App.talleresCatalogo && App.talleresCatalogo._data || [])
             .filter(t => t.NOMBRE && App.talleresCatalogo._isActive(t))
             .map(t => t.NOMBRE);
-        // CONFIG.TALLERES queda como fallback histórico por si alguien aún no
-        // tiene catálogo cargado. La unión y dedupe garantiza orden estable.
         return [...new Set([...catalogo, ...(CONFIG.TALLERES || []), ...fromData])].sort();
     },
 
-    _populateTallerFilter() {
-        const sel = document.getElementById('tallerFiltroTaller');
-        if (!sel) return;
-        const prev = sel.value;
-        const all = this._allTalleres();
-        sel.innerHTML = '<option value="">Todos los talleres</option>' +
-            all.map(t => `<option value="${t}"${t === prev ? ' selected' : ''}>${t}</option>`).join('');
-    },
-
-    // ── Filtrado: search + taller + estado ───────────────────────────────────
-    filter() {
-        const q           = (document.getElementById('tallerSearch')?.value       || '').toLowerCase().trim();
-        const estadoFiltro = (document.getElementById('tallerEstadoFiltro')?.value || '').trim();
-        const tallerFiltro = (document.getElementById('tallerFiltroTaller')?.value || '').trim();
-
-        const todos = App.trajes.data || [];
-        this._filtered = todos.filter(t => {
-            const tallerVal = (t[this.COL.taller] || '').trim();
-            // La sección es por taller → solo trajes con taller asignado
-            if (!tallerVal) return false;
-            if (tallerFiltro && tallerVal !== tallerFiltro) return false;
-
-            if (q) {
-                const hay = [
-                    t[this.COL.nombre] || '',
-                    t[this.COL.modelo] || '',
-                    t[this.COL.num]    || '',
-                    t[this.COL.feria]  || '',
-                ].join(' ').toLowerCase();
-                if (!hay.includes(q)) return false;
-            }
-
-            const entregado = (t[this.COL.trajeEntregado] || '').toUpperCase();
-            const recibido  = (t[this.COL.trajeRecibido]  || '').toUpperCase();
-            if (estadoFiltro === 'entregados') {
-                if (entregado !== 'ENTREGADO') return false;
-            } else if (estadoFiltro === 'recibidos') {
-                if (recibido !== 'RECIBIDO' || entregado === 'ENTREGADO') return false;
-            } else if (estadoFiltro === 'pendientes') {
-                if (recibido === 'RECIBIDO' || entregado === 'ENTREGADO') return false;
-            }
-            return true;
-        });
-
-        this._renderActiveFilters();
-        this.render();
-    },
-
-    _renderActiveFilters() {
-        const container = document.getElementById('talleresActiveFilters');
-        if (!container) return;
-        const q      = (document.getElementById('tallerSearch')?.value || '').trim();
-        const estado = (document.getElementById('tallerEstadoFiltro')?.value || '').trim();
-        const taller = (document.getElementById('tallerFiltroTaller')?.value || '').trim();
-        const chips = [];
-        if (q)      chips.push(`<span class="chip chip-enviado">\u{1F50D} ${q}</span>`);
-        if (taller) chips.push(`<span class="chip chip-enviado">\u{1F3ED} ${taller}</span>`);
-        if (estado) {
-            const lbl = { pendientes: 'En taller', recibidos: 'Recibidos', entregados: 'Entregados' }[estado] || estado;
-            chips.push(`<span class="chip chip-enviado">\u{1F4CA} ${lbl}</span>`);
-        }
-        if (chips.length === 0) {
-            container.style.display = 'none';
-            container.innerHTML = '';
-        } else {
-            container.style.display = 'flex';
-            container.innerHTML = chips.join('') +
-                ' <button class="btn btn-sm" style="font-size:11px; padding:2px 8px;" onclick="App.talleres.clearFilters()">\u2715 Limpiar</button>';
-        }
-    },
-
-    clearFilters() {
-        const s  = document.getElementById('tallerSearch');        if (s)  s.value  = '';
-        const e  = document.getElementById('tallerEstadoFiltro');  if (e)  e.value  = '';
-        const tf = document.getElementById('tallerFiltroTaller');  if (tf) tf.value = '';
-        this.filter();
-    },
-
-    // ── Render: grid de cards por taller ────────────────────────────────────
-    render() {
-        const contentEl = document.getElementById('talleresContent');
-        const countEl   = document.getElementById('talleresCount');
-        if (!contentEl) return;
-
-        const data = this._filtered || [];
-        if (countEl) {
-            const total = data.length;
-            countEl.textContent = total === 0
-                ? 'Sin resultados'
-                : `${total} traje${total !== 1 ? 's' : ''} en ${new Set(data.map(t => (t[this.COL.taller] || '').trim())).size} taller${data.length !== 1 ? 'es' : ''}`;
-        }
-
-        if (data.length === 0) {
-            contentEl.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">&#x1F3ED;</div>
-                    <h3>Sin trajes en talleres</h3>
-                    <p>No hay trajes asignados a taller que coincidan con los filtros.</p>
-                </div>`;
-            return;
-        }
-
-        // Agrupar por taller
-        const groups = {};
-        data.forEach(t => {
-            const key = (t[this.COL.taller] || '').trim() || '\u2014';
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(t);
-        });
-
-        // Orden: los del CONFIG.TALLERES primero (en el orden declarado), resto alfabético
-        const cfg = CONFIG.TALLERES || [];
-        const orderedKeys = Object.keys(groups).sort((a, b) => {
-            const ia = cfg.indexOf(a);
-            const ib = cfg.indexOf(b);
-            if (ia === -1 && ib === -1) return a.localeCompare(b);
-            if (ia === -1) return 1;
-            if (ib === -1) return -1;
-            return ia - ib;
-        });
-
-        const tallerOpts = this._tallerOptionsHtml();
-        let html = '<div class="talleres-grid">';
-        for (const key of orderedKeys) {
-            html += this._renderTallerCard(key, groups[key], tallerOpts);
-        }
-        html += '</div>';
-        contentEl.innerHTML = html;
-    },
-
-    _calcStats(trajes) {
-        let pendientes = 0, recibidos = 0, entregados = 0;
-        for (const t of trajes) {
-            const e = (t[this.COL.trajeEntregado] || '').toUpperCase();
-            const r = (t[this.COL.trajeRecibido]  || '').toUpperCase();
-            if (e === 'ENTREGADO' || e === 'ARREGLO') entregados++;
-            else if (r === 'RECIBIDO') recibidos++;
-            else pendientes++;
-        }
-        return { total: trajes.length, pendientes, recibidos, entregados };
-    },
-
-    _tallerOptionsHtml() {
-        const all = this._allTalleres();
-        // Opción vacía al principio para permitir desasignar
-        return '<option value="">\u2014 sin taller \u2014</option>' +
-            all.map(t => `<option value="${t}">${t}</option>`).join('');
-    },
-
-    _renderTallerCard(tallerName, trajes, tallerOpts) {
-        const stats = this._calcStats(trajes);
-        const rows  = trajes
-            .sort((a, b) => {
-                // Primero pendientes, luego recibidos, luego entregados
-                const rank = (t) => {
-                    const e = (t[this.COL.trajeEntregado] || '').toUpperCase();
-                    const r = (t[this.COL.trajeRecibido]  || '').toUpperCase();
-                    if (e === 'ENTREGADO' || e === 'ARREGLO') return 2;
-                    if (r === 'RECIBIDO') return 1;
-                    return 0;
-                };
-                const ra = rank(a), rb = rank(b);
-                if (ra !== rb) return ra - rb;
-                // Dentro del mismo rank, ordenar por Nº
-                const na = parseInt(a[this.COL.num] || '0', 10) || 0;
-                const nb = parseInt(b[this.COL.num] || '0', 10) || 0;
-                return na - nb;
-            })
-            .map(t => this._renderTrajeRow(t, tallerOpts))
-            .join('');
-
-        return `
-        <div class="taller-card">
-            <div class="taller-card-header">
-                <span style="font-size:18px;">\u{1F3ED}</span>
-                <span style="font-weight:700; font-size:15px; flex:1;">${tallerName}</span>
-                <span class="chip chip-pendiente" style="font-size:10px;" title="En el taller, pendientes de recibir">
-                    \u23F3 ${stats.pendientes}
-                </span>
-                <span class="chip chip-recibida" style="font-size:10px;" title="Recibidos del taller">
-                    \u{1F4E6} ${stats.recibidos}
-                </span>
-                <span class="chip chip-correcto" style="font-size:10px;" title="Entregados/arreglo">
-                    \u2713 ${stats.entregados}
-                </span>
-            </div>
-            <div class="taller-card-body">
-                <div class="table-container">
-                <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                    <thead>
-                        <tr style="background:var(--background); border-bottom:1px solid var(--border);">
-                            <th style="padding:6px 8px; text-align:left; font-weight:600; width:44px;">N\u00ba</th>
-                            <th style="padding:6px 8px; text-align:left; font-weight:600;">Clienta</th>
-                            <th style="padding:6px 8px; text-align:left; font-weight:600;">Modelo</th>
-                            <th style="padding:6px 8px; text-align:center; font-weight:600; white-space:nowrap;">Entrega</th>
-                            <th style="padding:6px 8px; text-align:center; font-weight:600;">Estado</th>
-                            <th style="padding:6px 8px; text-align:center; font-weight:600; width:180px;">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-                </div>
-            </div>
-        </div>`;
-    },
-
-    _renderTrajeRow(t, tallerOpts) {
-        const num     = t[this.COL.num]    || '\u2014';
-        const nombre  = t[this.COL.nombre] || '\u2014';
-        const feria   = t[this.COL.feria]  || '';
-        const modelo  = (t[this.COL.modelo] || '').trim();
-        const modeloCell = modelo
-            ? `<span style="font-size:12px; color:var(--text-light);">${modelo}</span>`
-            : '<span class="badge-sin-modelo">sin modelo</span>';
-        const fechaEntrega = (t[this.COL.fechaEntregaTaller] || '').trim();
-        const currentTaller = (t[this.COL.taller] || '').trim();
-
-        const chip = this._estadoTallerChip(t);
-        const recibido  = (t[this.COL.trajeRecibido]  || '').toUpperCase();
-        const entregado = (t[this.COL.trajeEntregado] || '').toUpperCase();
-
-        // Dropdown con selección actual preseleccionada (replace puede fallar si el valor no está; incluir fallback)
-        let selectOpts = tallerOpts;
-        if (currentTaller && selectOpts.includes(`value="${currentTaller}"`)) {
-            selectOpts = selectOpts.replace(
-                `value="${currentTaller}">`,
-                `value="${currentTaller}" selected>`
-            );
-        } else if (!currentTaller) {
-            selectOpts = selectOpts.replace(
-                `value="">\u2014 sin taller \u2014`,
-                `value="" selected>\u2014 sin taller \u2014`
-            );
-        }
-
-        // Botón "marcar recibido" ↔ "desmarcar"
-        let btnRecibido;
-        if (entregado === 'ENTREGADO' || entregado === 'ARREGLO') {
-            btnRecibido = `<button class="btn btn-sm btn-secondary" disabled
-                       style="font-size:11px; padding:3px 6px;"
-                       title="Ya entregado a la clienta">\u2713</button>`;
-        } else if (recibido === 'RECIBIDO') {
-            btnRecibido = `<button class="btn btn-sm btn-secondary"
-                       onclick="App.talleres.marcarRecibido(${t._rowIndex}, false)"
-                       style="font-size:11px; padding:3px 6px;"
-                       title="Desmarcar como recibido">\u21A9</button>`;
-        } else {
-            btnRecibido = `<button class="btn btn-sm btn-primary"
-                       onclick="App.talleres.marcarRecibido(${t._rowIndex}, true)"
-                       style="font-size:11px; padding:3px 6px;"
-                       title="Marcar como recibido del taller (auto-fill fecha)">\u{1F4E6}</button>`;
-        }
-
-        return `
-        <tr style="border-bottom:1px solid var(--border-light);">
-            <td data-label="N&ordm;" style="padding:6px 8px; font-weight:600; color:var(--primary);">${num}</td>
-            <td data-label="Clienta" style="padding:6px 8px;">
-                <div style="font-weight:500; overflow:hidden; text-overflow:ellipsis; max-width:160px; white-space:nowrap;" title="${nombre}">${nombre}</div>
-                ${feria ? `<div style="font-size:10px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; max-width:160px; white-space:nowrap;" title="${feria}">${feria}</div>` : ''}
-            </td>
-            <td data-label="Modelo" style="padding:6px 8px; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${modelo}">${modeloCell}</td>
-            <td data-label="Entrega" style="padding:6px 8px; text-align:center; font-size:11px; color:var(--text-light); white-space:nowrap;">${fechaEntrega || '\u2014'}</td>
-            <td data-label="Estado" style="padding:6px 8px; text-align:center;">${chip}</td>
-            <td style="padding:6px 8px; text-align:center;">
-                <div class="taller-row-actions">
-                    <select class="form-input"
-                            onchange="App.talleres.cambiarTaller(${t._rowIndex}, this.value)"
-                            title="Cambiar taller asignado">${selectOpts}</select>
-                    ${btnRecibido}
-                    <button class="btn btn-sm btn-secondary"
-                            onclick="App.talleres.editarTraje(${t._rowIndex})"
-                            style="font-size:11px; padding:3px 6px;"
-                            title="Ver/editar ficha del traje">\u270E</button>
-                </div>
-            </td>
-        </tr>`;
-    },
-
-    _estadoTallerChip(t) {
-        const entregado = (t[this.COL.trajeEntregado] || '').toUpperCase();
-        const recibido  = (t[this.COL.trajeRecibido]  || '').toUpperCase();
-        if (entregado === 'ENTREGADO') return '<span class="chip chip-correcto" style="font-size:10px;">\u2713 Entregado</span>';
-        if (entregado === 'ARREGLO')   return '<span class="chip chip-revisar" style="font-size:10px;">\u{1F527} Arreglo</span>';
-        if (recibido  === 'RECIBIDO')  return '<span class="chip chip-recibida" style="font-size:10px;">\u{1F4E6} Recibido</span>';
-        if (recibido  === 'INCIDENCIA')return '<span class="chip chip-incidencia" style="font-size:10px;">\u2715 Incidencia</span>';
-        return '<span class="chip chip-pendiente" style="font-size:10px;">\u23F3 En taller</span>';
-    },
-
-    // ── Acciones ─────────────────────────────────────────────────────────────
-
-    // Abrir el modal de editar traje (reusa el de Trajes para mantener coherencia)
-    editarTraje(rowIndex) {
-        if (!App.trajes || typeof App.trajes.showEditModal !== 'function') {
-            App.toast.show('Edici\u00f3n de trajes no disponible', 'error');
-            return;
-        }
-        if (App.trajes.data.length === 0) {
-            App.trajes.load().then(() => App.trajes.showEditModal(rowIndex));
-            return;
-        }
-        App.trajes.showEditModal(rowIndex);
-    },
-
-    // Cambiar taller asignado (escribe TALLER en LISTADO)
-    async cambiarTaller(rowIndex, nuevoTaller) {
-        const traje = App.trajes.data.find(r => r._rowIndex === rowIndex);
-        if (!traje) { App.toast.show('Traje no encontrado', 'error'); return; }
-        const tallerActual = (traje[this.COL.taller] || '').trim();
-        const nuevo        = (nuevoTaller || '').trim();
-        if (tallerActual === nuevo) return;
-
-        try {
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
-            const hdr     = (headers[0] || []).map(h => (h || '').trim());
-            const colIdx  = hdr.indexOf('TALLER');
-            if (colIdx < 0) { App.toast.show('Columna TALLER no encontrada en el sheet', 'error'); return; }
-            const letter = String.fromCharCode(65 + colIdx);
-
-            await App.sheets.writeRange(sheetId, `${tab}!${letter}${rowIndex}`, [[nuevo]]);
-
-            // Sincronizar en memoria (trajes + clientas)
-            traje[this.COL.taller] = nuevo;
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) tc[this.COL.taller] = nuevo;
-
-            await App.sheets.invalidateListadoCache();
-
-            const numShown = traje[this.COL.num] || '?';
-            if (nuevo) {
-                App.toast.show(`N\u00ba ${numShown} movido a ${nuevo}`, 'success');
-            } else {
-                App.toast.show(`N\u00ba ${numShown}: taller desasignado`, 'info');
-            }
-
-            this._populateTallerFilter();
-            this.filter();
-            // Refrescar badges del sidebar (cambio de taller afecta badges de Jose/Talleres)
-            if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
-                App.trajes._updateBandejaCounts();
-            }
-        } catch (err) {
-            App.toast.show('Error al cambiar taller: ' + err.message, 'error');
-            console.error('[talleres.cambiarTaller]', err);
-        }
-    },
-
-    // Marcar (o desmarcar) como RECIBIDO; auto-fill FECHA RECIBIDO al marcar
-    async marcarRecibido(rowIndex, recibido) {
-        const traje = App.trajes.data.find(r => r._rowIndex === rowIndex);
-        if (!traje) { App.toast.show('Traje no encontrado', 'error'); return; }
-
-        try {
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:Z1`);
-            const hdr     = (headers[0] || []).map(h => (h || '').trim());
-            const colRec  = hdr.indexOf('TRAJE RECIBIDO');
-            const colFec  = hdr.indexOf('FECHA RECIBIDO');
-            const letter  = (idx) => String.fromCharCode(65 + idx);
-
-            const updates = [];
-            if (recibido) {
-                if (colRec >= 0) {
-                    updates.push({ range: `${tab}!${letter(colRec)}${rowIndex}`, values: [['RECIBIDO']] });
-                }
-                // Auto-fill fecha si está vacía
-                if (colFec >= 0 && !(traje['FECHA RECIBIDO'] || '').trim()) {
-                    const d = new Date();
-                    const hoy = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-                    updates.push({ range: `${tab}!${letter(colFec)}${rowIndex}`, values: [[hoy]] });
-                    traje['FECHA RECIBIDO'] = hoy;
-                }
-                traje['TRAJE RECIBIDO'] = 'RECIBIDO';
-            } else {
-                if (colRec >= 0) {
-                    updates.push({ range: `${tab}!${letter(colRec)}${rowIndex}`, values: [['PENDIENTE']] });
-                }
-                traje['TRAJE RECIBIDO'] = 'PENDIENTE';
-            }
-
-            if (updates.length > 0) {
-                await App.sheets.batchWriteRanges(sheetId, updates);
-            }
-            await App.sheets.invalidateListadoCache();
-
-            // Mantener clientas sincronizado
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) {
-                tc['TRAJE RECIBIDO'] = traje['TRAJE RECIBIDO'];
-                if (traje['FECHA RECIBIDO']) tc['FECHA RECIBIDO'] = traje['FECHA RECIBIDO'];
-            }
-
-            App.toast.show(recibido
-                ? `\u{1F4E6} N\u00ba ${traje[this.COL.num] || '?'} marcado como recibido`
-                : `\u21A9 N\u00ba ${traje[this.COL.num] || '?'} devuelto a pendiente`, 'success');
-
-            this.filter();
-            // Refrescar badges del sidebar (afecta a Jose: el traje sale de "Recoger del taller")
-            if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
-                App.trajes._updateBandejaCounts();
-            }
-        } catch (err) {
-            App.toast.show('Error al marcar recibido: ' + err.message, 'error');
-            console.error('[talleres.marcarRecibido]', err);
-        }
-    },
+    /** No-op: el badge del sidebar para "Vista por taller" se eliminó. */
+    refreshBadge() { /* nada */ },
 };
 
 // ── Navegación — cargar datos al entrar en cada sección ─────────────────────
@@ -17683,10 +17266,7 @@ App.ui.navigateTo = function(sectionId) {
             App.corte.load(true);
         }
     }
-    if (sectionId === 'talleres') {
-        // Reusa el cache de App.trajes — carga si está vacío
-        App.talleres.load(false);
-    }
+    // Sección "talleres" (Vista por taller) eliminada — no auto-load.
     if (sectionId === 'modelos') {
         App.modelos.load();
     }
