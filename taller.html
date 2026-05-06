@@ -240,11 +240,14 @@
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            width: 130px;
-            min-width: 110px;
+            width: 160px;
+            min-width: 130px;
+            padding-right: 16px;
+            white-space: nowrap;
         }
         .modal-body table td:nth-child(2) {
             font-weight: 600;
+            padding-left: 4px;
         }
         .modal-section {
             border-top: 1px solid var(--border-light);
@@ -538,9 +541,9 @@
                 }
                 body.innerHTML =
                     App._renderGrupo('\u{1F3ED} En mi taller', '#1b5e20', enTaller,
-                        'Estos trajes están físicamente en tu taller. A trabajar.') +
+                        'Estos trajes están físicamente en tu taller.') +
                     App._renderGrupo('\u{1F69B} En camino', '#7c5e10', enCamino,
-                        'Aún no han llegado. Te sirven para ir preparando.');
+                        'Estos cortes están a punto de llegar desde NOTELODIGO.');
             },
 
             _renderGrupo(titulo, color, lista, subtitulo) {
@@ -773,6 +776,7 @@
     </script>
 </body>
 </html>
+
 
 
 
