@@ -656,6 +656,7 @@
                 const adornos  = (t['ADORNOS']  || '').trim();
                 const feria    = (t['FERIA']    || '').trim();
                 const fechaEnt = App._formatDate(t['FECHA ENTREGA TALLER']);
+                const fechaRec = App._formatDate(t['FECHA RECIBIDO']);  // Cuando Jose recogió del taller
                 const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
 
                 const mutedStyle = muted ? 'opacity:0.65;' : '';
@@ -669,7 +670,8 @@
                             <strong>${App._esc(modelo)}</strong>${tipoTela ? ` · <span style="color:#666;">${App._esc(tipoTela)}</span>` : ''}
                         </div>
                         ${feria ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">\u{1F4CD} ${App._esc(feria)}</div>` : ''}
-                        ${fechaEnt ? `<div style="font-size:11px; color:#1b5e20; margin-bottom:6px;">✅ Entregado al taller el <strong>${App._esc(fechaEnt)}</strong></div>` : ''}
+                        ${fechaEnt ? `<div style="font-size:11px; color:#1b5e20; margin-bottom:4px;">✅ Entregado al taller el <strong>${App._esc(fechaEnt)}</strong></div>` : ''}
+                        ${(muted && fechaRec) ? `<div style="font-size:11px; color:#7c5e10; margin-bottom:6px;">📦 Recogido por NOTELODIGO el <strong>${App._esc(fechaRec)}</strong></div>` : ''}
                         ${adornos ? `
                             <div style="border-top:1px solid var(--border-light); margin-top:8px; padding-top:8px;">
                                 <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:4px;">Adornos</div>
@@ -826,6 +828,8 @@
 
                 // Nota: NO mostramos "Construcción" ni "Tela ppal en metros" — eso
                 // es info para Pilar/cortador, al taller no le importa.
+                // Tampoco "Recogido por NOTELODIGO": esa fecha solo se muestra
+                // en la card de la sección Entregados, no en el modal ni en el PDF.
 
                 const fila = (label, value) =>
                     `<tr><td>${App._esc(label)}</td><td>${App._esc(value || '—')}</td></tr>`;
@@ -966,9 +970,43 @@
         white-space: pre-wrap;
     }
     @page { size: A4; margin: 0; }
+
+    /* Barra de acciones flotante — solo visible en pantalla, no al imprimir */
+    .toolbar {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        gap: 8px;
+        z-index: 100;
+    }
+    .toolbar button {
+        background: #6e1f3d;
+        color: white;
+        border: none;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .toolbar button:hover { background: #531629; }
+    .toolbar button.sec {
+        background: white;
+        color: #444;
+        border: 1px solid #ccc;
+    }
+    .toolbar button.sec:hover { background: #f5f5f5; }
+    @media print { .toolbar { display: none !important; } }
 </style>
 </head>
 <body>
+    <div class="toolbar">
+        <button class="sec" onclick="window.close()" title="Cerrar esta ventana">✕ Cerrar</button>
+        <button onclick="window.print()" title="Volver a abrir el diálogo de impresión">🖨 Imprimir</button>
+    </div>
     <div class="head">
         <div class="icon">&#x1F3ED;</div>
         <div class="brand-block">
@@ -990,7 +1028,11 @@
                 w.document.open();
                 w.document.write(html);
                 w.document.close();
-                // Esperamos un poco a que se renderice antes de imprimir
+                // Esperamos un poco a que se renderice antes de imprimir.
+                // No cerramos la ventana automáticamente — el usuario decide cuándo
+                // cerrarla con el botón "✕ Cerrar". Si cancela el diálogo de
+                // impresión, puede volver a imprimir con el botón "🖨 Imprimir"
+                // sin tener que reabrir la ventana.
                 setTimeout(() => {
                     try {
                         w.focus();
@@ -998,8 +1040,6 @@
                     } catch (e) {
                         console.error('print failed:', e);
                     }
-                    // Cerrar la ventana tras imprimir
-                    setTimeout(() => { try { w.close(); } catch (_) {} }, 800);
                 }, 300);
             },
 
@@ -1148,6 +1188,7 @@
     </script>
 </body>
 </html>
+
 
 
 
