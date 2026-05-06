@@ -3818,8 +3818,9 @@ const App = {
                     return;
                 }
                 // En cualquier otro caso de error mientras la app está abierta:
-                // mostrar el banner de sesión expirada (sin recargar)
-                this._showSessionExpired();
+                // mostrar el banner de sesión expirada (sin recargar).
+                // Llamamos via App.auth porque GIS invoca el callback sin contexto `this`.
+                App.auth._showSessionExpired();
                 return;
             }
 
@@ -3833,14 +3834,16 @@ const App = {
             App.ui.showLoginError('Error 400: el origen no esta autorizado. Sigue las instrucciones de abajo.');
         },
 
-        /** Muestra el banner de sesión expirada y actualiza el estado en Ajustes */
+        /** Muestra el banner de sesión expirada y actualiza el estado en Ajustes.
+         *  Usa App.auth en vez de `this` para ser robusto frente a callers que
+         *  pierdan el contexto (callbacks de GIS, p.ej.). */
         _showSessionExpired() {
             App.token = null;
             localStorage.removeItem(CONFIG.keys.accessToken);
             App.ui.setConnection('offline');
             const banner = document.getElementById('sessionExpiredBanner');
             if (banner) banner.style.display = 'flex';
-            this.updateStatusDisplay();
+            App.auth.updateStatusDisplay();
         },
 
         /** Intenta reconectar sin recargar la página */
