@@ -1,3 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Mis trajes — NOTELODIGO</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%F0%9F%8F%AD%3C/text%3E%3C/svg%3E">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        :root {
+            --primary: #6e1f3d;
+            --primary-dark: #531629;
+            --primary-light: #f5e6ec;
+            --background: #fef9f7;
+            --text: #222;
+            --text-muted: #666;
+            --border: #ddd;
+            --border-light: #eee;
+            --success: #1b5e20;
+            --warning: #7c5e10;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--background);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.4;
+        }
+
+        /* ─── Login screen ─── */
+        #loginScreen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            text-align: center;
+        }
+        #loginScreen .logo {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        #loginScreen h1 {
+            color: var(--primary);
+            margin: 0 0 6px;
+            font-size: 28px;
+            letter-spacing: 0.5px;
+        }
+        #loginScreen .tagline {
+            color: var(--text-muted);
+            margin: 0 0 24px;
+            font-size: 15px;
+        }
+        #loginScreen p.intro {
+            color: var(--text-muted);
+            margin: 0 0 24px;
+            max-width: 380px;
+            font-size: 14px;
+        }
+        #loginError {
+            color: #c62828;
+            font-size: 13px;
+            margin-top: 14px;
+            max-width: 380px;
+        }
+
+        /* ─── Botones ─── */
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: var(--radius);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background 0.15s;
+        }
+        .btn:hover { background: var(--primary-dark); }
+        .btn-sec {
+            background: white;
+            color: var(--text);
+            border: 1px solid rgba(255,255,255,0.5);
+            padding: 8px 14px;
+            font-size: 13px;
+        }
+        .btn-sec:hover { background: rgba(255,255,255,0.1); color: white; }
+
+        /* ─── App principal ─── */
+        #appContainer { display: none; flex-direction: column; min-height: 100vh; }
+        #appContainer.active { display: flex; }
+        header.app-head {
+            background: var(--primary);
+            color: white;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        header.app-head h1 {
+            font-size: 18px;
+            margin: 0;
+            font-weight: 700;
+        }
+        header.app-head .sub {
+            font-size: 12px;
+            opacity: 0.85;
+            margin-top: 2px;
+        }
+        header.app-head .actions {
+            display: flex;
+            gap: 8px;
+        }
+        main.app-body {
+            padding: 20px;
+            max-width: 1100px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* ─── Grupos y cards ─── */
+        .grupo { margin-bottom: 28px; }
+        .grupo-header {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin-bottom: 4px;
+            flex-wrap: wrap;
+        }
+        .grupo h2 {
+            font-size: 17px;
+            font-weight: 700;
+            margin: 0;
+        }
+        .grupo .count {
+            font-size: 13px;
+            color: #666;
+            font-weight: 400;
+        }
+        .grupo .desc {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 12px;
+        }
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: 12px;
+        }
+        .card {
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            border: 1px solid var(--border-light);
+            padding: 14px;
+        }
+
+        /* ─── Empty / loading ─── */
+        .empty {
+            padding: 50px 20px;
+            text-align: center;
+            color: var(--text-muted);
+        }
+        .empty p { margin: 8px 0; }
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #eee;
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Toast ─── */
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s;
+        }
+        #toast.show { opacity: 1; }
+        #toast.error { background: #c62828; }
+        #toast.success { background: #1b5e20; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            main.app-body { padding: 14px; }
+            .cards-grid { grid-template-columns: 1fr; }
+            header.app-head { padding: 12px 14px; }
+            header.app-head h1 { font-size: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ============ LOGIN ============ -->
+    <div id="loginScreen">
+        <div class="logo">&#x1F3ED;</div>
+        <h1>NOTELODIGO</h1>
+        <div class="tagline">Vista para talleres</div>
+        <p class="intro">
+            Entra con tu cuenta de Google para ver los trajes que tienes asignados.
+        </p>
+        <button class="btn" id="btnSignIn" onclick="App.signIn()">Entrar con Google</button>
+        <div id="loginError"></div>
+        <div style="margin-top:30px; font-size:11px; color:#999;">
+            Solo lectura · Tus datos no se modifican
+        </div>
+    </div>
+
+    <!-- ============ APP ============ -->
+    <div id="appContainer">
+        <header class="app-head">
+            <div>
+                <h1 id="tallerNombre">Mis trajes</h1>
+                <div class="sub" id="userEmail"></div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-sec" onclick="App.load(true)" title="Recargar">&#x21BB; Actualizar</button>
+                <button class="btn btn-sec" onclick="App.signOut()">Cerrar sesión</button>
+            </div>
+        </header>
+        <main class="app-body" id="appBody">
+            <div class="empty">
+                <div class="spinner"></div>
+                <p>Cargando tus trajes…</p>
+            </div>
+        </main>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        // ═════════════════════════════════════════════════════════════
+        // CONFIGURACIÓN — RELLENAR ANTES DE SUBIR A GITHUB PAGES
+        // ═════════════════════════════════════════════════════════════
+        // 1) PROXY_URL: la URL del Apps Script Web App (la /exec).
+        //    Es la misma que pegaste en Atelier → Ajustes → Proxy de talleres.
+        // 2) APP_CLIENT_ID: el Client ID OAuth (igual que index.html).
+        const PROXY_URL = 'https://script.google.com/macros/s/AKfycbxiMWRRxXmdEGPiRNTDuqh0N8aUbh6UzMWrw0m8CZp52PqafRFzsklGSdcDCpRimPn8/exec';
+        const APP_CLIENT_ID = '128632131275-qupsldl5kubithuo46vq72te64ijlv48.apps.googleusercontent.com';
+        // ═════════════════════════════════════════════════════════════
+
+        const STORAGE_KEY_TOKEN = 'notelodigo_taller_token';
+        const STORAGE_KEY_EMAIL = 'notelodigo_taller_email';
 
         const App = {
             token: null,
@@ -253,3 +517,4 @@
     </script>
 </body>
 </html>
+
