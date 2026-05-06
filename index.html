@@ -2154,80 +2154,87 @@
                         </div>
                     </div>
 
-                    <!-- Tab: Medidas -->
+                    <!-- Tab: Medidas — mismo layout que el modal "Nueva ficha" para coherencia visual.
+                         IDs preservados (m_pecho, fichaMedidasSelect, tallaCalculada, etc.) — el JS sigue funcionando. -->
                     <div id="tab-medidas" class="ficha-tab-content" style="display:none;">
-                        <!-- Talla asignada + sugerida siempre visibles -->
-                        <div style="padding:10px; background:var(--background); border-radius:var(--radius-sm); border:1px solid var(--border); margin-bottom:8px;">
-                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:6px;">
-                                <!-- Talla asignada (lo que está en el sheet) -->
-                                <div>
-                                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Talla asignada</div>
-                                    <select class="form-input" id="fichaMedidasSelect" style="font-size:15px; font-weight:700;"
-                                            onchange="document.getElementById('fichaTallaAsignada').textContent = this.value || '—'; this.style.borderColor=''; this.title=''; document.getElementById('fichaTallaAsignada').style.color='var(--primary)';">
-                                        <option value="">&mdash; Sin talla &mdash;</option>
-                                        <option value="T.32">T.32</option>
-                                        <option value="T.34">T.34</option>
-                                        <option value="T.36">T.36</option>
-                                        <option value="T.38">T.38</option>
-                                        <option value="T.40">T.40</option>
-                                        <option value="T.42">T.42</option>
-                                        <option value="T.44">T.44</option>
-                                        <option value="T.46">T.46</option>
-                                        <option value="T.48">T.48</option>
-                                        <option value="T.50">T.50</option>
-                                        <option value="T.52">T.52</option>
-                                        <option value="INCIDENCIA">INCIDENCIA</option>
-                                    </select>
-                                    <!-- span oculto para JS, mantenemos compatibilidad -->
-                                    <span id="fichaTallaAsignada" style="display:none;">—</span>
+
+                        <!-- MEDIDAS CLAVE + TALLA SUGERIDA (siempre visibles) -->
+                        <div style="background:#f8fafc; border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px; margin-bottom:14px;">
+                            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; font-weight:600;">
+                                Medidas clave
+                                <span style="font-weight:400; text-transform:none; letter-spacing:0; color:var(--text-muted);">&mdash; el pecho manda, la cadera valida</span>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr auto; gap:12px; align-items:end;">
+                                <div class="form-group" style="margin:0;">
+                                    <label>Pecho (cm) <span style="color:var(--danger);">*</span></label>
+                                    <input type="number" step="1" min="76" placeholder="76" class="form-input" id="m_pecho" oninput="App.clientas.calcTalla()">
                                 </div>
-                                <!-- Talla calculada por las medidas -->
-                                <div>
-                                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Sugerida por medidas</div>
-                                    <div style="font-size:22px; font-weight:700; color:var(--primary); line-height:1.2;" id="tallaCalculada">—</div>
-                                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px; line-height:1.3;" id="tallaDetalle"></div>
+                                <div class="form-group" style="margin:0;">
+                                    <label>Cintura (cm)</label>
+                                    <input type="number" step="1" min="56" placeholder="56" class="form-input" id="m_cintura" oninput="App.clientas.calcTalla()">
                                 </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label>Cadera (cm)</label>
+                                    <input type="number" step="1" min="84" placeholder="84" class="form-input" id="m_cadera" oninput="App.clientas.calcTalla()">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label>Largo total</label>
+                                    <input type="number" step="1" min="0" class="form-input" id="fichaLargoTotal" placeholder="cm">
+                                </div>
+                                <div style="padding:8px 16px; background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm); text-align:center; min-width:110px;">
+                                    <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Talla sugerida</div>
+                                    <div style="font-size:24px; font-weight:700; color:var(--primary); line-height:1.2;" id="tallaCalculada">&mdash;</div>
+                                </div>
+                            </div>
+
+                            <!-- Nota explicativa / detalle del cálculo -->
+                            <div id="tallaDetalle" style="margin-top:10px; font-size:12px; line-height:1.4; color:var(--text-muted);"></div>
+
+                            <!-- Selector de talla asignada (lo que se guarda en el sheet) -->
+                            <div style="margin-top:12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <label style="font-size:12px; color:var(--text-muted); margin:0; white-space:nowrap;">Talla asignada (en el listado):</label>
+                                <select class="form-input" id="fichaMedidasSelect" style="margin:0; max-width:160px;"
+                                        onchange="document.getElementById('fichaTallaAsignada').textContent = this.value || '—'; this.style.borderColor=''; this.title='';">
+                                    <option value="">&mdash; Sin talla &mdash;</option>
+                                    <option value="T.32">T.32</option><option value="T.34">T.34</option>
+                                    <option value="T.36">T.36</option><option value="T.38">T.38</option>
+                                    <option value="T.40">T.40</option><option value="T.42">T.42</option>
+                                    <option value="T.44">T.44</option><option value="T.46">T.46</option>
+                                    <option value="T.48">T.48</option><option value="T.50">T.50</option>
+                                    <option value="T.52">T.52</option>
+                                    <option value="INCIDENCIA" style="color:var(--danger);">INCIDENCIA</option>
+                                </select>
+                                <span id="fichaTallaAsignada" style="display:none;">&mdash;</span>
                             </div>
                         </div>
 
-                        <!-- Largo total destacado -->
-                        <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--background); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:8px;">
-                            <label style="font-size:13px; font-weight:600; color:var(--text); margin:0; white-space:nowrap;">Largo total (cm)</label>
-                            <input type="number" step="1" min="0" class="form-input" id="fichaLargoTotal"
-                                   style="max-width:120px; font-size:15px; font-weight:700; text-align:center;"
-                                   placeholder="—">
-                            <span style="font-size:11px; color:var(--text-muted);">Medida del largo del traje</span>
-                        </div>
-
-                        <!-- Medidas individuales (referencia — se almacenan en la ficha Doc, no en MEDIDAS) -->
-                        <details style="margin-top:2px;">
-                            <summary style="cursor:pointer; font-size:13px; color:var(--text-light); font-weight:600; padding:6px 0;">
-                                Medidas detalladas (desde ficha Doc)
+                        <!-- OTRAS MEDIDAS (detalles colapsables) -->
+                        <details style="border:1px solid var(--border); border-radius:var(--radius-sm); background:#fff;">
+                            <summary style="cursor:pointer; font-size:13px; padding:12px 14px; user-select:none; display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:600;">Otras medidas <span style="color:var(--text-muted); font-weight:400;">(detalles: largos, hombro, manga&hellip;)</span></span>
+                                <span style="display:flex; align-items:center; gap:10px;">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btnCargarMedidasDoc"
+                                            onclick="event.preventDefault(); event.stopPropagation(); App.clientas.cargarMedidasDesdeDoc(false)"
+                                            title="Recargar medidas desde el Google Doc ahora"
+                                            style="white-space:nowrap; padding:4px 10px; font-size:11px;">
+                                        &#x1F504; Desde Doc
+                                    </button>
+                                    <span style="color:var(--text-muted); font-size:11px;">Pulsa para desplegar</span>
+                                </span>
                             </summary>
-                            <div style="display:flex; align-items:center; justify-content:space-between; margin:6px 0 8px;">
-                                <p style="font-size:12px; color:var(--text-muted); margin:0;">
-                                    Sincronizado con el Google Doc de la clienta. Los cambios aquí se guardan en el Doc al pulsar <em>Guardar cambios</em>.
-                                </p>
-                                <button type="button" class="btn btn-secondary btn-sm" id="btnCargarMedidasDoc"
-                                        onclick="App.clientas.cargarMedidasDesdeDoc(false)"
-                                        title="Recargar medidas desde el Google Doc ahora"
-                                        style="white-space:nowrap; margin-left:12px; flex-shrink:0; min-width:32px;">
-                                    &#x1F504;
-                                </button>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:4px 14px 14px;">
+                                <div class="form-group" style="margin:0;"><label>Largo talle delantero (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_largotalleDelantero" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0;"><label>Largo talle espalda (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_largotalleEspalda" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0;"><label>Hombro (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_hombro" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0;"><label>Largo total (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_largoTotal" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0;"><label>Altura de pecho (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_alturaPecho" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0;"><label>Separaci&oacute;n de pecho (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_sepPecho" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0;"><label>Largo de manga (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_largoManga" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0;"><label>Contorno de manga (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_contornoManga" oninput="App.clientas.calcTalla()"></div>
+                                <div class="form-group" style="margin:0; grid-column:1/3;"><label>Contorno de mu&ntilde;eca (cm)</label><input type="number" step="1" min="0" class="form-input" id="m_muneca" oninput="App.clientas.calcTalla()"></div>
                             </div>
-                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">C. pecho</label><input type="number" class="form-input" id="m_pecho" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">C. cintura</label><input type="number" class="form-input" id="m_cintura" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">C. cadera</label><input type="number" class="form-input" id="m_cadera" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">Hombro</label><input type="number" class="form-input" id="m_hombro" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">L. talle delant.</label><input type="number" class="form-input" id="m_largotalleDelantero" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">L. talle espalda</label><input type="number" class="form-input" id="m_largotalleEspalda" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">Largo total</label><input type="number" class="form-input" id="m_largoTotal" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">Altura pecho</label><input type="number" class="form-input" id="m_alturaPecho" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">Sep. pecho</label><input type="number" class="form-input" id="m_sepPecho" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">L. manga</label><input type="number" class="form-input" id="m_largoManga" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">C. manga</label><input type="number" class="form-input" id="m_contornoManga" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
-                                <div class="form-group" style="margin:0;"><label style="font-size:11px;">C. muñeca</label><input type="number" class="form-input" id="m_muneca" placeholder="cm" oninput="App.clientas.calcTalla()"></div>
+                            <div style="padding:0 14px 12px; font-size:11px; color:var(--text-muted); font-style:italic;">
+                                Sincronizado con el Google Doc de la clienta. Los cambios aqu&iacute; se guardan en el Doc al pulsar <em>Guardar cambios</em>.
                             </div>
                         </details>
                     </div>
@@ -11834,7 +11841,10 @@ App.trajes = {
         // Combobox: idempotente — no duplica decoradores si ya están attached
         this._attachEditModalComboboxes();
         this._updateEscandalloChip();
-        this._updateStockBanner();
+        // ⚠ NO llamar a _updateStockBanner aquí — los selects de TELA RECIBIDA / CORTE
+        // todavía no tienen sus valores reales, así que el banner pensaría que la tela
+        // está en estado PENDIENTE y se mostraría en trajes ya cortados/recibidos. Lo
+        // movimos a después del bloque de set() para que lea valores correctos.
 
         // Campos de estado
         // ESTADO: normalizamos (trim + uppercase) y si viene vacío usamos CORRECTO por defecto.
@@ -11852,6 +11862,9 @@ App.trajes = {
         set('editTrajeTrajeRecibido',     t[this.COL.trajeRecibido]);
         setDate('editTrajeFechaRecibido', t[this.COL.fechaRecibido]);
         set('editTrajeTrajeEntregado',    t[this.COL.trajeEntregado]);
+        // Ahora sí: con los selects rellenos, el banner puede aplicar correctamente
+        // sus reglas de hide() (TELA RECIBIDA != PENDIENTE → no aviso, etc.).
+        this._updateStockBanner();
 
         // Notas de celda
         const notes = t._notes || {};
@@ -17244,8 +17257,15 @@ App.ui.navigateTo = function(sectionId) {
     if (sectionId === 'dashboard') {
         App.dashboard.load();
     }
-    if (sectionId === 'clientas' && App.clientas.data.length === 0) {
-        App.clientas.load();
+    if (sectionId === 'clientas') {
+        if (App.clientas.data.length === 0) {
+            App.clientas.load();
+        } else {
+            // Datos ya cargados — re-render con el estado actual en memoria,
+            // por si otros módulos (Jose, Trajes) tocaron alguna fila vía
+            // mutaciones in-memory mientras el usuario estaba en otra sección.
+            App.clientas.filter();
+        }
     }
     if (sectionId === 'trajes') {
         if (App.trajes.data.length === 0) {
