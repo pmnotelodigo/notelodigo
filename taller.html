@@ -180,6 +180,91 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* ─── Modal de ficha ─── */
+        #fichaModal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        #fichaModal.active { display: flex; align-items: flex-start; justify-content: center; }
+        .modal-content {
+            background: white;
+            border-radius: var(--radius);
+            max-width: 600px;
+            width: 100%;
+            margin: 20px auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .modal-head {
+            background: var(--primary);
+            color: white;
+            padding: 14px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .modal-head .titulo {
+            font-size: 17px;
+            font-weight: 700;
+        }
+        .modal-head .cerrar {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        .modal-body {
+            padding: 18px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .modal-body table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .modal-body table td {
+            padding: 6px 0;
+            vertical-align: top;
+        }
+        .modal-body table td:first-child {
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            width: 130px;
+            min-width: 110px;
+        }
+        .modal-body table td:nth-child(2) {
+            font-weight: 600;
+        }
+        .modal-section {
+            border-top: 1px solid var(--border-light);
+            margin-top: 14px;
+            padding-top: 14px;
+        }
+        .modal-section h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            margin: 0 0 8px;
+            font-weight: 600;
+        }
+        .modal-section .content {
+            font-size: 14px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
         /* ─── Toast ─── */
         #toast {
             position: fixed;
@@ -245,6 +330,17 @@
                 <p>Cargando tus trajes…</p>
             </div>
         </main>
+    </div>
+
+    <!-- ============ MODAL FICHA ============ -->
+    <div id="fichaModal" onclick="if (event.target === this) App.closeFicha()">
+        <div class="modal-content">
+            <div class="modal-head">
+                <div class="titulo" id="fichaTitulo">Ficha del traje</div>
+                <button class="cerrar" onclick="App.closeFicha()" aria-label="Cerrar">×</button>
+            </div>
+            <div class="modal-body" id="fichaBody"></div>
+        </div>
     </div>
 
     <div id="toast"></div>
@@ -469,7 +565,7 @@
                 const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
 
                 return `
-                    <div class="card">
+                    <div class="card" style="cursor:pointer;" onclick="App.verFicha(${t._rowIndex})" title="Ver ficha completa">
                         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
                             <strong style="font-size:16px; color:var(--primary);">#${App._esc(num)} · ${App._esc(nombre)}</strong>
                             ${tallaTxt ? `<span style="font-size:13px; font-weight:600; color:#444;">TALLA ${App._esc(tallaTxt)}</span>` : ''}
@@ -485,6 +581,77 @@
                                 <div style="font-size:13px; line-height:1.5; white-space:pre-wrap;">${App._esc(adornos)}</div>
                             </div>` : ''}
                     </div>`;
+            },
+
+            verFicha(rowIndex) {
+                const t = (App.trajes || []).find(x => x._rowIndex === rowIndex);
+                if (!t) return;
+
+                const numRaw = String(t['Nº'] || '').trim();
+                const numInt = parseInt(numRaw, 10);
+                const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
+                const nombre   = (t['NOMBRE']   || '').trim() || '—';
+                const modelo   = (t['MODELO']   || '').trim() || '—';
+                const tipoTela = (t['TIPO TELA'] || '').trim();
+                const medidas  = (t['MEDIDAS']  || '').trim();
+                const adornos  = (t['ADORNOS']  || '').trim();
+                const feria    = (t['FERIA']    || '').trim();
+                const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+                const trajeRecibido  = (t['TRAJE RECIBIDO']  || '').toString().trim();
+                const trajeEntregado = (t['TRAJE ENTREGADO'] || '').toString().trim();
+                const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
+
+                // Info adicional del modelo (la añade el proxy si está en CATALOGOS/MODELOS)
+                const m = t._modelo || {};
+                const tipoConstr   = (m.tipoConstruccion || '').trim();
+                const telaPpalM    = (m.telaPpalM        || '').trim();
+                const adornosCat   = (m.adornosModelo    || '').trim();
+
+                document.getElementById('fichaTitulo').innerHTML =
+                    `Traje #${App._esc(num)} · ${App._esc(nombre)}`;
+
+                const fila = (label, value) =>
+                    `<tr><td>${App._esc(label)}</td><td>${App._esc(value || '—')}</td></tr>`;
+
+                let html =
+                    '<table>' +
+                        fila('Modelo', modelo) +
+                        (tipoConstr ? fila('Construcción', tipoConstr) : '') +
+                        (telaPpalM ? fila('Tela ppal', telaPpalM + ' m') : '') +
+                        (tipoTela ? fila('Tipo tela', tipoTela) : '') +
+                        (tallaTxt ? fila('Talla', tallaTxt) : '') +
+                        (medidas && medidas !== `T.${tallaTxt}` && medidas !== tallaTxt ? fila('Medidas', medidas) : '') +
+                        (feria ? fila('Feria', feria) : '') +
+                        (fechaEnt ? fila('Entrega al taller', fechaEnt) : '') +
+                        (trajeRecibido ? fila('Estado recibido', trajeRecibido) : '') +
+                        (trajeEntregado ? fila('Estado entregado', trajeEntregado) : '') +
+                    '</table>';
+
+                // Adornos del traje (de la ficha) y del modelo (catálogo) — los muestro por separado
+                // si son distintos, así el taller ve qué pidió el cliente y la base del modelo.
+                if (adornos) {
+                    html += `
+                        <div class="modal-section">
+                            <h3>Adornos del traje</h3>
+                            <div class="content">${App._esc(adornos)}</div>
+                        </div>`;
+                }
+                if (adornosCat && adornosCat !== adornos) {
+                    html += `
+                        <div class="modal-section">
+                            <h3>Adornos base del modelo</h3>
+                            <div class="content" style="color:#555;">${App._esc(adornosCat)}</div>
+                        </div>`;
+                }
+
+                document.getElementById('fichaBody').innerHTML = html;
+                document.getElementById('fichaModal').classList.add('active');
+                document.body.style.overflow = 'hidden';
+            },
+
+            closeFicha() {
+                document.getElementById('fichaModal').classList.remove('active');
+                document.body.style.overflow = '';
             },
 
             _renderError(msg) {
@@ -507,6 +674,14 @@
         // Bootstrap
         window.addEventListener('load', () => App.init());
 
+        // Cerrar modal con Escape
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('fichaModal');
+                if (modal && modal.classList.contains('active')) App.closeFicha();
+            }
+        });
+
         // Auto-refresh cada 60 segundos cuando la pestaña esté visible y haya sesión.
         // Útil para que el taller vea cambios de Pilar sin tener que pulsar Actualizar.
         setInterval(() => {
@@ -517,4 +692,5 @@
     </script>
 </body>
 </html>
+
 
