@@ -1,0 +1,255 @@
+
+        const App = {
+            token: null,
+            tokenClient: null,
+            user: null,
+            tallerNombre: null,
+            trajes: [],
+            _refreshingToken: false,
+
+            init() {
+                if (typeof google === 'undefined' || !google.accounts) {
+                    setTimeout(() => App.init(), 100);
+                    return;
+                }
+                if (!APP_CLIENT_ID || APP_CLIENT_ID.indexOf('PEGA_AQUI') === 0) {
+                    App._showLoginError('La app no está configurada (falta APP_CLIENT_ID).');
+                    return;
+                }
+                // Pedimos solo identidad: openid, email, profile.
+                // NADA de Drive, NADA de Sheets — todo va por el proxy.
+                App.tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: APP_CLIENT_ID,
+                    scope: 'openid email profile',
+                    callback: App._onTokenResponse,
+                });
+                // Si hay sesión guardada, intenta usarla
+                const savedToken = localStorage.getItem(STORAGE_KEY_TOKEN);
+                const savedEmail = localStorage.getItem(STORAGE_KEY_EMAIL);
+                if (savedToken && savedEmail) {
+                    App.token = savedToken;
+                    App.user = { email: savedEmail };
+                    App._showApp();
+                    App.load();
+                }
+            },
+
+            signIn() {
+                if (!App.tokenClient) {
+                    App._showLoginError('Google Identity no está cargado. Recarga la página en unos segundos.');
+                    return;
+                }
+                App.tokenClient.requestAccessToken({ prompt: 'select_account' });
+            },
+
+            signOut() {
+                // Solo invalidamos local; NO revocamos los permisos (así no piden
+                // consentimiento la próxima vez que entren).
+                App.token = null;
+                App.user = null;
+                App.tallerNombre = null;
+                App.trajes = [];
+                localStorage.removeItem(STORAGE_KEY_TOKEN);
+                localStorage.removeItem(STORAGE_KEY_EMAIL);
+                document.getElementById('appContainer').classList.remove('active');
+                document.getElementById('loginScreen').style.display = 'flex';
+                document.getElementById('loginError').textContent = '';
+            },
+
+            _onTokenResponse(resp) {
+                if (resp.error) {
+                    App._showLoginError('Error de autenticación: ' + resp.error);
+                    return;
+                }
+                App.token = resp.access_token;
+                localStorage.setItem(STORAGE_KEY_TOKEN, resp.access_token);
+
+                fetch('https://www.googleapis.com/oauth2/v3/userinfo?access_token=' + encodeURIComponent(resp.access_token))
+                    .then(r => r.json())
+                    .then(info => {
+                        App.user = { email: info.email || '', name: info.name || '' };
+                        localStorage.setItem(STORAGE_KEY_EMAIL, info.email || '');
+                        App._showApp();
+                        App.load();
+                    })
+                    .catch(err => App._showLoginError('No se pudo obtener email: ' + err.message));
+            },
+
+            _showApp() {
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('appContainer').classList.add('active');
+                document.getElementById('userEmail').textContent = App.user?.email || '';
+            },
+
+            _showLoginError(msg) {
+                const el = document.getElementById('loginError');
+                if (el) el.textContent = msg;
+            },
+
+            // ─── Carga via proxy ───
+            async load(forceRefresh) {
+                if (!PROXY_URL || PROXY_URL.indexOf('PEGA_AQUI') === 0) {
+                    App._renderError('La app no está configurada (falta PROXY_URL en taller.html).');
+                    return;
+                }
+                if (!App.token) return;
+                const body = document.getElementById('appBody');
+                if (forceRefresh && body) {
+                    body.innerHTML = '<div class="empty"><div class="spinner"></div><p>Actualizando…</p></div>';
+                }
+                try {
+                    const data = await App._callProxy('list');
+                    if (!data || !data.ok) {
+                        if (data && data.error === 'no_taller_for_email') {
+                            App._renderError('Tu cuenta (' + (App.user?.email || '') +
+                                ') no está asociada a ningún taller activo. Contacta con Pilar.');
+                            return;
+                        }
+                        App._renderError('Error: ' + (data?.error || 'desconocido') +
+                            ' — ' + (data?.message || ''));
+                        return;
+                    }
+                    App.tallerNombre = data.taller || null;
+                    App.trajes = data.trajes || [];
+                    document.getElementById('tallerNombre').textContent =
+                        '\u{1F3ED} ' + (App.tallerNombre || 'Mis trajes');
+                    App._render();
+                } catch (err) {
+                    App._renderError('Error: ' + err.message);
+                }
+            },
+
+            async _callProxy(action) {
+                const buildUrl = (token) =>
+                    `${PROXY_URL}?token=${encodeURIComponent(token)}&action=${encodeURIComponent(action)}`;
+                let resp = await fetch(buildUrl(App.token), { method: 'GET', redirect: 'follow' });
+                let data = await resp.json();
+                if (data && data.error === 'invalid_token' && !App._refreshingToken) {
+                    // Token caducado — pedir uno nuevo silenciosamente
+                    App._refreshingToken = true;
+                    try {
+                        const newToken = await App._refreshToken();
+                        App._refreshingToken = false;
+                        App.token = newToken;
+                        resp = await fetch(buildUrl(newToken), { method: 'GET', redirect: 'follow' });
+                        data = await resp.json();
+                    } catch (e) {
+                        App._refreshingToken = false;
+                    }
+                }
+                return data;
+            },
+
+            _refreshToken() {
+                return new Promise((resolve, reject) => {
+                    const orig = App.tokenClient.callback;
+                    App.tokenClient.callback = (resp) => {
+                        App.tokenClient.callback = orig;
+                        if (resp.error) return reject(new Error(resp.error));
+                        App.token = resp.access_token;
+                        localStorage.setItem(STORAGE_KEY_TOKEN, resp.access_token);
+                        resolve(resp.access_token);
+                    };
+                    App.tokenClient.requestAccessToken({ prompt: '' });
+                });
+            },
+
+            // ─── Render ───
+            _render() {
+                const body = document.getElementById('appBody');
+                if (!body) return;
+                if (!App.trajes.length) {
+                    body.innerHTML =
+                        '<div class="empty"><p>No tienes trajes asignados ahora mismo.</p></div>';
+                    return;
+                }
+                // Separar en dos grupos: en mi taller vs en camino
+                const enTaller = [];
+                const enCamino = [];
+                for (const t of App.trajes) {
+                    const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+                    if (fechaEnt) enTaller.push(t); else enCamino.push(t);
+                }
+                body.innerHTML =
+                    App._renderGrupo('\u{1F3ED} En mi taller', '#1b5e20', enTaller,
+                        'Estos trajes están físicamente en tu taller. A trabajar.') +
+                    App._renderGrupo('\u{1F69B} En camino', '#7c5e10', enCamino,
+                        'Aún no han llegado. Te sirven para ir preparando.');
+            },
+
+            _renderGrupo(titulo, color, lista, subtitulo) {
+                if (!lista.length) return '';
+                const cards = lista.map(t => App._renderCard(t)).join('');
+                return `
+                    <div class="grupo">
+                        <div class="grupo-header">
+                            <h2 style="color:${color};">${titulo}</h2>
+                            <span class="count">${lista.length} traje${lista.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div class="desc">${subtitulo}</div>
+                        <div class="cards-grid">${cards}</div>
+                    </div>`;
+            },
+
+            _renderCard(t) {
+                const numRaw = String(t['Nº'] || '').trim();
+                const numInt = parseInt(numRaw, 10);
+                const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
+                const nombre   = (t['NOMBRE']   || '').trim() || '—';
+                const modelo   = (t['MODELO']   || '').trim() || '—';
+                const tipoTela = (t['TIPO TELA'] || '').trim();
+                const medidas  = (t['MEDIDAS']  || '').trim();
+                const adornos  = (t['ADORNOS']  || '').trim();
+                const feria    = (t['FERIA']    || '').trim();
+                const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+                const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
+
+                return `
+                    <div class="card">
+                        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+                            <strong style="font-size:16px; color:var(--primary);">#${App._esc(num)} · ${App._esc(nombre)}</strong>
+                            ${tallaTxt ? `<span style="font-size:13px; font-weight:600; color:#444;">TALLA ${App._esc(tallaTxt)}</span>` : ''}
+                        </div>
+                        <div style="font-size:13px; margin-bottom:6px;">
+                            <strong>${App._esc(modelo)}</strong>${tipoTela ? ` · <span style="color:#666;">${App._esc(tipoTela)}</span>` : ''}
+                        </div>
+                        ${feria ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">\u{1F4CD} ${App._esc(feria)}</div>` : ''}
+                        ${fechaEnt ? `<div style="font-size:11px; color:#1b5e20; margin-bottom:6px;">✅ Entregado al taller el <strong>${App._esc(fechaEnt)}</strong></div>` : ''}
+                        ${adornos ? `
+                            <div style="border-top:1px solid var(--border-light); margin-top:8px; padding-top:8px;">
+                                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:4px;">Adornos</div>
+                                <div style="font-size:13px; line-height:1.5; white-space:pre-wrap;">${App._esc(adornos)}</div>
+                            </div>` : ''}
+                    </div>`;
+            },
+
+            _renderError(msg) {
+                const body = document.getElementById('appBody');
+                if (body) {
+                    body.innerHTML = `<div class="empty"><p style="color:#c62828; font-size:14px;">⚠️ ${App._esc(msg)}</p>` +
+                        `<button class="btn" style="margin-top:12px;" onclick="App.load(true)">Reintentar</button></div>`;
+                }
+            },
+
+            _esc(s) {
+                return String(s == null ? '' : s)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+            },
+        };
+
+        // Bootstrap
+        window.addEventListener('load', () => App.init());
+
+        // Auto-refresh cada 60 segundos cuando la pestaña esté visible y haya sesión.
+        // Útil para que el taller vea cambios de Pilar sin tener que pulsar Actualizar.
+        setInterval(() => {
+            if (document.hidden) return;
+            if (!App.token || !App.tallerNombre) return;
+            App.load();
+        }, 60000);
+    </script>
+</body>
+</html>
