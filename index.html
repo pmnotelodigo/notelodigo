@@ -14167,6 +14167,7 @@ App.jose = {
     _lastLoadAt: 0,           // timestamp ms de la última recarga real desde el sheet
     _pollingId: null,         // setInterval id del auto-refresh
     _POLL_MS: 30000,          // cada 30 segundos refresca si la sección Jose está activa
+    _suspendPollingUntil: 0,  // timestamp ms hasta cuándo no se debe pollear (tras una escritura)
 
     /**
      * Carga la sección. La sección Jose es colaborativa (Pilar + Andrés actuando
@@ -14224,6 +14225,10 @@ App.jose = {
         const visible = sec && sec.classList.contains('active');
         if (!visible) return;
         if (document.hidden) return;  // pestaña no en foco → no malgastar API quota
+        // Si recientemente se hizo una escritura, esperar a que Sheets propague.
+        // Si polleamos antes de que la escritura sea consistente, la lectura
+        // puede devolver el estado anterior y revertir lo que acabamos de cambiar.
+        if (Date.now() < this._suspendPollingUntil) return;
         try {
             await App.trajes.load(true);
             this._lastLoadAt = Date.now();
@@ -14232,6 +14237,13 @@ App.jose = {
         } catch (err) {
             console.warn('[jose.poll]', err.message);
         }
+    },
+
+    /** Suspende el polling durante `ms` milisegundos (por defecto 5s).
+     *  Llamar tras cada acción de escritura para evitar race conditions
+     *  con la consistencia eventual de Google Sheets. */
+    _pausePolling(ms) {
+        this._suspendPollingUntil = Date.now() + (ms || 5000);
     },
 
     /** Pinta el indicador "actualizado hace X" en el header de Jose. */
@@ -14613,6 +14625,7 @@ App.jose = {
             };
             await App.trajes._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
 
+            this._pausePolling(5000);
             App.toast.show(`Traje #${t[COL.num]} marcado como recogido del cortador`, 'success', 3000);
             this.filter();
         } catch (err) {
@@ -14675,6 +14688,7 @@ App.jose = {
                     : `Traje #${t[COL.num]}: taller desasignado`,
                 'info', 2500
             );
+            this._pausePolling(5000);
             // No llamamos a filter() para no perder el dropdown si Jose lo está usando.
             // Refrescamos los badges (sidebar) y la card del traje en sitio.
             if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
@@ -14733,6 +14747,9 @@ App.jose = {
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
 
+            // Suspender polling 5s para que Sheets propague antes del próximo refresh.
+            this._pausePolling(5000);
+
             App.toast.show(`Traje #${t[COL.num]} llevado al taller <strong>${taller}</strong>`, 'success', 3000);
             this.filter();
         } catch (err) {
@@ -14775,6 +14792,7 @@ App.jose = {
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
 
+            this._pausePolling(5000);
             App.toast.show(`Traje #${t[COL.num]} recibido del taller`, 'success', 3000);
             this.filter();
         } catch (err) {
@@ -14902,6 +14920,7 @@ App.jose = {
             updates.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
+            this._pausePolling(5000);
             App.toast.show(
                 nuevoTaller
                     ? `Traje #${t[COL.num]} → taller <strong>${nuevoTaller}</strong>`
