@@ -267,6 +267,50 @@
             line-height: 1.6;
             white-space: pre-wrap;
         }
+        .modal-foot {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 12px 18px;
+            border-top: 1px solid var(--border-light);
+            background: #fafafa;
+        }
+        .btn-sec-modal {
+            background: white;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-sec-modal:hover {
+            background: #f5f5f5;
+        }
+
+        /* ─── Impresión ─── */
+        @media print {
+            /* Ocultar TODO menos el modal de ficha cuando imprimes */
+            body * { visibility: hidden; }
+            #fichaModal, #fichaModal * { visibility: visible; }
+            #fichaModal {
+                position: static;
+                background: white;
+                padding: 0;
+                display: block !important;
+            }
+            .modal-content {
+                box-shadow: none;
+                max-width: 100%;
+                margin: 0;
+            }
+            .modal-head {
+                background: white !important;
+                color: black !important;
+                border-bottom: 2px solid black;
+            }
+            .modal-head .cerrar { display: none; }
+            .modal-head .titulo { color: black !important; }
+            .no-print { display: none !important; }
+            .modal-body table td:first-child { color: #000 !important; }
+            @page { margin: 1.5cm; }
+        }
 
         /* ─── Toast ─── */
         #toast {
@@ -343,6 +387,14 @@
                 <button class="cerrar" onclick="App.closeFicha()" aria-label="Cerrar">×</button>
             </div>
             <div class="modal-body" id="fichaBody"></div>
+            <div class="modal-foot no-print">
+                <button class="btn btn-sec-modal" onclick="App.copiarFicha()" title="Copia la ficha como texto para mandarla por WhatsApp o email">
+                    📋 Copiar
+                </button>
+                <button class="btn" onclick="App.imprimirFicha()" title="Imprime esta ficha en una hoja para entregar al taller">
+                    🖨 Imprimir
+                </button>
+            </div>
         </div>
     </div>
 
@@ -558,18 +610,13 @@
                         '<div class="empty"><p>No tienes trajes asignados ahora mismo.</p></div>';
                     return;
                 }
-                // Separar en dos grupos: en mi taller vs en camino
-                const enTaller = [];
-                const enCamino = [];
-                for (const t of App.trajes) {
-                    const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
-                    if (fechaEnt) enTaller.push(t); else enCamino.push(t);
-                }
-                body.innerHTML =
-                    App._renderGrupo('\u{1F3ED} En mi taller', '#1b5e20', enTaller,
-                        'Estos trajes están físicamente en tu taller.') +
-                    App._renderGrupo('\u{1F69B} En camino', '#7c5e10', enCamino,
-                        'Estos cortes están a punto de llegar desde NOTELODIGO.');
+                // Solo mostramos "En mi taller" — los trajes "en camino" aún no
+                // están físicamente con las costureras, no necesitan verlos.
+                const enTaller = (App.trajes || []).filter(t =>
+                    (t['FECHA ENTREGA TALLER'] || '').toString().trim()
+                );
+                body.innerHTML = App._renderGrupo('\u{1F3ED} En mi taller', '#1b5e20', enTaller,
+                    'Estos trajes están físicamente en tu taller.');
             },
 
             _renderGrupo(titulo, color, lista, subtitulo) {
@@ -704,17 +751,14 @@
                 const trajeRecibido  = (t['TRAJE RECIBIDO']  || '').toString().trim();
                 const trajeEntregado = (t['TRAJE ENTREGADO'] || '').toString().trim();
 
-                const m = t._modelo || {};
-                const tipoConstr = (m.tipoConstruccion || '').trim();
-                const telaPpalM  = (m.telaPpalM        || '').trim();
+                // Nota: NO mostramos "Construcción" ni "Tela ppal en metros" — eso
+                // es info para Pilar/cortador, al taller no le importa.
 
                 const fila = (label, value) =>
                     `<tr><td>${App._esc(label)}</td><td>${App._esc(value || '—')}</td></tr>`;
 
                 return '<table>' +
                     fila('Modelo', modelo) +
-                    (tipoConstr ? fila('Construcción', tipoConstr) : '') +
-                    (telaPpalM ? fila('Tela ppal', telaPpalM + ' m') : '') +
                     (tipoTela ? fila('Tipo tela', tipoTela) : '') +
                     (fechaEnt ? fila('Entrega al taller', fechaEnt) : '') +
                     (trajeRecibido ? fila('Estado recibido', trajeRecibido) : '') +
@@ -725,6 +769,89 @@
             closeFicha() {
                 document.getElementById('fichaModal').classList.remove('active');
                 document.body.style.overflow = '';
+            },
+
+            /** Imprime la ficha actual. Usa el CSS @media print que oculta toda
+             *  la app y deja visible solo el modal con un layout adaptado a A4. */
+            imprimirFicha() {
+                window.print();
+            },
+
+            /** Genera un texto plano con toda la ficha y lo copia al portapapeles
+             *  para pegar en WhatsApp / Email / etc. */
+            async copiarFicha() {
+                const titulo = document.getElementById('fichaTitulo').textContent.trim();
+                const body = document.getElementById('fichaBody');
+                if (!body) return;
+
+                const lineas = [titulo, ''];
+
+                // Tabla básica
+                const tabla = body.querySelector('table');
+                if (tabla) {
+                    tabla.querySelectorAll('tr').forEach(tr => {
+                        const tds = tr.querySelectorAll('td');
+                        if (tds.length >= 2) {
+                            const label = tds[0].textContent.trim();
+                            const value = tds[1].textContent.trim();
+                            lineas.push(`${label}: ${value}`);
+                        }
+                    });
+                }
+
+                // Secciones (medidas detalladas, adornos, etc.)
+                body.querySelectorAll('.modal-section').forEach(sec => {
+                    const h3 = sec.querySelector('h3');
+                    if (h3) {
+                        lineas.push('');
+                        lineas.push(`— ${h3.textContent.trim()} —`);
+                    }
+                    const tabla = sec.querySelector('table');
+                    if (tabla) {
+                        tabla.querySelectorAll('tr').forEach(tr => {
+                            const tds = tr.querySelectorAll('td');
+                            if (tds.length >= 2) {
+                                const label = tds[0].textContent.trim();
+                                const value = tds[1].textContent.trim();
+                                lineas.push(`${label}: ${value}`);
+                            }
+                        });
+                    } else {
+                        const content = sec.querySelector('.content');
+                        if (content) lineas.push(content.textContent.trim());
+                    }
+                });
+
+                const texto = lineas.join('\n');
+                try {
+                    await navigator.clipboard.writeText(texto);
+                    App._toast('Ficha copiada — pégala en WhatsApp o email', 'success');
+                } catch (err) {
+                    // Fallback para navegadores sin clipboard API
+                    const ta = document.createElement('textarea');
+                    ta.value = texto;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try {
+                        document.execCommand('copy');
+                        App._toast('Ficha copiada', 'success');
+                    } catch (_) {
+                        App._toast('No se pudo copiar — intenta otro navegador', 'error');
+                    }
+                    document.body.removeChild(ta);
+                }
+            },
+
+            _toast(msg, type) {
+                const el = document.getElementById('toast');
+                if (!el) return;
+                el.textContent = msg;
+                el.className = type || '';
+                el.classList.add('show');
+                clearTimeout(App._toastTimer);
+                App._toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
             },
 
             _renderError(msg) {
@@ -787,6 +914,7 @@
     </script>
 </body>
 </html>
+
 
 
 
