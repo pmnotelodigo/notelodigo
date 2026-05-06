@@ -11704,27 +11704,15 @@ App.trajes = {
             };
 
             // ── Fechas: respetar lo que esté en el input ────────────────────
-            // Si Pilar borró una fecha (input vacío), se guarda vacía.
+            // Si el usuario borra una fecha (input vacío), se guarda vacía.
             // El auto-stamp visual al cambiar CORTE se hace en _onCorteChange,
             // no aquí en el save — para que el borrado sea respetable.
+            // _toInputDate / _toSheetDate ya soportan cualquier formato de fecha,
+            // así que un input vacío significa "borrado intencional" siempre.
             const fechaEnvNueva = this._toSheetDate((document.getElementById('editTrajeFechaEnviadoCorte')?.value  || '').trim());
             const fechaRecNueva = this._toSheetDate((document.getElementById('editTrajeFechaRecogidoCorte')?.value || '').trim());
             const fechaEntNueva = this._toSheetDate((document.getElementById('editTrajeFechaEntregaTaller')?.value || '').trim());
             const fechaRcdNueva = this._toSheetDate((document.getElementById('editTrajeFechaRecibido')?.value      || '').trim());
-
-            // Protección defensiva: si una fecha original tenía valor pero ahora va
-            // a escribirse vacía (probablemente porque el input no la pudo parsear
-            // por formato raro), preservamos la original normalizada en vez de
-            // borrarla. Si el usuario REALMENTE quiso borrarla, lo verá en el modal
-            // y volverá a guardar con el input vacío explícitamente.
-            const tPrevSafe = tPrev || {};
-            const preservaSiSeBorraSinIntencion = (nueva, original) => {
-                // Si lo nuevo es vacío PERO había algo antes → preservar original.
-                if (!nueva && original) return this._toSheetDate(original);
-                return nueva;
-            };
-            const fechaEntSafe = preservaSiSeBorraSinIntencion(fechaEntNueva, tPrevSafe[this.COL.fechaEntregaTaller]);
-            const fechaRcdSafe = preservaSiSeBorraSinIntencion(fechaRcdNueva, tPrevSafe[this.COL.fechaRecibido]);
 
             const updates = [
                 ['ESTADO',               (document.getElementById('editTrajeEstado')?.value             || '').trim()],
@@ -11736,9 +11724,9 @@ App.trajes = {
                 ['FECHA ENVIADO CORTE',  fechaEnvNueva],
                 ['FECHA RECOGIDO CORTE', fechaRecNueva],
                 ['TALLER',               (document.getElementById('editTrajeTaller')?.value             || '').trim()],
-                ['FECHA ENTREGA TALLER', fechaEntSafe],
+                ['FECHA ENTREGA TALLER', fechaEntNueva],
                 ['TRAJE RECIBIDO',       (document.getElementById('editTrajeTrajeRecibido')?.value      || '').trim()],
-                ['FECHA RECIBIDO',       fechaRcdSafe],
+                ['FECHA RECIBIDO',       fechaRcdNueva],
                 ['TRAJE ENTREGADO',      (document.getElementById('editTrajeTrajeEntregado')?.value     || '').trim()],
                 // Marca de modificación (para detectar trajes estancados en bandeja "Revisar")
                 ['FECHA ULTIMA MOD',     this._toSheetDate(this._todayISO())],
