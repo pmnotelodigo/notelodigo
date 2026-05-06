@@ -14015,40 +14015,24 @@ App.modelos = {
     },
 
     // ── Foto: subida a Drive ──────────────────────────────────────────────
-    _fotosFolderId: null,        // cache de la carpeta FOTOS_MODELOS_<NOMBRE>
-    _fotosFolderSeason: null,    // temporada para la que está cacheada
+    _fotosFolderId: null,        // cache de la carpeta FOTOS_MODELOS (global)
 
-    /** Localiza/crea la carpeta FOTOS_MODELOS_<NOMBRE> dentro de TEMPORADA_<NOMBRE>/.
-     *  Devuelve el id de la carpeta. Cachea por temporada actual. */
+    /** Localiza/crea la carpeta FOTOS_MODELOS dentro de la carpeta CONFIG/.
+     *  Es GLOBAL, igual que el catálogo MODELOS — un modelo se reutiliza
+     *  entre temporadas y sus fotos también. Cachea el ID en memoria. */
     async _ensureFotosFolder() {
-        // Preferir la temporada en memoria; si no, fallback al localStorage; si tampoco, error
-        const season =
-            App.seasons?.current()?.NOMBRE ||
-            App.settings.getLocal('currentSeason') ||
-            '';
-        if (!season) {
-            throw new Error('No hay temporada activa. Selecciona una temporada antes de subir fotos.');
+        if (this._fotosFolderId) return this._fotosFolderId;
+
+        const configFolderId = App.settings.getLocal('configsFolderId');
+        if (!configFolderId) {
+            throw new Error('No hay carpeta CONFIG enlazada. Ve a Ajustes y enlázala.');
         }
-        if (this._fotosFolderId && this._fotosFolderSeason === season) {
-            return this._fotosFolderId;
-        }
-        const fichasFolderId = App.settings.get('fichasFolderId');
-        if (!fichasFolderId) {
-            throw new Error('No hay FICHAS_FOLDER_ID configurado. Ve a Ajustes → Temporadas.');
-        }
-        // El padre de FICHAS_FOLDER_ID es TEMPORADA_<NOMBRE>/
-        const meta = await App.sheets.getDriveFileMetadata(fichasFolderId);
-        const tempFolderId = meta.parents?.[0];
-        if (!tempFolderId) {
-            throw new Error('No se pudo localizar la carpeta de la temporada actual.');
-        }
-        const folderName = `FOTOS_MODELOS_${season}`;
-        let folder = await App.sheets.findChildFolder(tempFolderId, folderName);
+        const folderName = 'FOTOS_MODELOS';
+        let folder = await App.sheets.findChildFolder(configFolderId, folderName);
         if (!folder) {
-            folder = await App.sheets.createDriveFolder(folderName, tempFolderId);
+            folder = await App.sheets.createDriveFolder(folderName, configFolderId);
         }
         this._fotosFolderId = folder.id;
-        this._fotosFolderSeason = season;
         return folder.id;
     },
 
