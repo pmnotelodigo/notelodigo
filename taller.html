@@ -479,9 +479,15 @@
                 }
             },
 
-            async _callProxy(action) {
-                const buildUrl = (token) =>
-                    `${PROXY_URL}?token=${encodeURIComponent(token)}&action=${encodeURIComponent(action)}`;
+            async _callProxy(action, extras) {
+                // extras es un objeto opcional con parámetros adicionales: {num: '003'}.
+                const buildUrl = (token) => {
+                    const params = new URLSearchParams({ token: token, action: action });
+                    if (extras) {
+                        for (const k of Object.keys(extras)) params.append(k, extras[k]);
+                    }
+                    return `${PROXY_URL}?${params.toString()}`;
+                };
                 let resp = await fetch(buildUrl(App.token), { method: 'GET', redirect: 'follow' });
                 let data = await resp.json();
                 if (data && data.error === 'invalid_token' && !App._refreshingToken) {
@@ -561,7 +567,7 @@
                 const medidas  = (t['MEDIDAS']  || '').trim();
                 const adornos  = (t['ADORNOS']  || '').trim();
                 const feria    = (t['FERIA']    || '').trim();
-                const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+                const fechaEnt = App._formatDate(t['FECHA ENTREGA TALLER']);
                 const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
 
                 return `
@@ -583,7 +589,7 @@
                     </div>`;
             },
 
-            verFicha(rowIndex) {
+            async verFicha(rowIndex) {
                 const t = (App.trajes || []).find(x => x._rowIndex === rowIndex);
                 if (!t) return;
 
@@ -591,24 +597,83 @@
                 const numInt = parseInt(numRaw, 10);
                 const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
                 const nombre   = (t['NOMBRE']   || '').trim() || '—';
+
+                // Mostrar modal con datos básicos inmediatamente, mientras cargan las medidas
+                document.getElementById('fichaTitulo').innerHTML =
+                    `Traje #${App._esc(num)} · ${App._esc(nombre)}`;
+                document.getElementById('fichaBody').innerHTML =
+                    App._renderFichaBasica(t) +
+                    '<div class="modal-section" id="fichaMedidasLoading">' +
+                        '<div class="spinner" style="width:20px; height:20px; border-width:2px; margin:0 auto;"></div>' +
+                        '<div style="text-align:center; font-size:11px; color:#888; margin-top:6px;">Cargando medidas…</div>' +
+                    '</div>';
+                document.getElementById('fichaModal').classList.add('active');
+                document.body.style.overflow = 'hidden';
+
+                // Pedir las medidas al proxy (lee el Google Doc del traje)
+                try {
+                    const data = await App._callProxy('ficha', { num: String(numInt) });
+                    const loading = document.getElementById('fichaMedidasLoading');
+                    if (!data || !data.ok) {
+                        if (loading) loading.innerHTML =
+                            '<div style="font-size:12px; color:#c62828;">No se pudieron cargar las medidas: ' +
+                            App._esc((data && data.message) || 'desconocido') + '</div>';
+                        return;
+                    }
+                    const medidas = data.ficha && data.ficha._medidas;
+                    if (!medidas || !Object.keys(medidas).length) {
+                        if (loading) loading.innerHTML =
+                            '<div style="font-size:12px; color:#888; text-align:center;">Sin medidas detalladas en la ficha.</div>';
+                        return;
+                    }
+                    // Render de las medidas como tabla
+                    const orden = [
+                        'TALLA', 'LARGO TOTAL',
+                        'LARGO TALLE DELANTERO', 'LARGO TALLE ESPALDA', 'HOMBRO',
+                        'CONTORNO PECHO', 'CONTORNO CINTURA', 'CONTORNO CADERA',
+                        'ALTURA DE PECHO', 'SEPARACION DE PECHO', 'SEPARACIÓN DE PECHO',
+                        'LARGO DE MANGA', 'CONTORNO DE MANGA',
+                        'CONTORNO DE MUNECA', 'CONTORNO DE MUÑECA',
+                    ];
+                    // Ordenar: primero las del orden conocido, luego el resto alfabéticamente
+                    const keys = Object.keys(medidas);
+                    const known = orden.filter(o => keys.includes(o));
+                    const extras = keys.filter(k => !orden.includes(k)).sort();
+                    const all = [...known, ...extras];
+                    const fila = (label, value) =>
+                        `<tr><td>${App._esc(label)}</td><td>${App._esc(value)}</td></tr>`;
+                    const filas = all.map(k => fila(k, medidas[k])).join('');
+                    if (loading) loading.outerHTML = `
+                        <div class="modal-section">
+                            <h3>Medidas detalladas</h3>
+                            <table>${filas}</table>
+                        </div>`;
+                } catch (err) {
+                    const loading = document.getElementById('fichaMedidasLoading');
+                    if (loading) loading.innerHTML =
+                        '<div style="font-size:12px; color:#c62828;">Error: ' + App._esc(err.message) + '</div>';
+                }
+            },
+
+            /** Renderiza el bloque básico (modelo, tela, adornos…) sin las medidas. */
+            _renderFichaBasica(t) {
+                const numRaw = String(t['Nº'] || '').trim();
+                const numInt = parseInt(numRaw, 10);
+                const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
                 const modelo   = (t['MODELO']   || '').trim() || '—';
                 const tipoTela = (t['TIPO TELA'] || '').trim();
                 const medidas  = (t['MEDIDAS']  || '').trim();
                 const adornos  = (t['ADORNOS']  || '').trim();
                 const feria    = (t['FERIA']    || '').trim();
-                const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+                const fechaEnt = App._formatDate(t['FECHA ENTREGA TALLER']);
                 const trajeRecibido  = (t['TRAJE RECIBIDO']  || '').toString().trim();
                 const trajeEntregado = (t['TRAJE ENTREGADO'] || '').toString().trim();
                 const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
 
-                // Info adicional del modelo (la añade el proxy si está en CATALOGOS/MODELOS)
                 const m = t._modelo || {};
                 const tipoConstr   = (m.tipoConstruccion || '').trim();
                 const telaPpalM    = (m.telaPpalM        || '').trim();
                 const adornosCat   = (m.adornosModelo    || '').trim();
-
-                document.getElementById('fichaTitulo').innerHTML =
-                    `Traje #${App._esc(num)} · ${App._esc(nombre)}`;
 
                 const fila = (label, value) =>
                     `<tr><td>${App._esc(label)}</td><td>${App._esc(value || '—')}</td></tr>`;
@@ -620,15 +685,12 @@
                         (telaPpalM ? fila('Tela ppal', telaPpalM + ' m') : '') +
                         (tipoTela ? fila('Tipo tela', tipoTela) : '') +
                         (tallaTxt ? fila('Talla', tallaTxt) : '') +
-                        (medidas && medidas !== `T.${tallaTxt}` && medidas !== tallaTxt ? fila('Medidas', medidas) : '') +
                         (feria ? fila('Feria', feria) : '') +
                         (fechaEnt ? fila('Entrega al taller', fechaEnt) : '') +
                         (trajeRecibido ? fila('Estado recibido', trajeRecibido) : '') +
                         (trajeEntregado ? fila('Estado entregado', trajeEntregado) : '') +
                     '</table>';
 
-                // Adornos del traje (de la ficha) y del modelo (catálogo) — los muestro por separado
-                // si son distintos, así el taller ve qué pidió el cliente y la base del modelo.
                 if (adornos) {
                     html += `
                         <div class="modal-section">
@@ -643,10 +705,7 @@
                             <div class="content" style="color:#555;">${App._esc(adornosCat)}</div>
                         </div>`;
                 }
-
-                document.getElementById('fichaBody').innerHTML = html;
-                document.getElementById('fichaModal').classList.add('active');
-                document.body.style.overflow = 'hidden';
+                return html;
             },
 
             closeFicha() {
@@ -668,6 +727,28 @@
                     .replace(/</g, '&lt;')
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;');
+            },
+
+            /**
+             * Convierte una fecha en cualquier formato (Date.toString() inglés,
+             * ISO 2026-05-06, DD/MM/YYYY) al formato español "dd/MM/yyyy".
+             * Si no se puede parsear, devuelve el valor original.
+             */
+            _formatDate(s) {
+                if (!s) return '';
+                const str = String(s).trim();
+                // Ya está en dd/MM/yyyy → no tocar
+                if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) return str;
+                const looksLikeDate =
+                    /^[A-Z][a-z]{2}\s[A-Z][a-z]{2}\s\d{1,2}\s\d{4}/.test(str) ||
+                    /^\d{4}-\d{2}-\d{2}/.test(str);
+                if (!looksLikeDate) return str;
+                const d = new Date(str);
+                if (isNaN(d.getTime())) return str;
+                const dd = String(d.getDate()).padStart(2, '0');
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const yy = d.getFullYear();
+                return `${dd}/${mm}/${yy}`;
             },
         };
 
@@ -692,5 +773,6 @@
     </script>
 </body>
 </html>
+
 
 
