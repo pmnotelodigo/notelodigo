@@ -10820,21 +10820,54 @@ App.trajes = {
         return new Date().toISOString().slice(0, 10);
     },
 
-    // Convierte DD/MM/YYYY (formato sheet) → YYYY-MM-DD (formato input[type=date])
+    // Convierte cualquier formato de fecha → YYYY-MM-DD (formato input[type=date])
+    // Soporta:
+    //   • ISO: 2026-05-06 (lo deja igual, devuelve solo la parte de fecha)
+    //   • Sheet español: 06/05/2026
+    //   • Date.toString() en inglés: "Wed May 06 2026 09:00:00 GMT+0200..."
+    //   • Otros formatos parseables por new Date()
+    // Devuelve '' si val es vacío o no se puede parsear.
     _toInputDate(val) {
         if (!val) return '';
-        if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val; // ya es ISO
-        const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        const s = String(val).trim();
+        if (!s) return '';
+        // ISO con o sin hora: 2026-05-06 o 2026-05-06T09:00:00.000Z
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+        // Formato sheet español DD/MM/YYYY
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
         if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        // Cualquier otro formato (p.ej. "Wed May 06 2026 09:00:00 GMT+0200...")
+        const d = new Date(s);
+        if (!isNaN(d.getTime())) {
+            const yy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yy}-${mm}-${dd}`;
+        }
         return '';
     },
 
-    // Convierte YYYY-MM-DD (formato input[type=date]) → DD/MM/YYYY (formato sheet español)
+    // Convierte cualquier formato de fecha → DD/MM/YYYY (formato sheet español)
+    // Aplica la misma normalización que _toInputDate, así el sheet queda
+    // siempre con un formato consistente aunque venga texto raro de antes.
     _toSheetDate(val) {
         if (!val) return '';
-        const m = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        if (m) return `${m[3]}/${m[2]}/${m[1]}`;
-        return val; // ya está en otro formato, dejar tal cual
+        const s = String(val).trim();
+        if (!s) return '';
+        // YYYY-MM-DD del input
+        const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+        // Ya está en formato DD/MM/YYYY
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) return s;
+        // Cualquier otro formato — intentar parsear y normalizar
+        const d = new Date(s);
+        if (!isNaN(d.getTime())) {
+            const yy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${dd}/${mm}/${yy}`;
+        }
+        return s;  // último recurso: dejarla tal cual
     },
 
     _onCorteChange(val) {
@@ -15711,39 +15744,75 @@ App.misTrajes = {
             cont.innerHTML = '<div class="empty-state" style="padding:40px;"><p>No hay trajes asignados a tu taller en este momento.</p></div>';
             return;
         }
+
+        // Separar trajes en dos grupos:
+        //   • "En mi taller" — FECHA ENTREGA TALLER rellena (ya están físicamente).
+        //   • "En camino"    — sin fecha de entrega (todavía en corte / cortador).
+        const enTaller = [];
+        const enCamino = [];
+        for (const t of this._filtered) {
+            const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+            if (fechaEnt) enTaller.push(t); else enCamino.push(t);
+        }
+
+        cont.innerHTML =
+            this._renderGrupo('🏭 En mi taller', '#1b5e20', '#e8f5e9', enTaller,
+                'Estos trajes están físicamente en tu taller. A trabajar.') +
+            this._renderGrupo('🚛 En camino', '#7c5e10', '#fff3cd', enCamino,
+                'Estos trajes aún no han llegado. Sirven para que vayas preparándote.');
+    },
+
+    /** Pinta un grupo (cards de trajes) con título y color. */
+    _renderGrupo(titulo, color, bgColor, lista, subtitulo) {
+        if (!lista.length) return '';
+        const cards = lista.map(t => this._renderCard(t)).join('');
+        return `
+            <div style="margin-bottom:24px;">
+                <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:8px;">
+                    <h3 style="font-size:16px; font-weight:700; color:${color}; margin:0;">${titulo}</h3>
+                    <span style="font-size:13px; color:#666;">${lista.length} traje${lista.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div style="font-size:12px; color:#666; margin-bottom:10px;">${subtitulo}</div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:12px;">${cards}</div>
+            </div>`;
+    },
+
+    /** Card de un traje con TODOS los datos relevantes (no hace falta abrir ficha). */
+    _renderCard(t) {
         const COL = App.trajes.COL;
-        const rows = this._filtered.map(t => {
-            const num     = String(t[COL.num] || '').trim();
-            const nombre  = (t[COL.nombre]   || '').trim() || '—';
-            const modelo  = (t[COL.modelo]   || '').trim() || '—';
-            const tipoTela = (t[COL.tipoTela] || '').trim() || '—';
-            const medidas = (t[COL.medidas]  || '').trim();
-            const tallaMatch = medidas.match(/T\.?(\d+)/i);
-            const talla = tallaMatch ? `T.${tallaMatch[1]}` : (medidas || '—');
-            return `
-                <tr style="border-bottom:1px solid var(--border-light); cursor:pointer;"
-                    onclick="App.misTrajes.verFicha(${t._rowIndex})">
-                    <td style="padding:10px 12px; font-weight:600; color:var(--primary);">${num}</td>
-                    <td style="padding:10px 12px;">${nombre}</td>
-                    <td style="padding:10px 12px;">${modelo}</td>
-                    <td style="padding:10px 12px; font-size:12px;">${tipoTela}</td>
-                    <td style="padding:10px 12px; text-align:center;"><strong>${talla}</strong></td>
-                </tr>`;
-        }).join('');
-        cont.innerHTML = `
-            <div class="card" style="padding:0; overflow:hidden;">
-                <table style="width:100%; border-collapse:collapse;">
-                    <thead style="background:#fafafa;">
-                        <tr>
-                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">N&ordm;</th>
-                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Clienta</th>
-                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Modelo</th>
-                            <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Tela</th>
-                            <th style="padding:10px 12px; text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#555;">Talla</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
+        // Padding: 5 → 005, 23 → 023. Si no es número, deja el valor crudo.
+        const numRaw = String(t[COL.num] || t['Nº'] || '').trim();
+        const numInt = parseInt(numRaw, 10);
+        const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
+
+        const nombre   = (t[COL.nombre]   || t['NOMBRE']   || '').trim() || '—';
+        const modelo   = (t[COL.modelo]   || t['MODELO']   || '').trim() || '—';
+        const tipoTela = (t[COL.tipoTela] || t['TIPO TELA'] || '').trim();
+        const medidas  = (t[COL.medidas]  || t['MEDIDAS']  || '').trim();
+        const adornos  = (t[COL.adornos]  || t['ADORNOS']  || '').trim();
+        const feria    = (t[COL.feria]    || t['FERIA']    || '').trim();
+        const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+
+        // Talla normalizada
+        const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
+
+        return `
+            <div class="card" style="padding:14px;">
+                <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+                    <strong style="font-size:16px; color:var(--primary);">#${num} · ${nombre}</strong>
+                    ${tallaTxt ? `<span style="font-size:13px; font-weight:600; color:#444;">TALLA ${tallaTxt}</span>` : ''}
+                </div>
+                <div style="font-size:13px; margin-bottom:6px;">
+                    <strong>${modelo}</strong>${tipoTela ? ` · <span style="color:#666;">${tipoTela}</span>` : ''}
+                </div>
+                ${feria ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">&#x1F4CD; ${feria}</div>` : ''}
+                ${fechaEnt ? `<div style="font-size:11px; color:#1b5e20; margin-bottom:6px;">&#x2705; Entregado al taller el <strong>${fechaEnt}</strong></div>` : ''}
+                ${adornos ? `
+                    <div style="border-top:1px solid var(--border-light); margin-top:8px; padding-top:8px;">
+                        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:4px;">Adornos</div>
+                        <div style="font-size:13px; line-height:1.5; white-space:pre-wrap;">${adornos}</div>
+                    </div>
+                ` : ''}
             </div>`;
     },
 
