@@ -1030,12 +1030,18 @@
             text-transform: uppercase;
             white-space: nowrap;
         }
+        /* Chips de estado — paleta unificada por semántica:
+           - completed (entregado/recibido/recogido)  → verde success
+           - in-progress (enviado/pedida)            → azul info
+           - warning (arreglo/revisar)               → naranja warning
+           - error (incidencia)                      → rojo danger
+           - pending/empty                           → gris neutro */
         .chip-correcto   { background: var(--success-bg); color: var(--success); }
+        .chip-recibida   { background: var(--success-bg); color: var(--success); }
+        .chip-recogido   { background: var(--success-bg); color: var(--success); }
         .chip-revisar    { background: var(--warning-bg); color: var(--warning); }
         .chip-incidencia { background: var(--danger-bg);  color: var(--danger); }
         .chip-enviado    { background: var(--info-bg);    color: var(--info); }
-        .chip-recibida   { background: var(--success-bg); color: var(--success); }
-        .chip-recogido   { background: #E8F5E9; color: #2E7D32; }
         .chip-pendiente  { background: #F5F5F5; color: var(--text-muted); }
         .chip-empty      { background: #F5F5F5; color: var(--text-muted); }
         /* Botón Enviar a corte inline */
@@ -1911,46 +1917,13 @@
 
             <!-- SECTION: Clientas -->
             <div class="section" id="sec-clientas">
-                <!-- Toolbar -->
+                <!-- Toolbar simplificado: solo buscador + acciones. Los filtros viven en las cabeceras de la tabla. -->
                 <div class="card" style="margin-bottom:16px; padding:16px;">
                     <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
                         <input type="text" class="form-input" id="clientaSearch"
                                placeholder="&#x1F50D; Buscar por nombre..."
-                               style="max-width:260px; margin:0;"
+                               style="max-width:300px; margin:0;"
                                oninput="App.clientas.filter()">
-                        <select class="form-input" id="clientaFilterFeria"
-                                style="max-width:160px; margin:0;"
-                                onchange="App.clientas.filter()">
-                            <option value="">Todas las ferias</option>
-                        </select>
-                        <select class="form-input" id="clientaFilterModelo"
-                                style="max-width:160px; margin:0;"
-                                onchange="App.clientas.filter()">
-                            <option value="">Todos los modelos</option>
-                        </select>
-                        <select class="form-input" id="clientaFilterTela"
-                                style="max-width:160px; margin:0;"
-                                onchange="App.clientas.filter()">
-                            <option value="">Todas las telas</option>
-                        </select>
-                        <select class="form-input" id="clientaFilterTelaRecibida"
-                                style="max-width:180px; margin:0;"
-                                onchange="App.clientas.filter()">
-                            <option value="">Estado tela: cualquiera</option>
-                            <option value="PENDIENTE">Tela: Pendiente</option>
-                            <option value="PEDIDA">Tela: Pedida</option>
-                            <option value="RECIBIDA">Tela: Recibida</option>
-                            <option value="INCIDENCIA">Tela: Incidencia</option>
-                        </select>
-                        <select class="form-input" id="clientaFilterCorte"
-                                style="max-width:160px; margin:0;"
-                                onchange="App.clientas.filter()">
-                            <option value="">Todos los cortes</option>
-                            <option value="PENDIENTE">Corte: Pendiente</option>
-                            <option value="ENVIADO">Corte: Enviado</option>
-                            <option value="RECOGIDO">Corte: Recogido</option>
-                            <option value="INCIDENCIA">Corte: Incidencia</option>
-                        </select>
                         <div style="margin-left:auto; display:flex; gap:8px;">
                             <button class="btn btn-secondary btn-sm" onclick="App.clientas.load(true)">
                                 &#x21BB; Actualizar
@@ -1960,7 +1933,23 @@
                             </button>
                         </div>
                     </div>
-                    <div style="margin-top:10px; font-size:13px; color:var(--text-muted);" id="clientaCount"></div>
+                    <!-- Chips de filtros activos por columna -->
+                    <div id="clientaActiveFilters" style="display:none; margin-top:8px; gap:6px; flex-wrap:wrap; align-items:center;"></div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="clientaCount"></div>
+                </div>
+
+                <!-- Popup de filtro de columna (reutilizable, mismo estilo que Trajes) -->
+                <div id="clientaColFilterPopup" style="display:none; position:fixed; z-index:999; background:#fff; border:1px solid var(--border);
+                     border-radius:var(--radius-sm); box-shadow:0 6px 24px rgba(0,0,0,0.15); min-width:180px; max-width:260px; max-height:320px; overflow:hidden;">
+                    <div style="padding:8px 10px; border-bottom:1px solid var(--border-light);">
+                        <input type="text" class="form-input" id="clientaColFilterSearch" placeholder="Filtrar..."
+                               style="font-size:12px; padding:4px 8px; margin:0; width:100%;" oninput="App.clientas._filterPopupList(this.value)">
+                    </div>
+                    <div id="clientaColFilterList" style="overflow-y:auto; max-height:230px; padding:4px 0;"></div>
+                    <div style="padding:6px 10px; border-top:1px solid var(--border-light); display:flex; justify-content:space-between;">
+                        <button class="btn btn-sm" style="font-size:11px; padding:3px 8px;" onclick="App.clientas._clearColFilter()">Limpiar</button>
+                        <button class="btn btn-sm btn-primary" style="font-size:11px; padding:3px 10px;" onclick="App.clientas._applyColFilter()">Aplicar</button>
+                    </div>
                 </div>
 
                 <!-- List -->
@@ -6386,12 +6375,11 @@ const App = {
             // Limpiar filtros de la toolbar de clientas para que no confundan
             const searchEl = document.getElementById('clientaSearch');
             if (searchEl) searchEl.value = '';
-            const feriaEl = document.getElementById('clientaFilterFeria');
-            if (feriaEl) feriaEl.value = '';
-            const modeloEl = document.getElementById('clientaFilterModelo');
-            if (modeloEl) modeloEl.value = '';
-            const corteEl = document.getElementById('clientaFilterCorte');
-            if (corteEl) corteEl.value = '';
+            // Limpiar también los filtros por columna (activos en cabecera de tabla)
+            App.clientas._colFilters = {};
+            if (typeof App.clientas._renderActiveFilters === 'function') {
+                App.clientas._renderActiveFilters();
+            }
 
             App.ui.navigateTo('clientas');
             App.clientas.render();
@@ -7529,7 +7517,6 @@ App.clientas = {
         try {
             const rows = await App.sheets.getListadoTrajes(forceRefresh);
             this.data = rows;
-            this.populateFilters();
             this.filter();
         } catch (err) {
             document.getElementById('clientasList').innerHTML =
@@ -7537,30 +7524,27 @@ App.clientas = {
         }
     },
 
-    populateFilters() {
-        // Ferias únicas
-        const ferias = [...new Set(this.data.map(c => c[this.COL.feria]).filter(Boolean))].sort();
-        const selFeria = document.getElementById('clientaFilterFeria');
-        selFeria.innerHTML = '<option value="">Todas las ferias</option>' +
-            ferias.map(f => `<option value="${f}">${f}</option>`).join('');
+    // ── Filtros por columna (spreadsheet-style — mismo patrón que Trajes) ──
+    _colFilters: {},   // { colKey: Set(['val1','val2']) }
+    _currentFilterCol: null,
 
-        // Modelos únicos (primer segmento antes de /)
-        const modelos = [...new Set(this.data.map(c =>
-            (c[this.COL.modelo] || '').split('/')[0].trim()
-        ).filter(Boolean))].sort();
-        const selModelo = document.getElementById('clientaFilterModelo');
-        selModelo.innerHTML = '<option value="">Todos los modelos</option>' +
-            modelos.map(m => `<option value="${m}">${m}</option>`).join('');
-
-        // Telas únicas (tipo + variante completos, p.ej. "BAMBULA / BLANCA")
-        const telas = [...new Set(this.data.map(c =>
-            (c[this.COL.tipoTela] || '').trim()
-        ).filter(Boolean))].sort();
-        const selTela = document.getElementById('clientaFilterTela');
-        if (selTela) {
-            selTela.innerHTML = '<option value="">Todas las telas</option>' +
-                telas.map(t => `<option value="${t}">${t}</option>`).join('');
-        }
+    _filterableCols: {
+        feria:           { label: 'Feria',          get: (c, self) => (c[self.COL.feria] || '').trim() || '' },
+        modelo:          { label: 'Modelo',         get: (c, self) => (c[self.COL.modelo] || '').split('/')[0].trim() || '' },
+        tela:            { label: 'Tela',           get: (c, self) => (c[self.COL.tipoTela] || '').trim() || '' },
+        telaRecibida:    { label: 'Tela recibida',  get: (c, self) => (c[self.COL.telaRecibida] || '').toUpperCase() || '' },
+        corte:           { label: 'Corte',          get: (c, self) => (c[self.COL.corte] || '').toUpperCase() || '' },
+        entregadoTaller: { label: 'Entregado al taller', get: (c, self) => {
+            const v = (c[self.COL.fechaEntregaTaller] || '').toString().trim();
+            return v ? 'LLEVADO' : 'PENDIENTE';
+        }},
+        entregado:       { label: 'Entregado',      get: (c, self) => {
+            const v = (c[self.COL.trajeEntregado] || '').toUpperCase();
+            if (v === 'ENTREGADO') return 'ENTREGADO';
+            if (v === 'ARREGLO')   return 'ARREGLO';
+            if (v === 'INCIDENCIA') return 'INCIDENCIA';
+            return 'PENDIENTE';
+        }},
     },
 
     filter() {
@@ -7568,26 +7552,159 @@ App.clientas = {
         const dashBanner = document.getElementById('dashboardFilterBanner');
         if (dashBanner) dashBanner.style.display = 'none';
 
-        const q = (document.getElementById('clientaSearch').value || '').toLowerCase().trim();
-        const feria = document.getElementById('clientaFilterFeria').value;
-        const modelo = document.getElementById('clientaFilterModelo').value;
-        const corte = document.getElementById('clientaFilterCorte').value;
-        const telaRec = document.getElementById('clientaFilterTelaRecibida')?.value || '';
-        const tela = document.getElementById('clientaFilterTela')?.value || '';
+        const q = (document.getElementById('clientaSearch')?.value || '').toLowerCase().trim();
 
         this.filtered = this.data.filter(c => {
-            if (q && !( (c[this.COL.nombre] || '').toLowerCase().includes(q) ))
-                return false;
-            if (feria && c[this.COL.feria] !== feria) return false;
-            if (modelo && !(c[this.COL.modelo] || '').startsWith(modelo)) return false;
-            if (tela && (c[this.COL.tipoTela] || '').trim() !== tela) return false;
-            if (corte && c[this.COL.corte] !== corte) return false;
-            if (telaRec && (c[this.COL.telaRecibida] || '').toUpperCase() !== telaRec) return false;
+            // Búsqueda libre por nombre
+            if (q && !((c[this.COL.nombre] || '').toLowerCase().includes(q))) return false;
+            // Filtros por columna
+            for (const [colKey, allowedSet] of Object.entries(this._colFilters)) {
+                if (!allowedSet || allowedSet.size === 0) continue;
+                const def = this._filterableCols[colKey];
+                if (!def) continue;
+                const val = def.get(c, this);
+                const displayVal = val || '(vacío)';
+                if (!allowedSet.has(displayVal)) return false;
+            }
             return true;
         });
 
         this.page = 1;
+        this._renderActiveFilters();
         this.render();
+    },
+
+    clearFilters() {
+        this._colFilters = {};
+        const searchEl = document.getElementById('clientaSearch');
+        if (searchEl) searchEl.value = '';
+        this.filter();
+    },
+
+    _openColFilter(colKey, thEl) {
+        const popup   = document.getElementById('clientaColFilterPopup');
+        const searchEl = document.getElementById('clientaColFilterSearch');
+        const listEl  = document.getElementById('clientaColFilterList');
+        if (!popup || !listEl) return;
+
+        this._currentFilterCol = colKey;
+        const def = this._filterableCols[colKey];
+        if (!def) return;
+
+        // Recopilar valores únicos de TODOS los datos (no solo filtered)
+        const valuesSet = new Set();
+        this.data.forEach(c => {
+            const v = def.get(c, this);
+            valuesSet.add(v || '(vacío)');
+        });
+        const values = [...valuesSet].sort((a, b) => {
+            if (a === '(vacío)') return 1;
+            if (b === '(vacío)') return -1;
+            return a.localeCompare(b);
+        });
+
+        const selected = this._colFilters[colKey] || new Set();
+
+        if (searchEl) searchEl.value = '';
+        listEl.innerHTML = values.map(v => {
+            const checked = selected.size === 0 || selected.has(v) ? 'checked' : '';
+            const escaped = v.replace(/"/g, '&quot;');
+            return `<label class="col-filter-item" data-val="${escaped}">
+                <input type="checkbox" ${checked} value="${escaped}">
+                <span>${v}</span>
+            </label>`;
+        }).join('');
+
+        const rect = thEl.getBoundingClientRect();
+        popup.style.top = (rect.bottom + 4) + 'px';
+        popup.style.left = Math.min(rect.left, window.innerWidth - 260) + 'px';
+        popup.style.display = '';
+
+        setTimeout(() => {
+            const closer = (e) => {
+                if (!popup.contains(e.target) && e.target !== thEl) {
+                    popup.style.display = 'none';
+                    document.removeEventListener('mousedown', closer);
+                }
+            };
+            document.addEventListener('mousedown', closer);
+        }, 10);
+    },
+
+    _filterPopupList(q) {
+        const listEl = document.getElementById('clientaColFilterList');
+        if (!listEl) return;
+        const query = q.toLowerCase().trim();
+        listEl.querySelectorAll('.col-filter-item').forEach(el => {
+            const val = (el.dataset.val || '').toLowerCase();
+            el.style.display = !query || val.includes(query) ? '' : 'none';
+        });
+    },
+
+    _applyColFilter() {
+        const colKey = this._currentFilterCol;
+        if (!colKey) return;
+        const listEl = document.getElementById('clientaColFilterList');
+        if (!listEl) return;
+
+        const checkboxes = listEl.querySelectorAll('input[type="checkbox"]');
+        const allChecked = [...checkboxes].every(cb => cb.checked);
+        const noneChecked = [...checkboxes].every(cb => !cb.checked);
+
+        if (allChecked || noneChecked) {
+            delete this._colFilters[colKey];
+        } else {
+            const selected = new Set();
+            checkboxes.forEach(cb => { if (cb.checked) selected.add(cb.value); });
+            this._colFilters[colKey] = selected;
+        }
+        document.getElementById('clientaColFilterPopup').style.display = 'none';
+        this.filter();
+    },
+
+    _clearColFilter() {
+        const colKey = this._currentFilterCol;
+        if (colKey) delete this._colFilters[colKey];
+        document.getElementById('clientaColFilterPopup').style.display = 'none';
+        this.filter();
+    },
+
+    _renderActiveFilters() {
+        const container = document.getElementById('clientaActiveFilters');
+        if (!container) return;
+        const hasColFilters = Object.keys(this._colFilters).length > 0;
+
+        if (!hasColFilters) {
+            container.style.display = 'none';
+            container.innerHTML = '';
+            return;
+        }
+        let html = '';
+        for (const [colKey, valSet] of Object.entries(this._colFilters)) {
+            if (!valSet || valSet.size === 0) continue;
+            const def = this._filterableCols[colKey];
+            const label = def ? def.label : colKey;
+            const vals = [...valSet].slice(0, 3).join(', ') + (valSet.size > 3 ? ` (+${valSet.size - 3})` : '');
+            html += `<span class="filter-chip">${label}: ${vals}<button onclick="delete App.clientas._colFilters['${colKey}']; App.clientas.filter();">&times;</button></span>`;
+        }
+        html += `<button class="btn btn-sm" style="font-size:11px; padding:2px 8px; color:var(--text-muted);"
+                         onclick="App.clientas.clearFilters()">Limpiar todo</button>`;
+        container.innerHTML = html;
+        container.style.display = 'flex';
+    },
+
+    // ── Chips de estado (locales — no dependemos de App.trajes para evitar acoplamiento) ──
+    _entregadoClientaChip(val) {
+        const v = (val || '').toUpperCase();
+        if (v === 'ENTREGADO')  return '<span class="chip chip-correcto">&#x2713; Entregado</span>';
+        if (v === 'ARREGLO')    return '<span class="chip chip-revisar">&#x1F527; Arreglo</span>';
+        if (v === 'INCIDENCIA') return '<span class="chip chip-incidencia">&#x2715; Incidencia</span>';
+        return '<span class="chip chip-pendiente">Pendiente</span>';
+    },
+    _entregadoTallerChip(fecha) {
+        const f = (fecha || '').toString().trim();
+        if (f) return `<span class="chip chip-correcto" title="Llevado el ${f}">&#x2713; Llevado</span>`;
+        return '<span class="chip chip-pendiente">Pendiente</span>';
     },
 
     render() {
@@ -7607,32 +7724,40 @@ App.clientas = {
             return;
         }
 
+        // Helpers para indicadores de filtro activo en la cabecera
+        const fIcon  = (k) => {
+            const active = this._colFilters[k] && this._colFilters[k].size > 0;
+            return `<span class="th-filter-icon">${active ? '&#x25BC;' : '&#x25BD;'}</span>`;
+        };
+        const fClass = (k) => {
+            const active = this._colFilters[k] && this._colFilters[k].size > 0;
+            return `filtrable${active ? ' active-filter' : ''}`;
+        };
+
         // Tabla
         let html = '<div class="table-container"><table>';
         html += `<tr>
             <th style="width:50px;">Nº</th>
             <th>Nombre</th>
             <th>Teléfono</th>
-            <th>Feria</th>
-            <th>Modelo</th>
-            <th>Tela</th>
-            <th style="text-align:center;">Entregado</th>
-            <th>Tela recibida</th>
-            <th>Corte</th>
-            <th style="text-align:center;">Entregado al taller</th>
+            <th class="${fClass('feria')}"           onclick="App.clientas._openColFilter('feria', this)">Feria ${fIcon('feria')}</th>
+            <th class="${fClass('modelo')}"          onclick="App.clientas._openColFilter('modelo', this)">Modelo ${fIcon('modelo')}</th>
+            <th class="${fClass('tela')}"            onclick="App.clientas._openColFilter('tela', this)">Tela ${fIcon('tela')}</th>
+            <th class="${fClass('telaRecibida')}"    onclick="App.clientas._openColFilter('telaRecibida', this)">Tela recibida ${fIcon('telaRecibida')}</th>
+            <th class="${fClass('corte')}"           onclick="App.clientas._openColFilter('corte', this)">Corte ${fIcon('corte')}</th>
+            <th class="${fClass('entregadoTaller')}" onclick="App.clientas._openColFilter('entregadoTaller', this)" style="text-align:center;">Entregado al taller ${fIcon('entregadoTaller')}</th>
+            <th class="${fClass('entregado')}"       onclick="App.clientas._openColFilter('entregado', this)" style="text-align:center;">Entregado ${fIcon('entregado')}</th>
             <th style="width:40px;"></th>
         </tr>`;
 
         pageData.forEach((c, i) => {
-            const entregadoVal = (c[this.COL.trajeEntregado] || '').toUpperCase();
-            const entregado = entregadoVal === 'ENTREGADO';
             const fechaEntTaller = (c[this.COL.fechaEntregaTaller] || '').toString().trim();
-            const llevadoTaller = !!fechaEntTaller;
             const idx = start + i;
 
-            // Reusamos los chips de App.trajes para mantener coherencia visual
-            const telaChip  = (App.trajes && App.trajes._telaChip)  ? App.trajes._telaChip(c[this.COL.telaRecibida])  : (c[this.COL.telaRecibida]  || '—');
-            const corteChip = (App.trajes && App.trajes._corteChip) ? App.trajes._corteChip(c[this.COL.corte])         : (c[this.COL.corte]         || '—');
+            const telaRecChip  = App.trajes && App.trajes._telaChip  ? App.trajes._telaChip(c[this.COL.telaRecibida])  : (c[this.COL.telaRecibida]  || '—');
+            const corteChip    = App.trajes && App.trajes._corteChip ? App.trajes._corteChip(c[this.COL.corte])         : (c[this.COL.corte]         || '—');
+            const entTallerChip = this._entregadoTallerChip(fechaEntTaller);
+            const entClientaChip = this._entregadoClientaChip(c[this.COL.trajeEntregado]);
 
             html += `<tr style="cursor:pointer;" onclick="App.clientas.openFicha(${idx})">
                 <td data-label="N&ordm;" style="font-weight:600; color:var(--text-muted);">${c[this.COL.num] || '—'}</td>
@@ -7641,10 +7766,10 @@ App.clientas = {
                 <td data-label="Feria">${c[this.COL.feria] || '—'}</td>
                 <td data-label="Modelo">${c[this.COL.modelo] || '—'}</td>
                 <td data-label="Tela">${c[this.COL.tipoTela] || '—'}</td>
-                <td data-label="Entregado" style="text-align:center;">${entregado ? '&#x2705;' : entregadoVal === 'ARREGLO' ? '&#x1F527;' : entregadoVal === 'INCIDENCIA' ? '&#x274C;' : '&#x23F3;'}</td>
-                <td data-label="Tela recibida">${telaChip}</td>
+                <td data-label="Tela recibida">${telaRecChip}</td>
                 <td data-label="Corte">${corteChip}</td>
-                <td data-label="Entregado al taller" style="text-align:center;" title="${fechaEntTaller || 'Aún no llevado'}">${llevadoTaller ? '&#x2705;' : '&#x23F3;'}</td>
+                <td data-label="Entregado al taller" style="text-align:center;">${entTallerChip}</td>
+                <td data-label="Entregado" style="text-align:center;">${entClientaChip}</td>
                 <td><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); App.clientas.openFicha(${idx})">Ver</button></td>
             </tr>`;
         });
