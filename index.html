@@ -9889,6 +9889,21 @@ App.trajes = {
             '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando trajes...</p></div>';
         try {
             this.data = await App.sheets.getListadoTrajes(forceRefresh);
+            // Log diagnóstico — fechas tal cual vienen del sheet
+            const conTaller = (this.data || [])
+                .filter(t => (t[this.COL.taller] || '').trim())
+                .map(t => ({
+                    n: String(t[this.COL.num] || '').trim(),
+                    taller: t[this.COL.taller],
+                    corte: t[this.COL.corte],
+                    fechaEnt: t[this.COL.fechaEntregaTaller],
+                    fechaRaw: JSON.stringify(t[this.COL.fechaEntregaTaller]),
+                }));
+            (App.jose?._log || console.log)('trajes.load.fromSheet', {
+                forceRefresh,
+                total: this.data.length,
+                conTaller,
+            });
             this._populateFilters();
             // Asegura catálogos para el cálculo de stock agregado (no bloqueante)
             this._ensureCatalogsLoaded();
@@ -14264,6 +14279,17 @@ App.jose = {
         this._render(this._calcLists()[this._bandeja] || []);
     },
 
+    /** Helper de logging persistente. Acumula eventos en window._noteLog
+     *  para que sobrevivan a los re-renders. Para verlos: console.table(window._noteLog)
+     *  o copiarlos enteros: copy(window._noteLog) en la consola. */
+    _log(tag, data) {
+        if (!window._noteLog) window._noteLog = [];
+        const entry = { t: new Date().toISOString().slice(11, 19), tag, ...data };
+        window._noteLog.push(entry);
+        if (window._noteLog.length > 200) window._noteLog.shift();
+        console.log('[NOTE]', tag, data);
+    },
+
     /** Tres listas de trajes según fase. */
     _calcLists() {
         const COL = App.trajes.COL;
@@ -14272,11 +14298,23 @@ App.jose = {
         const llevar = [];
         const recoger = [];
         const historico = [];   // trajes ya recogidos del taller (referencia/consulta)
+        const debugRows = [];
         for (const t of all) {
             const corte     = (t[COL.corte]              || '').toUpperCase().trim();
             const fechaEnt  = (t[COL.fechaEntregaTaller] || '').toString().trim();
             const recibido  = (t[COL.trajeRecibido]      || '').toUpperCase().trim();
             const entregado = (t[COL.trajeEntregado]     || '').toUpperCase().trim();
+            // Solo logueamos los que tienen TALLER (los relevantes para Jose)
+            const tallerLog = (t[COL.taller] || '').trim();
+            if (tallerLog) {
+                debugRows.push({
+                    n: String(t[COL.num] || '').trim(),
+                    taller: tallerLog,
+                    corte, recibido, entregado,
+                    fechaEnt: fechaEnt || '(vacía)',
+                    raw: JSON.stringify(t[COL.fechaEntregaTaller]),
+                });
+            }
             // ─ Histórico: trajes ya recogidos del taller (incluye los entregados a clienta)
             //   Es la referencia "ya hice lo mío" de Jose.
             if (recibido === 'RECIBIDO') {
@@ -14301,6 +14339,11 @@ App.jose = {
                 recoger.push(t);
             }
         }
+        // Log diagnóstico — visible en consola con copy(window._noteLog)
+        this._log('calcLists', {
+            llevar: llevar.length, recoger: recoger.length, historico: historico.length,
+            trajesConTaller: debugRows,
+        });
         return { cortador, llevar, recoger, historico };
     },
 
@@ -14675,6 +14718,13 @@ App.jose = {
                 ['FECHA ENTREGA TALLER', hoy],
                 ['FECHA ULTIMA MOD',     hoy],
             ];
+            this._log('asignarTaller.write', {
+                num: String(t[COL.num] || '').trim(),
+                rowIndex,
+                taller,
+                fechaEntregaTallerNueva: hoy,
+                rowFechaActual: t[COL.fechaEntregaTaller],
+            });
             const rangeUpdates = updates
                 .map(([col, val]) => {
                     const letter = colLetter(col);
@@ -14682,6 +14732,10 @@ App.jose = {
                 })
                 .filter(Boolean);
             await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+            this._log('asignarTaller.done', {
+                num: String(t[COL.num] || '').trim(),
+                rangeUpdates: rangeUpdates.map(u => ({ range: u.range, value: u.values[0][0] })),
+            });
 
             updates.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
