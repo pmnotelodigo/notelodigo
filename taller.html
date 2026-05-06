@@ -369,6 +369,10 @@
             tallerNombre: null,
             trajes: [],
             _refreshingToken: false,
+            // Caché de fichas detalladas en memoria. Tras cargar la lista, lanzamos
+            // prefetch en background — al clicar una card, las medidas suelen estar
+            // ya cargadas y el modal abre instantáneamente.
+            _fichasCache: {},
 
             init() {
                 if (typeof google === 'undefined' || !google.accounts) {
@@ -477,8 +481,30 @@
                     document.getElementById('tallerNombre').textContent =
                         '\u{1F3ED} ' + (App.tallerNombre || 'Mis trajes');
                     App._render();
+                    // Prefetch en background de la ficha detallada de cada traje.
+                    // Al clicar una card, las medidas suelen estar ya cargadas.
+                    App._prefetchFichas();
                 } catch (err) {
                     App._renderError('Error: ' + err.message);
+                }
+            },
+
+            /** Carga en background las fichas detalladas de los trajes visibles.
+             *  Lo hace secuencialmente para no saturar el proxy. Si el usuario
+             *  clica una card antes de que esté en caché, la llamada del modal
+             *  se hace de todas formas y la primera que llegue gana.
+             */
+            async _prefetchFichas() {
+                const trajes = (App.trajes || []).slice();
+                for (const t of trajes) {
+                    const numRaw = String(t['Nº'] || '').trim();
+                    const numInt = parseInt(numRaw, 10);
+                    if (isNaN(numInt)) continue;
+                    if (App._fichasCache[numInt]) continue;  // ya cargado
+                    try {
+                        const data = await App._callProxy('ficha', { num: String(numInt) });
+                        if (data && data.ok) App._fichasCache[numInt] = data.ficha;
+                    } catch (_) { /* silent */ }
                 }
             },
 
@@ -599,21 +625,29 @@
                 const numRaw = String(t['Nº'] || '').trim();
                 const numInt = parseInt(numRaw, 10);
                 const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
-                const nombre   = (t['NOMBRE']   || '').trim() || '—';
+                const nombre = (t['NOMBRE'] || '').trim() || '—';
 
-                // Mostrar modal con datos básicos inmediatamente, mientras cargan las medidas
                 document.getElementById('fichaTitulo').innerHTML =
                     `Traje #${App._esc(num)} · ${App._esc(nombre)}`;
+                document.getElementById('fichaModal').classList.add('active');
+                document.body.style.overflow = 'hidden';
+
+                // Si las medidas ya están en caché (prefetch), pintamos todo instantáneamente
+                const cached = App._fichasCache[numInt];
+                if (cached) {
+                    document.getElementById('fichaBody').innerHTML =
+                        App._renderFichaBasica(t) + App._renderMedidas(cached._medidas);
+                    return;
+                }
+
+                // Si no, datos básicos + spinner mientras llega del proxy
                 document.getElementById('fichaBody').innerHTML =
                     App._renderFichaBasica(t) +
                     '<div class="modal-section" id="fichaMedidasLoading">' +
                         '<div class="spinner" style="width:20px; height:20px; border-width:2px; margin:0 auto;"></div>' +
                         '<div style="text-align:center; font-size:11px; color:#888; margin-top:6px;">Cargando medidas…</div>' +
                     '</div>';
-                document.getElementById('fichaModal').classList.add('active');
-                document.body.style.overflow = 'hidden';
 
-                // Pedir las medidas al proxy (lee el Google Doc del traje)
                 try {
                     const data = await App._callProxy('ficha', { num: String(numInt) });
                     const loading = document.getElementById('fichaMedidasLoading');
@@ -623,34 +657,8 @@
                             App._esc((data && data.message) || 'desconocido') + '</div>';
                         return;
                     }
-                    const medidas = data.ficha && data.ficha._medidas;
-                    if (!medidas || !Object.keys(medidas).length) {
-                        if (loading) loading.innerHTML =
-                            '<div style="font-size:12px; color:#888; text-align:center;">Sin medidas detalladas en la ficha.</div>';
-                        return;
-                    }
-                    // Render de las medidas como tabla
-                    const orden = [
-                        'TALLA', 'LARGO TOTAL',
-                        'LARGO TALLE DELANTERO', 'LARGO TALLE ESPALDA', 'HOMBRO',
-                        'CONTORNO PECHO', 'CONTORNO CINTURA', 'CONTORNO CADERA',
-                        'ALTURA DE PECHO', 'SEPARACION DE PECHO', 'SEPARACIÓN DE PECHO',
-                        'LARGO DE MANGA', 'CONTORNO DE MANGA',
-                        'CONTORNO DE MUNECA', 'CONTORNO DE MUÑECA',
-                    ];
-                    // Ordenar: primero las del orden conocido, luego el resto alfabéticamente
-                    const keys = Object.keys(medidas);
-                    const known = orden.filter(o => keys.includes(o));
-                    const extras = keys.filter(k => !orden.includes(k)).sort();
-                    const all = [...known, ...extras];
-                    const fila = (label, value) =>
-                        `<tr><td>${App._esc(label)}</td><td>${App._esc(value)}</td></tr>`;
-                    const filas = all.map(k => fila(k, medidas[k])).join('');
-                    if (loading) loading.outerHTML = `
-                        <div class="modal-section">
-                            <h3>Medidas detalladas</h3>
-                            <table>${filas}</table>
-                        </div>`;
+                    App._fichasCache[numInt] = data.ficha;
+                    if (loading) loading.outerHTML = App._renderMedidas(data.ficha && data.ficha._medidas);
                 } catch (err) {
                     const loading = document.getElementById('fichaMedidasLoading');
                     if (loading) loading.innerHTML =
@@ -658,57 +666,60 @@
                 }
             },
 
-            /** Renderiza el bloque básico (modelo, tela, adornos…) sin las medidas. */
+            /** Renderiza la sección "Medidas detalladas" del modal. */
+            _renderMedidas(medidas) {
+                if (!medidas || !Object.keys(medidas).length) {
+                    return '<div class="modal-section">' +
+                        '<div style="font-size:12px; color:#888; text-align:center;">Sin medidas detalladas en la ficha.</div>' +
+                    '</div>';
+                }
+                const orden = [
+                    'TALLA', 'LARGO TOTAL',
+                    'LARGO TALLE DELANTERO', 'LARGO TALLE ESPALDA', 'HOMBRO',
+                    'CONTORNO PECHO', 'CONTORNO CINTURA', 'CONTORNO CADERA',
+                    'ALTURA DE PECHO', 'SEPARACION DE PECHO', 'SEPARACIÓN DE PECHO',
+                    'LARGO DE MANGA', 'CONTORNO DE MANGA',
+                    'CONTORNO DE MUNECA', 'CONTORNO DE MUÑECA',
+                ];
+                const keys = Object.keys(medidas);
+                const known = orden.filter(o => keys.includes(o));
+                const extras = keys.filter(k => !orden.includes(k)).sort();
+                const all = [...known, ...extras];
+                const fila = (label, value) =>
+                    `<tr><td>${App._esc(label)}</td><td>${App._esc(value)}</td></tr>`;
+                const filas = all.map(k => fila(k, medidas[k])).join('');
+                return `<div class="modal-section">
+                    <h3>Medidas detalladas</h3>
+                    <table>${filas}</table>
+                </div>`;
+            },
+
+            /** Renderiza el bloque básico del modal (sin Talla ni Feria — esas
+             *  ya están en la card o en las medidas detalladas). Sin adornos
+             *  porque también vienen en las medidas. */
             _renderFichaBasica(t) {
-                const numRaw = String(t['Nº'] || '').trim();
-                const numInt = parseInt(numRaw, 10);
-                const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
                 const modelo   = (t['MODELO']   || '').trim() || '—';
                 const tipoTela = (t['TIPO TELA'] || '').trim();
-                const medidas  = (t['MEDIDAS']  || '').trim();
-                const adornos  = (t['ADORNOS']  || '').trim();
-                const feria    = (t['FERIA']    || '').trim();
                 const fechaEnt = App._formatDate(t['FECHA ENTREGA TALLER']);
                 const trajeRecibido  = (t['TRAJE RECIBIDO']  || '').toString().trim();
                 const trajeEntregado = (t['TRAJE ENTREGADO'] || '').toString().trim();
-                const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
 
                 const m = t._modelo || {};
-                const tipoConstr   = (m.tipoConstruccion || '').trim();
-                const telaPpalM    = (m.telaPpalM        || '').trim();
-                const adornosCat   = (m.adornosModelo    || '').trim();
+                const tipoConstr = (m.tipoConstruccion || '').trim();
+                const telaPpalM  = (m.telaPpalM        || '').trim();
 
                 const fila = (label, value) =>
                     `<tr><td>${App._esc(label)}</td><td>${App._esc(value || '—')}</td></tr>`;
 
-                let html =
-                    '<table>' +
-                        fila('Modelo', modelo) +
-                        (tipoConstr ? fila('Construcción', tipoConstr) : '') +
-                        (telaPpalM ? fila('Tela ppal', telaPpalM + ' m') : '') +
-                        (tipoTela ? fila('Tipo tela', tipoTela) : '') +
-                        (tallaTxt ? fila('Talla', tallaTxt) : '') +
-                        (feria ? fila('Feria', feria) : '') +
-                        (fechaEnt ? fila('Entrega al taller', fechaEnt) : '') +
-                        (trajeRecibido ? fila('Estado recibido', trajeRecibido) : '') +
-                        (trajeEntregado ? fila('Estado entregado', trajeEntregado) : '') +
-                    '</table>';
-
-                if (adornos) {
-                    html += `
-                        <div class="modal-section">
-                            <h3>Adornos del traje</h3>
-                            <div class="content">${App._esc(adornos)}</div>
-                        </div>`;
-                }
-                if (adornosCat && adornosCat !== adornos) {
-                    html += `
-                        <div class="modal-section">
-                            <h3>Adornos base del modelo</h3>
-                            <div class="content" style="color:#555;">${App._esc(adornosCat)}</div>
-                        </div>`;
-                }
-                return html;
+                return '<table>' +
+                    fila('Modelo', modelo) +
+                    (tipoConstr ? fila('Construcción', tipoConstr) : '') +
+                    (telaPpalM ? fila('Tela ppal', telaPpalM + ' m') : '') +
+                    (tipoTela ? fila('Tipo tela', tipoTela) : '') +
+                    (fechaEnt ? fila('Entrega al taller', fechaEnt) : '') +
+                    (trajeRecibido ? fila('Estado recibido', trajeRecibido) : '') +
+                    (trajeEntregado ? fila('Estado entregado', trajeEntregado) : '') +
+                '</table>';
             },
 
             closeFicha() {
@@ -776,6 +787,7 @@
     </script>
 </body>
 </html>
+
 
 
 
