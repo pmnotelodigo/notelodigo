@@ -283,34 +283,27 @@
         .btn-sec-modal:hover {
             background: #f5f5f5;
         }
-
-        /* ─── Impresión ─── */
-        @media print {
-            /* Ocultar TODO menos el modal de ficha cuando imprimes */
-            body * { visibility: hidden; }
-            #fichaModal, #fichaModal * { visibility: visible; }
-            #fichaModal {
-                position: static;
-                background: white;
-                padding: 0;
-                display: block !important;
-            }
-            .modal-content {
-                box-shadow: none;
-                max-width: 100%;
-                margin: 0;
-            }
-            .modal-head {
-                background: white !important;
-                color: black !important;
-                border-bottom: 2px solid black;
-            }
-            .modal-head .cerrar { display: none; }
-            .modal-head .titulo { color: black !important; }
-            .no-print { display: none !important; }
-            .modal-body table td:first-child { color: #000 !important; }
-            @page { margin: 1.5cm; }
+        .btn-card-action {
+            flex: 1;
+            background: white;
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 8px 10px;
+            font-size: 12px;
+            font-weight: 600;
         }
+        .btn-card-action:hover:not(:disabled) {
+            background: var(--primary-light);
+            border-color: var(--primary);
+        }
+        .btn-card-action:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        /* La impresión se hace en una ventana nueva — ver App.imprimirFicha().
+           No usamos @media print sobre el modal de la app porque generaba
+           saltos de página y márgenes raros. */
 
         /* ─── Toast ─── */
         #toast {
@@ -610,20 +603,39 @@
                         '<div class="empty"><p>No tienes trajes asignados ahora mismo.</p></div>';
                     return;
                 }
-                // Solo mostramos "En mi taller" — los trajes "en camino" aún no
-                // están físicamente con las costureras, no necesitan verlos.
-                const enTaller = (App.trajes || []).filter(t =>
-                    (t['FECHA ENTREGA TALLER'] || '').toString().trim()
-                );
-                body.innerHTML = App._renderGrupo('\u{1F3ED} En mi taller', '#1b5e20', enTaller,
-                    'Estos trajes están físicamente en tu taller.');
+                // Separamos en:
+                //  • En mi taller — están físicamente con las costureras
+                //    (FECHA ENTREGA TALLER rellena y aún no recogidos por Jose).
+                //  • Entregados — archivo del taller. Trajes que ya entregaste
+                //    a NOTELODIGO (TRAJE RECIBIDO=RECIBIDO), incluso los que ya
+                //    se le entregaron a la clienta (TRAJE ENTREGADO=ENTREGADO).
+                //    Permanecen siempre como historial, sin importar el resto
+                //    del flujo posterior.
+                // Los trajes "en camino" (sin fecha entrega aún) no se muestran.
+                const enTaller = [];
+                const entregados = [];
+                for (const t of (App.trajes || [])) {
+                    const recibido  = (t['TRAJE RECIBIDO']  || '').toString().toUpperCase().trim();
+                    const entregado = (t['TRAJE ENTREGADO'] || '').toString().toUpperCase().trim();
+                    const fechaEnt  = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
+                    if (recibido === 'RECIBIDO' || entregado === 'ENTREGADO') {
+                        entregados.push(t);
+                    } else if (fechaEnt) {
+                        enTaller.push(t);
+                    }
+                }
+                body.innerHTML =
+                    App._renderGrupo('\u{1F3ED} En mi taller', '#1b5e20', enTaller,
+                        'Estos trajes están físicamente en tu taller.') +
+                    App._renderGrupo('\u{2705} Entregados', '#444', entregados,
+                        'Archivo del taller. Trajes que ya entregaste a NOTELODIGO.', true);
             },
 
-            _renderGrupo(titulo, color, lista, subtitulo) {
+            _renderGrupo(titulo, color, lista, subtitulo, muted) {
                 if (!lista.length) return '';
-                const cards = lista.map(t => App._renderCard(t)).join('');
+                const cards = lista.map(t => App._renderCard(t, muted)).join('');
                 return `
-                    <div class="grupo">
+                    <div class="grupo${muted ? ' grupo-muted' : ''}">
                         <div class="grupo-header">
                             <h2 style="color:${color};">${titulo}</h2>
                             <span class="count">${lista.length} traje${lista.length !== 1 ? 's' : ''}</span>
@@ -633,7 +645,7 @@
                     </div>`;
             },
 
-            _renderCard(t) {
+            _renderCard(t, muted) {
                 const numRaw = String(t['Nº'] || '').trim();
                 const numInt = parseInt(numRaw, 10);
                 const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
@@ -646,8 +658,9 @@
                 const fechaEnt = App._formatDate(t['FECHA ENTREGA TALLER']);
                 const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
 
+                const mutedStyle = muted ? 'opacity:0.65;' : '';
                 return `
-                    <div class="card" style="cursor:pointer;" onclick="App.verFicha(${t._rowIndex})" title="Ver ficha completa">
+                    <div class="card" style="cursor:pointer; display:flex; flex-direction:column; ${mutedStyle}" onclick="App.verFicha(${t._rowIndex})" title="Ver ficha completa">
                         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
                             <strong style="font-size:16px; color:var(--primary);">#${App._esc(num)} · ${App._esc(nombre)}</strong>
                             ${tallaTxt ? `<span style="font-size:13px; font-weight:600; color:#444;">TALLA ${App._esc(tallaTxt)}</span>` : ''}
@@ -662,7 +675,67 @@
                                 <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:4px;">Adornos</div>
                                 <div style="font-size:13px; line-height:1.5; white-space:pre-wrap;">${App._esc(adornos)}</div>
                             </div>` : ''}
+                        <div style="display:flex; gap:6px; margin-top:auto; padding-top:10px;" onclick="event.stopPropagation()">
+                            <button class="btn btn-card-action" onclick="App.copiarFichaPorNum(${numInt}, this)" title="Copiar ficha como texto">
+                                📋 Copiar
+                            </button>
+                            <button class="btn btn-card-action" onclick="App.imprimirFichaPorNum(${numInt}, this)" title="Imprimir ficha">
+                                🖨 Imprimir
+                            </button>
+                        </div>
                     </div>`;
+            },
+
+            /** Asegura que la ficha completa del traje está cargada (con medidas
+             *  detalladas del Doc). Si está en caché, devuelve inmediato. Si no,
+             *  pide al proxy y la cachea. Devuelve el objeto ficha o null. */
+            async _ensureFichaLoaded(numInt) {
+                if (App._fichasCache[numInt]) return App._fichasCache[numInt];
+                const data = await App._callProxy('ficha', { num: String(numInt) });
+                if (!data || !data.ok) {
+                    throw new Error((data && data.message) || 'No se pudo cargar la ficha');
+                }
+                App._fichasCache[numInt] = data.ficha;
+                return data.ficha;
+            },
+
+            /** Marca un botón como "cargando…" mientras se ejecuta una promesa.
+             *  Restaura su HTML original al terminar (éxito o error). */
+            async _withLoadingButton(btn, fn) {
+                if (!btn) return fn();
+                const orig = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Cargando…';
+                try {
+                    return await fn();
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = orig;
+                }
+            },
+
+            /** Imprimir la ficha de un traje desde una card (botón fuera del modal). */
+            async imprimirFichaPorNum(numInt, btn) {
+                await App._withLoadingButton(btn, async () => {
+                    try {
+                        await App._ensureFichaLoaded(numInt);
+                        App._doImprimirFicha(numInt);
+                    } catch (e) {
+                        App._toast('Error: ' + e.message, 'error');
+                    }
+                });
+            },
+
+            /** Copiar la ficha de un traje desde una card (botón fuera del modal). */
+            async copiarFichaPorNum(numInt, btn) {
+                await App._withLoadingButton(btn, async () => {
+                    try {
+                        await App._ensureFichaLoaded(numInt);
+                        await App._doCopiarFicha(numInt);
+                    } catch (e) {
+                        App._toast('Error: ' + e.message, 'error');
+                    }
+                });
             },
 
             async verFicha(rowIndex) {
@@ -771,63 +844,224 @@
                 document.body.style.overflow = '';
             },
 
-            /** Imprime la ficha actual. Usa el CSS @media print que oculta toda
-             *  la app y deja visible solo el modal con un layout adaptado a A4. */
+            /** Imprime la ficha del traje abierto en el modal. */
             imprimirFicha() {
-                window.print();
+                // Buscamos el numInt de cualquier traje cuya ficha esté en el cache
+                // y se corresponda con el título mostrado. Si el modal está abierto,
+                // el último _ensureFichaLoaded llenó la cache con esa ficha.
+                const titulo = document.getElementById('fichaTitulo').textContent.trim();
+                const m = titulo.match(/#0*(\d+)/);
+                if (!m) { App._toast('No se pudo identificar el traje', 'error'); return; }
+                App._doImprimirFicha(parseInt(m[1], 10));
             },
 
-            /** Genera un texto plano con toda la ficha y lo copia al portapapeles
-             *  para pegar en WhatsApp / Email / etc. */
-            async copiarFicha() {
+            /** Genera el HTML de impresión y abre window.open para imprimirlo. */
+            _doImprimirFicha(numInt) {
+                const traje = (App.trajes || []).find(t => parseInt(t['Nº'], 10) === numInt);
+                if (!traje) { App._toast('Traje no encontrado', 'error'); return; }
+                const ficha = App._fichasCache[numInt] || {};
+
+                const numRaw = String(traje['Nº'] || '').trim();
+                const num = !isNaN(parseInt(numRaw, 10))
+                    ? String(parseInt(numRaw, 10)).padStart(3, '0') : numRaw;
+                const nombre = (traje['NOMBRE'] || '').trim() || '—';
+                const titulo = `Traje #${num} · ${nombre}`;
+
+                // Recompone el body del modal pero sin depender del DOM —
+                // así funciona tanto desde el modal como desde la card.
+                const bodyHtml = App._renderFichaBasica(traje) +
+                    App._renderMedidas(ficha._medidas);
+
+                const taller = App.tallerNombre || '';
+                const fecha = new Date().toLocaleDateString('es-ES', {
+                    day: 'numeric', month: 'long', year: 'numeric',
+                });
+
+                const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>${titulo}</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        color: #1a1a1a;
+        padding: 14mm 16mm;
+        font-size: 12px;
+        line-height: 1.4;
+    }
+    .head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        border-bottom: 2px solid #6e1f3d;
+        padding-bottom: 10px;
+        margin-bottom: 16px;
+    }
+    .head .icon { font-size: 36px; line-height: 1; }
+    .head .brand-block { flex: 1; }
+    .head .brand {
+        font-size: 22px;
+        font-weight: 700;
+        color: #6e1f3d;
+        letter-spacing: 1px;
+        line-height: 1.1;
+    }
+    .head .taller {
+        font-size: 13px;
+        color: #444;
+        margin-top: 2px;
+    }
+    .head .fecha-print {
+        font-size: 10px;
+        color: #888;
+        text-align: right;
+    }
+    h1.titulo {
+        font-size: 18px;
+        font-weight: 700;
+        color: #000;
+        margin-bottom: 14px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    table td {
+        padding: 4px 0;
+        vertical-align: top;
+    }
+    table td:first-child {
+        width: 42%;
+        max-width: 200px;
+        color: #555;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        padding-right: 14px;
+        white-space: nowrap;
+    }
+    table td:nth-child(2) {
+        font-weight: 600;
+        font-size: 13px;
+    }
+    .modal-section {
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px solid #ddd;
+        page-break-inside: avoid;
+    }
+    .modal-section h3 {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #888;
+        margin-bottom: 6px;
+        font-weight: 600;
+    }
+    .modal-section .content {
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+    }
+    @page { size: A4; margin: 0; }
+</style>
+</head>
+<body>
+    <div class="head">
+        <div class="icon">&#x1F3ED;</div>
+        <div class="brand-block">
+            <div class="brand">NOTELODIGO</div>
+            <div class="taller">Taller ${App._esc(taller)}</div>
+        </div>
+        <div class="fecha-print">Impreso ${App._esc(fecha)}</div>
+    </div>
+    <h1 class="titulo">${App._esc(titulo)}</h1>
+    ${bodyHtml}
+</body>
+</html>`;
+
+                const w = window.open('', '_blank', 'width=800,height=900');
+                if (!w) {
+                    App._toast('Permite popups en este sitio para poder imprimir.', 'error');
+                    return;
+                }
+                w.document.open();
+                w.document.write(html);
+                w.document.close();
+                // Esperamos un poco a que se renderice antes de imprimir
+                setTimeout(() => {
+                    try {
+                        w.focus();
+                        w.print();
+                    } catch (e) {
+                        console.error('print failed:', e);
+                    }
+                    // Cerrar la ventana tras imprimir
+                    setTimeout(() => { try { w.close(); } catch (_) {} }, 800);
+                }, 300);
+            },
+
+            /** Copia la ficha del traje abierto en el modal. */
+            copiarFicha() {
                 const titulo = document.getElementById('fichaTitulo').textContent.trim();
-                const body = document.getElementById('fichaBody');
-                if (!body) return;
+                const m = titulo.match(/#0*(\d+)/);
+                if (!m) { App._toast('No se pudo identificar el traje', 'error'); return; }
+                App._doCopiarFicha(parseInt(m[1], 10));
+            },
 
-                const lineas = [titulo, ''];
+            /** Genera el texto plano de la ficha y lo copia al portapapeles. */
+            async _doCopiarFicha(numInt) {
+                const traje = (App.trajes || []).find(t => parseInt(t['Nº'], 10) === numInt);
+                if (!traje) { App._toast('Traje no encontrado', 'error'); return; }
+                const ficha = App._fichasCache[numInt] || {};
 
-                // Tabla básica
-                const tabla = body.querySelector('table');
-                if (tabla) {
-                    tabla.querySelectorAll('tr').forEach(tr => {
-                        const tds = tr.querySelectorAll('td');
-                        if (tds.length >= 2) {
-                            const label = tds[0].textContent.trim();
-                            const value = tds[1].textContent.trim();
-                            lineas.push(`${label}: ${value}`);
-                        }
-                    });
+                const numRaw = String(traje['Nº'] || '').trim();
+                const num = !isNaN(parseInt(numRaw, 10))
+                    ? String(parseInt(numRaw, 10)).padStart(3, '0') : numRaw;
+                const nombre = (traje['NOMBRE'] || '').trim() || '—';
+                const lineas = [`Traje #${num} · ${nombre}`, ''];
+
+                const modelo   = (traje['MODELO']   || '').trim();
+                const tipoTela = (traje['TIPO TELA'] || '').trim();
+                const fechaEnt = App._formatDate(traje['FECHA ENTREGA TALLER']);
+                if (modelo)   lineas.push(`Modelo: ${modelo}`);
+                if (tipoTela) lineas.push(`Tipo tela: ${tipoTela}`);
+                if (fechaEnt) lineas.push(`Entrega al taller: ${fechaEnt}`);
+
+                // Medidas detalladas
+                const medidas = ficha && ficha._medidas;
+                if (medidas && Object.keys(medidas).length) {
+                    lineas.push('');
+                    lineas.push('— Medidas detalladas —');
+                    const orden = [
+                        'TALLA', 'LARGO TOTAL',
+                        'LARGO TALLE DELANTERO', 'LARGO TALLE ESPALDA', 'HOMBRO',
+                        'CONTORNO PECHO', 'CONTORNO CINTURA', 'CONTORNO CADERA',
+                        'ALTURA DE PECHO', 'SEPARACION DE PECHO', 'SEPARACIÓN DE PECHO',
+                        'LARGO DE MANGA', 'CONTORNO DE MANGA',
+                        'CONTORNO DE MUNECA', 'CONTORNO DE MUÑECA',
+                    ];
+                    const keys = Object.keys(medidas);
+                    const known = orden.filter(o => keys.includes(o));
+                    const extras = keys.filter(k => !orden.includes(k)).sort();
+                    [...known, ...extras].forEach(k => lineas.push(`${k}: ${medidas[k]}`));
                 }
 
-                // Secciones (medidas detalladas, adornos, etc.)
-                body.querySelectorAll('.modal-section').forEach(sec => {
-                    const h3 = sec.querySelector('h3');
-                    if (h3) {
-                        lineas.push('');
-                        lineas.push(`— ${h3.textContent.trim()} —`);
-                    }
-                    const tabla = sec.querySelector('table');
-                    if (tabla) {
-                        tabla.querySelectorAll('tr').forEach(tr => {
-                            const tds = tr.querySelectorAll('td');
-                            if (tds.length >= 2) {
-                                const label = tds[0].textContent.trim();
-                                const value = tds[1].textContent.trim();
-                                lineas.push(`${label}: ${value}`);
-                            }
-                        });
-                    } else {
-                        const content = sec.querySelector('.content');
-                        if (content) lineas.push(content.textContent.trim());
-                    }
-                });
+                // Adornos del traje (del LISTADO)
+                const adornos = (traje['ADORNOS'] || '').trim();
+                if (adornos) {
+                    lineas.push('');
+                    lineas.push('— Adornos del traje —');
+                    lineas.push(adornos);
+                }
 
                 const texto = lineas.join('\n');
                 try {
                     await navigator.clipboard.writeText(texto);
                     App._toast('Ficha copiada — pégala en WhatsApp o email', 'success');
                 } catch (err) {
-                    // Fallback para navegadores sin clipboard API
                     const ta = document.createElement('textarea');
                     ta.value = texto;
                     ta.style.position = 'fixed';
@@ -838,7 +1072,7 @@
                         document.execCommand('copy');
                         App._toast('Ficha copiada', 'success');
                     } catch (_) {
-                        App._toast('No se pudo copiar — intenta otro navegador', 'error');
+                        App._toast('No se pudo copiar', 'error');
                     }
                     document.body.removeChild(ta);
                 }
@@ -914,6 +1148,7 @@
     </script>
 </body>
 </html>
+
 
 
 
