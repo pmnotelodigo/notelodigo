@@ -10175,6 +10175,13 @@ App.trajes = {
             if (!remaining.length) this.cerrarPedidoProveedor();
             else this.abrirPedidoProveedor();  // re-render con los proveedores que quedan
             this.filter();  // recalcular bandeja "Pedir tela"
+            // Refrescar la lista y el badge del sidebar de Pedidos. El pedido
+            // recién creado tiene estado "pendiente" → debe sumarse al contador
+            // (antes había que recargar la página para verlo). Fire-and-forget.
+            if (App.pedidos && typeof App.pedidos.load === 'function') {
+                App.pedidos.load(true).catch(e =>
+                    console.warn('[marcarProveedorComoPedida → pedidos.load]', e.message));
+            }
         } catch (err) {
             console.error('[marcarProveedorComoPedida]', err);
             App.toast.show('Error: ' + err.message, 'error', 6000);
