@@ -4221,9 +4221,12 @@ const App = {
             if (!stillCurrent()) return;
 
             // 6. Si el usuario logueado es un TALLER, redirigir a taller.html.
-            // Logging de diagnóstico para entender POR QUÉ se considera taller:
+            // ESCAPE HATCH: si la URL tiene `?force-admin=1`, NO redirigimos.
+            // Útil para emergencias (p.ej. el admin se puso a sí mismo como
+            // taller para probar y ahora no puede entrar al admin para arreglarlo).
+            const forceAdmin = new URLSearchParams(window.location.search).get('force-admin') === '1';
             const _isTallerNow = App.isTaller && App.isTaller();
-            if (_isTallerNow) {
+            if (_isTallerNow && !forceAdmin) {
                 const matchEmail = App.talleresCatalogo?.findByEmail?.(App.user?.email || '');
                 console.log('[login] → REDIRECT a taller.html. Razón:', {
                     email: App.user?.email,
@@ -4235,6 +4238,9 @@ const App = {
                 App.ui.showLoginLoading('Redirigiendo a tu vista de taller…');
                 window.location.replace('./taller.html');
                 return;
+            }
+            if (_isTallerNow && forceAdmin) {
+                console.log('[login] isTaller=true pero force-admin=1 — entrando como admin');
             }
 
             // ── FASE 2: cargas de datos del dashboard ──
@@ -7233,7 +7239,10 @@ const App = {
             // Si el usuario es un Taller, NO debería estar en index.html
             // (en _onAuthenticated lo redirigimos a taller.html). Si por
             // cualquier motivo extremo llega aquí, lo enviamos a su app.
-            if (App.isTaller && App.isTaller()) {
+            // Excepción: el override `?force-admin=1` permite entrar como admin
+            // aunque el catálogo lo marque como taller (para arreglar el catálogo).
+            const forceAdmin = new URLSearchParams(window.location.search).get('force-admin') === '1';
+            if (App.isTaller && App.isTaller() && !forceAdmin) {
                 window.location.replace('./taller.html');
                 return;
             }
