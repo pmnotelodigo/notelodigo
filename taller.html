@@ -457,15 +457,30 @@
             signOut() {
                 // Solo invalidamos local; NO revocamos los permisos (así no piden
                 // consentimiento la próxima vez que entren).
+                // Limpiamos también los datos del admin (compartimos localStorage
+                // entre index.html y taller.html), para que el siguiente login
+                // empiece de cero y no quede arrastrando estado mezclado.
                 App.token = null;
                 App.user = null;
                 App.tallerNombre = null;
                 App.trajes = [];
                 localStorage.removeItem(STORAGE_KEY_TOKEN);
                 localStorage.removeItem(STORAGE_KEY_EMAIL);
-                document.getElementById('appContainer').classList.remove('active');
-                document.getElementById('loginScreen').style.display = 'flex';
-                document.getElementById('loginError').textContent = '';
+                // Limpiar también las claves del admin (index.html) — comparten dominio.
+                try {
+                    localStorage.removeItem('pilar_access_token');
+                    localStorage.removeItem('pilar_user_name');
+                    localStorage.removeItem('pilar_user_email');
+                } catch (_) {}
+
+                // Redirigir al login PRINCIPAL de la app (index.html), no al login
+                // de taller. Razón: si la cuenta logueada está marcada como taller en
+                // el catálogo, se redirige automáticamente otra vez a taller.html.
+                // Para salir del bucle (p.ej. si quitamos un email del catálogo o
+                // queremos cambiar de cuenta), hay que ir al login normal donde
+                // el botón "Iniciar sesión" usa `prompt: select_account` y permite
+                // elegir otra cuenta de Google.
+                window.location.replace('./');
             },
 
             _onTokenResponse(resp) {
