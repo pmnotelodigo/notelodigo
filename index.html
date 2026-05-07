@@ -15726,8 +15726,22 @@ App.jose = {
         // suele ser una variante o nota específica para esta clienta. Si los
         // dos están rellenos y son distintos, los mostramos juntos para no
         // perder la receta del modelo. Si son iguales, mostramos uno solo.
-        const adornosTraje   = (t[COL.adornos] || '').toString().trim();
+        // Leemos de t (App.trajes) y, como fallback, de tc (App.clientas) —
+        // ambas fuentes vienen del mismo LISTADO pero a veces una está más
+        // fresca que la otra tras escrituras concurrentes (Jose recarga trajes
+        // pero no necesariamente clientas, y al revés).
+        const adornosTraje = (t[COL.adornos] || tc?.[COL.adornos] || tc?.['ADORNOS'] || '')
+            .toString().trim();
         const adornosModelo  = (modeloFull?.ADORNOS || '').toString().trim();
+        // Diag: si parece que el dato está en el sheet pero no llegó a memoria,
+        // dejamos rastro para investigar (ver consola al abrir la ficha).
+        console.log('[jose.verFicha]', {
+            num, modelo: modeloRaw, rowIndex,
+            adornosTraje_t: t['ADORNOS'],
+            adornosTraje_tc: tc?.['ADORNOS'],
+            adornosModelo,
+            keys_t: Object.keys(t).filter(k => k.includes('ADORN')),
+        });
         let adornos = '';
         if (adornosModelo && adornosTraje && adornosTraje !== adornosModelo) {
             adornos = `${adornosModelo}\n— Para este traje: ${adornosTraje}`;
