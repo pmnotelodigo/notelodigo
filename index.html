@@ -10052,6 +10052,14 @@ App.trajes = {
     cerrarPedidoProveedor() {
         document.getElementById('pedidoProveedorModal').classList.remove('active');
         this._pedidoActual = null;
+        // Al cerrar el modal de pedido (manual o tras registrar todos), limpiamos
+        // el filtro de columna que se haya quedado del flujo (p.ej. el filtro de
+        // tela aplicado desde el chip "📦 pedir"). Si no, el filtro se queda
+        // pegado y la próxima vez que Pilar entre a Trajes solo ve esa tela.
+        this._colFilters = {};
+        const searchEl = document.getElementById('trajeSearch');
+        if (searchEl) searchEl.value = '';
+        this.filter();
     },
 
     async copiarPedidoProveedor(provKey) {
@@ -10400,12 +10408,24 @@ App.trajes = {
         cont.style.display = 'block';
     },
 
-    setBandeja(name) {
+    setBandeja(name, options) {
+        const prev = this._bandeja;
         this._bandeja = name || 'todos';
+        const bandejaCambio = prev !== this._bandeja;
         // Actualizar clase active en los botones
         document.querySelectorAll('#trajesBandejas .bandeja').forEach(el => {
             el.classList.toggle('active', el.dataset.bandeja === this._bandeja);
         });
+        // Si el usuario cambia de bandeja manualmente, limpiamos los filtros por
+        // columna que pudieran estar activos. Esto evita que un filtro contextual
+        // (p.ej. al pulsar el chip "📦 pedir" se filtra por una tela concreta) se
+        // quede "pegado" al pasarse a otra bandeja distinta. El caller puede
+        // pedir preservar los filtros pasando { preserveFilters: true }.
+        if (bandejaCambio && !(options && options.preserveFilters)) {
+            this._colFilters = {};
+            const searchEl = document.getElementById('trajeSearch');
+            if (searchEl) searchEl.value = '';
+        }
         this.filter();
     },
 
@@ -10421,9 +10441,9 @@ App.trajes = {
         // Limpiar la búsqueda libre por nombre/modelo
         const searchEl = document.getElementById('trajeSearch');
         if (searchEl) searchEl.value = '';
-        // Cambiar bandeja a "Pedir tela" y refrescar
-        this.setBandeja('pedirTela');
-        // Asegurar que la sección Trajes esté visible (por si se llama desde otro contexto)
+        // Cambiar bandeja a "Pedir tela" preservando el filtro que acabamos de
+        // aplicar (setBandeja por defecto los limpia al cambiar de bandeja).
+        this.setBandeja('pedirTela', { preserveFilters: true });
         if (App.ui && typeof App.ui.navigateTo === 'function') {
             App.ui.navigateTo('trajes');
         }
