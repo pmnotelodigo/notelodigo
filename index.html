@@ -3395,6 +3395,15 @@
 
             <!-- SECTION: Talleres-catálogo (CRUD del catálogo de talleres) -->
             <div class="section" id="sec-talleres-catalogo">
+                <!-- Aviso: cuando se da de alta un taller con email, ese email debe
+                     autorizarse también en Google Cloud Console (modo Prueba). -->
+                <div class="alert alert-warning" style="margin-bottom:16px; font-size:13px; line-height:1.5;">
+                    <span>&#x26A0;&#xFE0F;</span>
+                    <div>
+                        <strong>Antes de crear un taller con email, avisa a Andrés</strong> con el email Google del taller.<br>
+                        Tiene que autorizarlo en Google Cloud Console (la app está en modo "Prueba"). Sin ese paso previo, el taller verá un error de Google al intentar entrar a su vista de trajes y no podrá acceder.
+                    </div>
+                </div>
                 <div class="card" style="margin-bottom:16px; padding:12px 16px;">
                     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                         <input type="text" class="form-input" id="talleresCatSearch"
@@ -3665,6 +3674,16 @@
                             Controla qué ve cada usuario según su email Google. Los emails que no estén en ninguna lista entran como <strong>admin</strong> (ven toda la app).
                             Cambios efectivos en el siguiente inicio de sesión del usuario.
                         </p>
+                        <!-- Aviso: la app está en modo Prueba en Google Cloud, así que añadir
+                             alguien aquí no es suficiente — Andres también tiene que autorizar
+                             ese email en Google Cloud Console (Test users) o no podrá entrar. -->
+                        <div class="alert alert-warning" style="margin-bottom:14px; font-size:13px; line-height:1.5;">
+                            <span>&#x26A0;&#xFE0F;</span>
+                            <div>
+                                <strong>Antes de añadir a alguien aquí, avisa a Andrés</strong> con el email Google de la persona.<br>
+                                Tiene que autorizarlo en Google Cloud Console (la app está en modo "Prueba"). Sin ese paso previo, la persona verá un error de Google al intentar entrar y no podrá pasar de la pantalla de login.
+                            </div>
+                        </div>
                         <div id="permisosUIContainer">
                             <div class="empty-state" style="padding:20px;">
                                 <div class="spinner"></div>
