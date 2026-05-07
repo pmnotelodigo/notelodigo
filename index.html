@@ -1796,6 +1796,14 @@
         <button class="btn btn-primary btn-block" onclick="App.auth.signIn()" id="btnLogin">
             <span>&#x1f511;</span> Iniciar sesion con Google
         </button>
+        <!-- Estado de "Cargando datos…" durante el login + carga inicial.
+             Se muestra entre que el usuario aprueba el OAuth y el momento en
+             que la app está totalmente lista. Reemplaza al botón mientras está activo. -->
+        <div id="loginLoadingState" style="display:none; padding:18px 0;">
+            <div class="spinner spinner-lg" style="margin:0 auto 14px;"></div>
+            <div id="loginLoadingMsg" style="color:var(--primary); font-weight:600; font-size:14px;">Cargando datos…</div>
+            <div style="color:var(--text-muted); font-size:12px; margin-top:6px;">Esto puede tardar unos segundos la primera vez.</div>
+        </div>
         <div class="login-error" id="loginError"></div>
         <div class="login-onboarding" style="background:#FFF8E7; border:1px solid #E0D5C7; border-radius:8px; padding:14px; text-align:left; margin-top:14px; font-size:13px; line-height:1.55;">
             <strong style="display:block; margin-bottom:8px; color:#C2185B; font-size:14px;">&#x1F44B; &iquest;Primera vez en este dispositivo?</strong>
@@ -3963,19 +3971,35 @@ const App = {
             // ⚠ NO usamos google.accounts.oauth2.revoke() aquí.
             // revoke() borra la concesión de permisos en la cuenta del usuario,
             // así que al volver a entrar Google muestra otra vez la pantalla de
-            // consentimiento ("esta app quiere acceder a tu Drive, Sheets, …").
-            // Cerrar sesión solo debe invalidar la sesión local — la concesión
-            // permanece y los siguientes logins son rápidos (sin consent screen).
-            // Si alguna vez se quiere "desautorizar" la app, el usuario lo hace
-            // manualmente en https://myaccount.google.com/permissions.
+            // consentimiento. Solo invalidamos la sesión local — la concesión
+            // permanece y los siguientes logins son rápidos.
+            // Para "desautorizar" la app: https://myaccount.google.com/permissions
+
+            // Invalidar la generación de sesión: cualquier carga async aún en
+            // vuelo de la sesión anterior se descartará al detectar el cambio.
+            App.auth._authGen++;
+
             App.token = null;
             App.user = null;
+            // Limpiar también datos en memoria de los módulos para que la
+            // siguiente sesión no muestre fugazmente datos del usuario anterior.
+            if (App.trajes && App.trajes.data)        App.trajes.data = [];
+            if (App.trajes && App.trajes.filtered)    App.trajes.filtered = [];
+            if (App.clientas && App.clientas.data)    App.clientas.data = [];
+            if (App.clientas && App.clientas.filtered)App.clientas.filtered = [];
+            if (App.modelos && App.modelos._data)     App.modelos._data = [];
+            if (App.telas && App.telas._data)         App.telas._data = [];
+            if (App.proveedores && App.proveedores._data) App.proveedores._data = [];
+            if (App.talleresCatalogo && App.talleresCatalogo._data) App.talleresCatalogo._data = [];
+
             localStorage.removeItem(CONFIG.keys.accessToken);
             localStorage.removeItem(CONFIG.keys.userName);
             localStorage.removeItem(CONFIG.keys.userEmail);
             document.getElementById('appContainer').classList.remove('active');
             document.getElementById('loginScreen').style.display = 'flex';
             App.ui.setConnection('offline');
+            // Restaurar el botón de inicio de sesión por si quedó en estado "Cargando…"
+            App.ui.hideLoginLoading && App.ui.hideLoginLoading();
         },
 
         /** Cambiar de cuenta de Google sin pasar por logout/login completo.
@@ -4005,22 +4029,26 @@ const App = {
                 hasToken: !!resp?.access_token,
                 hasError: !!resp?.error,
                 error: resp?.error,
-                scope: resp?.scope,
             });
             if (resp.error) {
+                App.ui.hideLoginLoading && App.ui.hideLoginLoading();
                 App.ui.showLoginError('Error de autenticacion: ' + resp.error);
                 return;
             }
             if (!resp.access_token) {
-                console.warn('[auth] resp sin access_token — no se completa el login');
+                App.ui.hideLoginLoading && App.ui.hideLoginLoading();
                 App.ui.showLoginError('Google no devolvió un token válido. Reintenta.');
                 return;
             }
             App.token = resp.access_token;
             localStorage.setItem(CONFIG.keys.accessToken, resp.access_token);
 
-            // Get user info — si falla, seguimos adelante con valores por defecto
-            // (no debemos bloquear el login si userinfo da timeout/403/etc).
+            // Mostrar spinner ya — desde aquí hasta que termine _onAuthenticated.
+            // El usuario ve "Cargando datos…" en lugar del botón de login.
+            App.ui.showLoginLoading && App.ui.showLoginLoading('Cargando perfil…');
+
+            // Get user info. Si falla, seguimos con valores por defecto (puede
+            // ser bloqueado por extensiones/ITP en algún navegador).
             fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                 headers: { 'Authorization': 'Bearer ' + resp.access_token }
             })
@@ -4046,23 +4074,19 @@ const App = {
             const appActive = document.getElementById('appContainer')?.classList.contains('active');
             if (appActive) {
                 if (err.type === 'popup_closed') {
-                    // Usuario cerró el popup — dejar el banner visible para que pueda reintentar
                     App.toast.show('Cierra el popup cancelado. Pulsa Reconectar para volver a intentarlo.', 'warning', 5000);
                     return;
                 }
-                // En cualquier otro caso de error mientras la app está abierta:
-                // mostrar el banner de sesión expirada (sin recargar).
-                // Llamamos via App.auth porque GIS invoca el callback sin contexto `this`.
                 App.auth._showSessionExpired();
                 return;
             }
 
-            // Estamos en la pantalla de login
+            // Estamos en la pantalla de login — restaurar UI para que el usuario reintente
+            App.ui.hideLoginLoading && App.ui.hideLoginLoading();
             if (err.type === 'popup_closed' || err.message?.includes('popup')) {
                 App.ui.showLoginError('Ventana cerrada. Vuelve a intentarlo.');
                 return;
             }
-            // Show localhost instructions
             document.getElementById('localhostWarning').style.display = 'block';
             App.ui.showLoginError('Error 400: el origen no esta autorizado. Sigue las instrucciones de abajo.');
         },
@@ -4120,68 +4144,73 @@ const App = {
             }
         },
 
+        /** Contador de "generación de sesión": cada login/logout incrementa.
+         *  Las cargas async marcan su gen al empezar y comprueban si sigue
+         *  siendo la actual antes de aplicar resultados. Si Pilar inicia
+         *  sesión mientras Andres aún tenía requests en vuelo, las del primero
+         *  se descartan en silencio. */
+        _authGen: 0,
+
         async _onAuthenticated() {
             // Cancelar cualquier timer de reconexión pendiente
             clearTimeout(App.auth._reconnectTimer);
-            // Ocultar banner de sesión expirada si estaba visible
             const banner = document.getElementById('sessionExpiredBanner');
             if (banner) banner.style.display = 'none';
 
-            document.getElementById('loginScreen').style.display = 'none';
-            document.getElementById('appContainer').classList.add('active');
-            document.getElementById('sidebarUser').textContent = App.user.name;
-            App.ui.setConnection('online');
-            // Aplicar restricciones de UI según el rol (Jose ve solo su sección)
-            if (App.ui.applyRolePermissions) App.ui.applyRolePermissions();
+            // Marcar nueva generación de sesión.
+            const gen = ++App.auth._authGen;
+            const stillCurrent = () => App.auth._authGen === gen;
 
-            // Load seasons BEFORE reading any per-season value; safe no-op if no configsFolderId
+            // Mantenemos el loginScreen visible con spinner hasta que esté todo
+            // listo. Solo al final hacemos la transición a appContainer — así
+            // el usuario nunca ve estados a medio cargar.
+            App.ui.showLoginLoading('Cargando configuración…');
+
+            // ── FASE 1: cargas críticas (identidad y permisos del usuario) ──
+            // Estas DEBEN terminar antes de mostrar la app. Sin ellas no
+            // podemos aplicar el rol correcto ni saber qué temporadas hay.
+
+            // 1. Temporadas
             try {
                 await App.seasons.load();
+                if (!stillCurrent()) return;
                 App.seasons.renderSelector();
             } catch (e) {
-                console.warn('seasons load failed:', e);
+                console.warn('[login] seasons.load:', e);
             }
+            if (!stillCurrent()) return;
 
-            // Auto-detectar el sheet de CATALOGOS_NOTELODIGO en la carpeta CONFIG.
-            // Si lo encuentra, se guarda en localStorage para que App.modelos/telas/proveedores/
-            // talleresCatalogo lo usen como sheet global (compartido entre temporadas).
+            // 2. Auto-detección del sheet CATALOGOS_NOTELODIGO en la carpeta CONFIG
+            App.ui.showLoginLoading('Buscando catálogos…');
             try {
                 const folderId = App.settings.getLocal('configsFolderId');
                 if (folderId) {
                     const file = await App.sheets.findChildFile(folderId, 'CATALOGOS_NOTELODIGO');
-                    if (file) {
-                        App.settings.set('catalogosId', file.id);
-                    } else {
-                        console.warn('[catalogos] No se encontró el archivo CATALOGOS_NOTELODIGO en la carpeta CONFIG.');
-                    }
+                    if (!stillCurrent()) return;
+                    if (file) App.settings.set('catalogosId', file.id);
                 }
             } catch (e) {
-                console.warn('[catalogos] auto-detección falló:', e.message);
+                console.warn('[login] catalogos auto-detect:', e.message);
             }
+            if (!stillCurrent()) return;
 
-            // Cargar permisos (Jose / Dependientas) desde tab PERMISOS del catalogosId.
-            // Importante hacerlo ANTES de re-aplicar permisos UI para que isJose() y
-            // isDependienta() devuelvan el resultado correcto.
+            // 3. Permisos (Jose / Dependientas) desde el tab PERMISOS
+            App.ui.showLoginLoading('Comprobando permisos…');
             if (App.permisos && typeof App.permisos.load === 'function') {
-                try {
-                    await App.permisos.load();
-                } catch (e) {
+                try { await App.permisos.load(); } catch (e) {
                     console.warn('[login] permisos.load:', e.message);
                 }
             }
+            if (!stillCurrent()) return;
 
-            // Si hay un proxy de talleres configurado, preguntarle "whoami" antes de
-            // intentar cargar el catálogo. Esto cubre el caso del taller que NO tiene
-            // acceso al sheet (no podría cargar talleresCatalogo). Si el proxy
-            // identifica al usuario como taller, guardamos el nombre del taller y
-            // saltamos la carga del catálogo.
+            // 4. Detectar si el usuario es taller (vía proxy si está configurado)
             const proxyUrl = App.settings.get('tallerProxyUrl');
             let tallerIdentificado = false;
             if (proxyUrl && App.token) {
                 try {
                     const data = await App.auth.fetchTallerProxy('whoami');
+                    if (!stillCurrent()) return;
                     if (data.ok && data.taller) {
-                        // Es taller. Guardamos el nombre — App.isTaller() lo usará.
                         App.user.tallerNombre = data.taller;
                         tallerIdentificado = true;
                     }
@@ -4189,61 +4218,65 @@ const App = {
                     console.warn('[login] proxy whoami falló:', e.message);
                 }
             }
+            if (!stillCurrent()) return;
 
-            // Cargar el catálogo de talleres ANTES de re-aplicar permisos: si el email
-            // del usuario coincide con un taller, hay que restringir la UI a "mis-trajes".
-            // Si ya nos identificó el proxy como taller, omitimos esta carga (probablemente
-            // el taller no tiene acceso al sheet de catálogos y daría error).
+            // 5. Catálogo de talleres (necesario para isTaller por email cuando no hay proxy)
             if (!tallerIdentificado && App.talleresCatalogo && typeof App.talleresCatalogo.load === 'function') {
-                try {
-                    await App.talleresCatalogo.load();
-                } catch (e) {
+                try { await App.talleresCatalogo.load(); } catch (e) {
                     console.warn('[login] talleresCatalogo.load:', e.message);
                 }
             }
-            // Re-aplicar permisos ahora que sabemos si es taller o no
+            if (!stillCurrent()) return;
+
+            // ── FASE 2: cargas de datos del dashboard ──
+            // Listado de trajes + dashboard. También bloqueamos hasta que
+            // termine para que el usuario no vea "Cargando…" al entrar.
+            App.ui.showLoginLoading('Cargando trajes…');
+            const listadoId = App.settings.get('listadoId');
+            if (listadoId) {
+                if (App.trajes && typeof App.trajes.load === 'function') {
+                    try { await App.trajes.load(); } catch (e) {
+                        console.warn('[login] trajes.load:', e.message);
+                    }
+                }
+                if (!stillCurrent()) return;
+            }
+
+            // ── TRANSICIÓN A LA APP ──
+            // Ahora sí: ocultar login screen, mostrar app, pintar nombre/usuario.
+            if (!stillCurrent()) return;
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('appContainer').classList.add('active');
+            document.getElementById('sidebarUser').textContent = App.user.name;
+            App.ui.setConnection('online');
+            App.ui.hideLoginLoading();
             if (App.ui.applyRolePermissions) App.ui.applyRolePermissions();
-
-            // Cargar en background los datos necesarios para los badges del sidebar
-            // y otras vistas (no aplica si el usuario es Taller — solo ve mis-trajes).
-            if (!(App.isTaller && App.isTaller())) {
-                if (App.pedidos && typeof App.pedidos.load === 'function') {
-                    App.pedidos.load().catch(e => console.warn('[login] pedidos.load:', e.message));
-                }
-                if (App.telas && typeof App.telas.load === 'function') {
-                    App.telas.load().then(() => App.telas.refreshBadge && App.telas.refreshBadge())
-                        .catch(e => console.warn('[login] telas.load:', e.message));
-                }
-                if (App.proveedores && typeof App.proveedores.load === 'function') {
-                    App.proveedores.load().catch(e => console.warn('[login] proveedores.load:', e.message));
-                }
-            }
-            if (App.trajes && typeof App.trajes.load === 'function' && App.trajes.data?.length === 0) {
-                App.trajes.load().catch(e => console.warn('[login] trajes.load:', e.message));
-            }
-
             App.settings.loadToUI();
 
-            // Cargar guía de tallas desde Drive (silencioso: fallback al TALLAS hardcodeado si falla)
-            App.clientas.loadTallas().then(loaded => {
-                if (loaded) App.toast.show('Guía de tallas cargada desde Drive ✓', 'success', 2500);
-            }).catch(() => {});
-
-            // Avisar si falta configurar el LISTADO. Sin validate-token con
-            // 401-retry-silencioso: ese retry disparaba un segundo
-            // requestAccessToken justo después del login, lo que en algunas cuentas
-            // (workspace, MFA, FedCM) provocaba que el flujo se quedara colgado y
-            // hiciera falta pulsar "Iniciar sesión" dos veces. dashboard.load() ya
-            // hace la primera llamada API; si el token está mal, el handler global
-            // de errores 401 lo detecta y muestra el banner "Sesión expirada".
-            const listadoId = App.settings.get('listadoId');
-            if (!listadoId) {
-                App.toast.show('Configura el LISTADO TRAJES en Ajustes', 'warning', 6000);
-                return;
+            // ── FASE 3: cargas en background (no bloquean la UI) ──
+            // Estas pueden tardar unos segundos más; mientras tanto la app ya
+            // es interactiva. Si el usuario cambia de cuenta, las nuevas
+            // requests usarán el nuevo token automáticamente.
+            if (!(App.isTaller && App.isTaller())) {
+                if (App.pedidos && typeof App.pedidos.load === 'function') {
+                    App.pedidos.load().catch(e => console.warn('[bg] pedidos.load:', e.message));
+                }
+                if (App.telas && typeof App.telas.load === 'function') {
+                    App.telas.load()
+                        .then(() => App.telas.refreshBadge && App.telas.refreshBadge())
+                        .catch(e => console.warn('[bg] telas.load:', e.message));
+                }
+                if (App.proveedores && typeof App.proveedores.load === 'function') {
+                    App.proveedores.load().catch(e => console.warn('[bg] proveedores.load:', e.message));
+                }
             }
-            App.ui.setConnection('online');
+            App.clientas.loadTallas().catch(() => {});
+
             App.toast.show('Conectado a Google Drive', 'success');
             App.dashboard.load();
+            if (!listadoId) {
+                App.toast.show('Configura el LISTADO TRAJES en Ajustes', 'warning', 6000);
+            }
         },
 
         /** Devuelve el access_token actual.
@@ -7347,6 +7380,29 @@ const App = {
             const el = document.getElementById('loginError');
             el.textContent = msg;
             el.style.display = 'block';
+        },
+
+        /** Muestra el spinner "Cargando datos…" en el login screen y oculta
+         *  el botón de inicio de sesión. Se usa entre que el usuario aprueba
+         *  el OAuth y el momento en que la app está totalmente lista.
+         *  El loginScreen NO se oculta hasta que todo esté cargado. */
+        showLoginLoading(msg) {
+            const loading = document.getElementById('loginLoadingState');
+            const msgEl   = document.getElementById('loginLoadingMsg');
+            const btn     = document.getElementById('btnLogin');
+            const err     = document.getElementById('loginError');
+            if (loading) loading.style.display = 'block';
+            if (btn)     btn.style.display     = 'none';
+            if (err)     err.style.display     = 'none';
+            if (msgEl && msg) msgEl.textContent = msg;
+        },
+
+        /** Restaura el login screen al estado inicial (botón visible, spinner oculto). */
+        hideLoginLoading() {
+            const loading = document.getElementById('loginLoadingState');
+            const btn     = document.getElementById('btnLogin');
+            if (loading) loading.style.display = 'none';
+            if (btn)     btn.style.display     = '';
         },
 
 
