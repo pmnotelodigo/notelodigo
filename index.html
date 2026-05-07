@@ -4200,6 +4200,7 @@ const App = {
             if (proxyUrl && App.token) {
                 try {
                     const data = await App.auth.fetchTallerProxy('whoami');
+                    console.log('[login] proxy whoami →', data);
                     if (!stillCurrent()) return;
                     if (data.ok && data.taller) {
                         App.user.tallerNombre = data.taller;
@@ -4220,15 +4221,18 @@ const App = {
             if (!stillCurrent()) return;
 
             // 6. Si el usuario logueado es un TALLER, redirigir a taller.html.
-            // El index.html es para admin/dependientas/Jose. Los talleres tienen
-            // su propia app dedicada, mucho más simple, en /taller.html con
-            // scopes mínimos. Si llegan aquí (porque copiaron el link
-            // equivocado, p.ej.), los enviamos a su sitio sin que vean nada
-            // de la app de admin.
-            if (App.isTaller && App.isTaller()) {
+            // Logging de diagnóstico para entender POR QUÉ se considera taller:
+            const _isTallerNow = App.isTaller && App.isTaller();
+            if (_isTallerNow) {
+                const matchEmail = App.talleresCatalogo?.findByEmail?.(App.user?.email || '');
+                console.log('[login] → REDIRECT a taller.html. Razón:', {
+                    email: App.user?.email,
+                    proxyMatch: !!App.user?.tallerNombre,
+                    proxyTallerNombre: App.user?.tallerNombre,
+                    catalogMatch: !!matchEmail,
+                    catalogEntry: matchEmail,
+                });
                 App.ui.showLoginLoading('Redirigiendo a tu vista de taller…');
-                // location.replace para que el botón "atrás" no traiga al
-                // taller de vuelta a esta página.
                 window.location.replace('./taller.html');
                 return;
             }
