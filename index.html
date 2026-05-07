@@ -1781,6 +1781,21 @@
             color: var(--text-muted);
             font-weight: normal;
         }
+
+        /* ── Nombres de clienta SIEMPRE en mayúsculas en pantalla ──
+           Red de seguridad para datos legacy guardados en minúsculas.
+           Las celdas y campos clave que muestran el nombre llevan
+           text-transform:uppercase. Los nuevos guardados ya vienen
+           normalizados desde App.clientas._normalizeNombre, así que
+           CSS solo cubre el periodo de transición. */
+        td[data-label="Nombre"],
+        td[data-label="Clienta"],
+        #fichaModalTitle,
+        #editTrajeHeader strong,
+        #joseFichaTitle,
+        .nombre-clienta {
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
@@ -8389,8 +8404,12 @@ App.clientas = {
                 return idx === -1 ? null : String.fromCharCode(65 + idx);
             };
 
+            // Nombre siempre en MAYÚSCULAS sin tildes (preservamos Ñ).
+            const nombreUpper = this._normalizeNombre(document.getElementById('fichaombre').value);
+            // Reflejamos en el input para que el usuario lo vea ya normalizado si reabre el modal.
+            document.getElementById('fichaombre').value = nombreUpper;
             const updates = [
-                [this.COL.nombre,   document.getElementById('fichaombre').value],
+                [this.COL.nombre,   nombreUpper],
                 [this.COL.telefono, document.getElementById('fichaTelefono').value],
                 [this.COL.correo,   document.getElementById('fichaCorreo').value],
                 [this.COL.feria,    document.getElementById('fichaFeria').value],
@@ -9240,9 +9259,29 @@ App.clientas = {
         }
     },
 
+    /** Normaliza un nombre de clienta:
+     *   - trim + toUpperCase
+     *   - quita acentos en vocales (Á→A, É→E, Í→I, Ó→O, Ú→U, Ü→U)
+     *   - PRESERVA la Ñ (es una letra distinta en español, no N con tilde)
+     *  Política del negocio: todos los nombres en LISTADO, fichas, ORDEN DE
+     *  CORTE, etiquetas… se guardan y muestran en mayúsculas sin tilde para
+     *  que "Andrés" y "andres" sean indistinguibles. */
+    _normalizeNombre(str) {
+        return (str || '').toString().trim().toUpperCase()
+            .replace(/Á/g, 'A')
+            .replace(/É/g, 'E')
+            .replace(/Í/g, 'I')
+            .replace(/Ó/g, 'O')
+            .replace(/Ú/g, 'U')
+            .replace(/Ü/g, 'U');
+        // Ñ se queda como Ñ.
+    },
+
     async crearClienta() {
-        const nombre = document.getElementById('nuevaNombre').value.trim();
+        const nombre = this._normalizeNombre(document.getElementById('nuevaNombre').value);
         if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
+        // Reflejamos en el input por si el usuario revisa antes del submit.
+        document.getElementById('nuevaNombre').value = nombre;
 
         // Sync defensivo del hidden TIPO TELA
         const tipoIn = document.getElementById('nuevaTipoTelaTipo');
