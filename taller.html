@@ -346,6 +346,14 @@
             Entra con tu cuenta de Google para ver los trajes que tienes asignados.
         </p>
         <button class="btn" id="btnSignIn" onclick="App.signIn()">Entrar con Google</button>
+        <!-- Estado de "Cargando..." entre que el usuario aprueba el OAuth y los
+             trajes han llegado del proxy. Reemplaza al botón mientras está activo
+             para que no haya un parpadeo a la app vacía cuando el proxy tarda. -->
+        <div id="loginLoadingState" style="display:none; padding:20px 0;">
+            <div class="spinner" style="margin:0 auto 14px;"></div>
+            <div id="loginLoadingMsg" style="color:#fff; font-weight:600; font-size:14px;">Cargando…</div>
+            <div style="color:rgba(255,255,255,0.7); font-size:12px; margin-top:6px;">Esto puede tardar unos segundos la primera vez.</div>
+        </div>
         <div id="loginError"></div>
         <div style="margin-top:30px; font-size:11px; color:#999;">
             Solo lectura · Tus datos no se modifican
@@ -485,24 +493,55 @@
 
             _onTokenResponse(resp) {
                 if (resp.error) {
+                    App._hideLoginLoading();
                     App._showLoginError('Error de autenticación: ' + resp.error);
                     return;
                 }
                 App.token = resp.access_token;
                 localStorage.setItem(STORAGE_KEY_TOKEN, resp.access_token);
 
+                // El login screen sigue visible con spinner hasta que los trajes
+                // están cargados. Vamos paso a paso mostrando el progreso.
+                App._showLoginLoading('Cargando perfil…');
+
                 fetch('https://www.googleapis.com/oauth2/v3/userinfo?access_token=' + encodeURIComponent(resp.access_token))
                     .then(r => r.json())
                     .then(info => {
                         App.user = { email: info.email || '', name: info.name || '' };
                         localStorage.setItem(STORAGE_KEY_EMAIL, info.email || '');
-                        App._showApp();
-                        App.load();
+                        // NO mostramos la app aún — primero cargamos los trajes.
+                        // La transición visual ocurre dentro de load() al final.
+                        return App.load();
                     })
-                    .catch(err => App._showLoginError('No se pudo obtener email: ' + err.message));
+                    .catch(err => {
+                        App._hideLoginLoading();
+                        App._showLoginError('No se pudo obtener email: ' + err.message);
+                    });
+            },
+
+            /** Muestra el spinner "Cargando..." en el login screen, oculta el botón
+             *  y limpia errores previos. */
+            _showLoginLoading(msg) {
+                const loading = document.getElementById('loginLoadingState');
+                const msgEl   = document.getElementById('loginLoadingMsg');
+                const btn     = document.getElementById('btnSignIn');
+                const err     = document.getElementById('loginError');
+                if (loading) loading.style.display = 'block';
+                if (btn)     btn.style.display     = 'none';
+                if (err)     err.textContent       = '';
+                if (msgEl && msg) msgEl.textContent = msg;
+            },
+
+            /** Restaura el login screen al estado inicial (botón visible, spinner oculto). */
+            _hideLoginLoading() {
+                const loading = document.getElementById('loginLoadingState');
+                const btn     = document.getElementById('btnSignIn');
+                if (loading) loading.style.display = 'none';
+                if (btn)     btn.style.display     = '';
             },
 
             _showApp() {
+                App._hideLoginLoading();
                 document.getElementById('loginScreen').style.display = 'none';
                 document.getElementById('appContainer').classList.add('active');
                 document.getElementById('userEmail').textContent = App.user?.email || '';
@@ -516,24 +555,50 @@
             // ─── Carga via proxy ───
             async load(forceRefresh) {
                 if (!PROXY_URL || PROXY_URL.indexOf('PEGA_AQUI') === 0) {
-                    App._renderError('La app no está configurada (falta PROXY_URL en taller.html).');
+                    // En el primer load (desde login) → mostrar error en el login screen.
+                    // En refresh (botón Actualizar) → mostrarlo en el body.
+                    if (!document.getElementById('appContainer').classList.contains('active')) {
+                        App._hideLoginLoading();
+                        App._showLoginError('La app no está configurada (falta PROXY_URL en taller.html).');
+                    } else {
+                        App._renderError('La app no está configurada (falta PROXY_URL en taller.html).');
+                    }
                     return;
                 }
                 if (!App.token) return;
+                // Saber si es el primer load (desde login) o un refresh con la app ya abierta.
+                const fromLogin = !document.getElementById('appContainer').classList.contains('active');
+                if (fromLogin) {
+                    App._showLoginLoading('Cargando tus trajes…');
+                }
                 const body = document.getElementById('appBody');
-                if (forceRefresh && body) {
+                if (forceRefresh && body && !fromLogin) {
                     body.innerHTML = '<div class="empty"><div class="spinner"></div><p>Actualizando…</p></div>';
                 }
                 try {
                     const data = await App._callProxy('list');
                     if (!data || !data.ok) {
                         if (data && data.error === 'no_taller_for_email') {
-                            App._renderError('Tu cuenta (' + (App.user?.email || '') +
-                                ') no está asociada a ningún taller activo. Contacta con Pilar.');
+                            // Email no autorizado — quedarnos en el login screen con el error.
+                            if (fromLogin) {
+                                App._hideLoginLoading();
+                                App._showLoginError(
+                                    'Tu cuenta (' + (App.user?.email || '') +
+                                    ') no está asociada a ningún taller activo. Contacta con Pilar.'
+                                );
+                            } else {
+                                App._renderError('Tu cuenta (' + (App.user?.email || '') +
+                                    ') no está asociada a ningún taller activo. Contacta con Pilar.');
+                            }
                             return;
                         }
-                        App._renderError('Error: ' + (data?.error || 'desconocido') +
-                            ' — ' + (data?.message || ''));
+                        const errMsg = 'Error: ' + (data?.error || 'desconocido') + ' — ' + (data?.message || '');
+                        if (fromLogin) {
+                            App._hideLoginLoading();
+                            App._showLoginError(errMsg);
+                        } else {
+                            App._renderError(errMsg);
+                        }
                         return;
                     }
                     App.tallerNombre = data.taller || null;
@@ -541,11 +606,20 @@
                     document.getElementById('tallerNombre').textContent =
                         '\u{1F3ED} ' + (App.tallerNombre || 'Mis trajes');
                     App._render();
+                    // Datos listos → ahora sí, transicionar a la app (oculta el login screen).
+                    if (fromLogin) {
+                        App._showApp();
+                    }
                     // Prefetch en background de la ficha detallada de cada traje.
                     // Al clicar una card, las medidas suelen estar ya cargadas.
                     App._prefetchFichas();
                 } catch (err) {
-                    App._renderError('Error: ' + err.message);
+                    if (fromLogin) {
+                        App._hideLoginLoading();
+                        App._showLoginError('Error: ' + err.message);
+                    } else {
+                        App._renderError('Error: ' + err.message);
+                    }
                 }
             },
 
