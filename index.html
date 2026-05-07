@@ -4246,20 +4246,22 @@ const App = {
             App.dashboard.load();
         },
 
-        /** Get current access token, refreshing if needed */
+        /** Devuelve el access_token actual.
+         *  Si no hay token válido NO disparamos requestAccessToken: ese flujo
+         *  abre popups que el navegador bloquea cuando se llama desde
+         *  background (sin gesto de usuario). En su lugar, lanzamos un error
+         *  que `_fetch` captura y traduce en "Sesión expirada — pulsa
+         *  Reconectar". El usuario hace click en Reconectar (gesto) y ahí sí
+         *  puede abrirse el popup. */
         async getToken() {
             if (App.token) return App.token;
-            return new Promise((resolve, reject) => {
-                const origCallback = App.tokenClient.callback;
-                App.tokenClient.callback = (resp) => {
-                    App.tokenClient.callback = origCallback;
-                    if (resp.error) return reject(new Error(resp.error));
-                    App.token = resp.access_token;
-                    localStorage.setItem(CONFIG.keys.accessToken, resp.access_token);
-                    resolve(resp.access_token);
-                };
-                App.tokenClient.requestAccessToken({ prompt: '' });
-            });
+            // Marcar sesión expirada y rechazar — el caller no debe forzar popup.
+            if (App.auth && typeof App.auth._showSessionExpired === 'function') {
+                App.auth._showSessionExpired();
+            }
+            const err = new Error('Sin token — sesión expirada.');
+            err.status = 401;
+            throw err;
         },
 
         /**
@@ -4306,7 +4308,17 @@ const App = {
        ------------------------------------------------------- */
     sheets: {
         /**
-         * Raw API fetch with auto-retry on 401
+         * Raw API fetch.
+         *
+         * En 401 NO intentamos refrescar el token automáticamente: refrescar
+         * llama a requestAccessToken, que abre un popup. Sin gesto de usuario
+         * (estamos en una promesa async, fuera del click handler) los
+         * navegadores bloquean ese popup → cascada de errores y el login
+         * screen reaparece con "Ventana cerrada".
+         *
+         * En su lugar, marcamos sesión expirada (banner + token clear) y
+         * lanzamos el error. El usuario verá el banner "Sesión expirada" con
+         * botón Reconectar; ese click sí tiene gesto y puede abrir el popup.
          */
         async _fetch(url, options = {}) {
             const token = await App.auth.getToken();
@@ -4315,15 +4327,16 @@ const App = {
                 'Content-Type': 'application/json',
                 ...(options.headers || {}),
             };
-            let resp = await fetch(url, { ...options, headers });
+            const resp = await fetch(url, { ...options, headers });
 
-            // On 401, refresh token once and retry
             if (resp.status === 401) {
-                App.token = null;
-                localStorage.removeItem(CONFIG.keys.accessToken);
-                const newToken = await App.auth.getToken();
-                headers['Authorization'] = 'Bearer ' + newToken;
-                resp = await fetch(url, { ...options, headers });
+                // Marcar sesión expirada solo una vez (idempotente).
+                if (App.auth && typeof App.auth._showSessionExpired === 'function') {
+                    App.auth._showSessionExpired();
+                }
+                const err = new Error('Sesión expirada — pulsa Reconectar.');
+                err.status = 401;
+                throw err;
             }
             if (!resp.ok) {
                 const body = await resp.json().catch(() => ({}));
