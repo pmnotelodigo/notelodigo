@@ -15733,15 +15733,6 @@ App.jose = {
         const adornosTraje = (t[COL.adornos] || tc?.[COL.adornos] || tc?.['ADORNOS'] || '')
             .toString().trim();
         const adornosModelo  = (modeloFull?.ADORNOS || '').toString().trim();
-        // Diag: si parece que el dato está en el sheet pero no llegó a memoria,
-        // dejamos rastro para investigar (ver consola al abrir la ficha).
-        console.log('[jose.verFicha]', {
-            num, modelo: modeloRaw, rowIndex,
-            adornosTraje_t: t['ADORNOS'],
-            adornosTraje_tc: tc?.['ADORNOS'],
-            adornosModelo,
-            keys_t: Object.keys(t).filter(k => k.includes('ADORN')),
-        });
         let adornos = '';
         if (adornosModelo && adornosTraje && adornosTraje !== adornosModelo) {
             adornos = `${adornosModelo}\n— Para este traje: ${adornosTraje}`;
