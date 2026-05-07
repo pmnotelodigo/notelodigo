@@ -3480,38 +3480,10 @@
                 </div>
             </div>
 
-            <!-- SECTION: Mis trajes (vista del taller — solo lectura) -->
-            <div class="section" id="sec-mis-trajes">
-                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
-                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                        <input type="text" class="form-input" id="misTrajesSearch"
-                               placeholder="&#x1F50D; Buscar..."
-                               style="flex:1; min-width:180px; max-width:280px; margin:0;"
-                               oninput="App.misTrajes.filter()">
-                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-                            <button class="btn btn-secondary btn-sm" onclick="App.misTrajes.load(true)">
-                                &#x21BB; Actualizar
-                            </button>
-                        </div>
-                    </div>
-                    <div style="margin-top:8px; font-size:13px; color:var(--text-muted);" id="misTrajesCount"></div>
-                </div>
-                <div id="misTrajesContent">
-                    <div class="empty-state"><div class="spinner spinner-lg"></div></div>
-                </div>
-            </div>
-
-            <!-- MIS TRAJES FICHA MODAL — solo lectura, info del traje (sin teléfono/correo) -->
-            <div class="modal-overlay" id="misTrajesFichaModal">
-                <div class="modal" style="max-width:560px; width:95%;">
-                    <h2 id="misTrajesFichaTitle" style="margin-bottom:6px;">Ficha del traje</h2>
-                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;" id="misTrajesFichaSubtitle"></div>
-                    <div id="misTrajesFichaBody" style="font-size:13px; line-height:1.55;"></div>
-                    <div class="modal-actions">
-                        <button class="btn btn-secondary" onclick="App.misTrajes.closeFicha()">Cerrar</button>
-                    </div>
-                </div>
-            </div>
+            <!-- SECTION "Mis trajes" eliminada 2026-05-07. La vista embebida del
+                 taller dentro de index.html era obsoleta. Los talleres ahora
+                 tienen su propia app (taller.html) y al detectar isTaller() en
+                 el login, redirigimos allí desde _onAuthenticated. -->
 
             <!-- SECTION: Talleres — eliminada 2026-05-06 (vista "Vista por taller").
                  Los helpers de App.talleres se mantienen como stub porque otros
@@ -3831,10 +3803,10 @@ const CONFIG = {
         // --- Catálogos globales (no per-season) ---
         catalogosId:     'pilar_catalogos_id',         // ID del Sheet "CATALOGOS_NOTELODIGO" (global)
         // --- Proxy de talleres (Apps Script Web App) ---
-        // URL del web app que filtra LISTADO por taller. Se usa cuando el
-        // usuario logueado es taller (su email coincide con catálogo TALLERES).
-        // Si no hay URL configurada, App.misTrajes intenta leer el sheet directo
-        // (requiere acceso compartido — modo de "confianza").
+        // URL del web app que filtra LISTADO por taller. Se usa desde
+        // taller.html para que el taller no necesite acceso al sheet.
+        // Si no hay URL configurada, taller.html cae al modo "confianza"
+        // (lee el sheet directo, requiere que el taller esté compartido).
         tallerProxyUrl:  'pilar_taller_proxy_url',
     },
 
@@ -4246,6 +4218,20 @@ const App = {
                 }
             }
             if (!stillCurrent()) return;
+
+            // 6. Si el usuario logueado es un TALLER, redirigir a taller.html.
+            // El index.html es para admin/dependientas/Jose. Los talleres tienen
+            // su propia app dedicada, mucho más simple, en /taller.html con
+            // scopes mínimos. Si llegan aquí (porque copiaron el link
+            // equivocado, p.ej.), los enviamos a su sitio sin que vean nada
+            // de la app de admin.
+            if (App.isTaller && App.isTaller()) {
+                App.ui.showLoginLoading('Redirigiendo a tu vista de taller…');
+                // location.replace para que el botón "atrás" no traiga al
+                // taller de vuelta a esta página.
+                window.location.replace('./taller.html');
+                return;
+            }
 
             // ── FASE 2: cargas de datos del dashboard ──
             // Listado de trajes + dashboard. También bloqueamos hasta que
@@ -7236,19 +7222,20 @@ const App = {
             telas:             { title: 'Telas',             subtitle: 'Catálogo y stock' },
             proveedores:       { title: 'Proveedores',       subtitle: 'Catálogo de proveedores y mínimos de pedido' },
             'talleres-catalogo': { title: 'Catálogo talleres', subtitle: 'Talleres con email para acceso restringido' },
-            talleres:          { title: 'Vista por taller',  subtitle: 'Distribucion por taller' },
-            'mis-trajes':      { title: 'Mis trajes',        subtitle: 'Trajes asignados a tu taller' },
             ajustes:           { title: 'Ajustes',           subtitle: 'Configuracion del sistema' },
         },
 
         navigateTo(sectionId) {
+            // Si el usuario es un Taller, NO debería estar en index.html
+            // (en _onAuthenticated lo redirigimos a taller.html). Si por
+            // cualquier motivo extremo llega aquí, lo enviamos a su app.
+            if (App.isTaller && App.isTaller()) {
+                window.location.replace('./taller.html');
+                return;
+            }
             // Si el usuario está restringido (Jose), forzar la sección "jose"
             if (App.isJose && App.isJose() && sectionId !== 'jose') {
                 sectionId = 'jose';
-            }
-            // Si el usuario es un Taller, forzar la sección "mis-trajes"
-            if (App.isTaller && App.isTaller() && sectionId !== 'mis-trajes') {
-                sectionId = 'mis-trajes';
             }
             // Si el usuario es Dependienta, solo puede entrar a clientas o modelos.
             // Cualquier otra sección la mandamos a 'clientas' por defecto.
@@ -7291,10 +7278,6 @@ const App = {
             if (sectionId === 'talleres-catalogo' && App.talleresCatalogo && typeof App.talleresCatalogo.load === 'function') {
                 App.talleresCatalogo.load().catch(e => console.warn('[talleresCatalogo.load]', e.message));
             }
-            // Auto-load Mis trajes (vista del taller)
-            if (sectionId === 'mis-trajes' && App.misTrajes && typeof App.misTrajes.load === 'function') {
-                App.misTrajes.load().catch(e => console.warn('[misTrajes.load]', e.message));
-            }
             // Auto-render Permisos UI cuando se entra a Ajustes (datos ya cargados al login)
             if (sectionId === 'ajustes' && App.permisos && typeof App.permisos._renderUI === 'function') {
                 // Refrescar la lista del sheet por si otro admin la modificó
@@ -7307,24 +7290,22 @@ const App = {
             }
         },
 
-        /** Aplica restricciones de UI según el rol (admin vs Jose vs Taller vs Dependienta).
+        /** Aplica restricciones de UI según el rol (admin vs Jose vs Dependienta).
          *  - Jose ve solo la sección "jose".
-         *  - Taller ve solo la sección "mis-trajes".
          *  - Dependienta ve "clientas" (CRUD) y "modelos" (read-only).
          *  - Admin ve todo.
+         *  - Taller: NO entra aquí — _onAuthenticated lo redirige a taller.html antes
+         *    de llegar a este punto. La rama isTaller del navigateTo es safety net.
          *  Oculta nav-items, group-labels y bottom-nav-items según corresponda. */
         applyRolePermissions() {
             const isJose        = App.isJose && App.isJose();
-            const isTaller      = App.isTaller && App.isTaller();
             const isDependienta = App.isDependienta && App.isDependienta();
-            const restricted = isJose || isTaller || isDependienta;
+            const restricted = isJose || isDependienta;
             const allowed = isJose
                 ? new Set(['jose'])
-                : isTaller
-                    ? new Set(['mis-trajes'])
-                    : isDependienta
-                        ? new Set(['clientas', 'modelos'])
-                        : null;   // admin: todo permitido
+                : isDependienta
+                    ? new Set(['clientas', 'modelos'])
+                    : null;   // admin: todo permitido
 
             // Sidebar nav-items
             document.querySelectorAll('.nav-item[data-section]').forEach(el => {
@@ -7363,9 +7344,6 @@ const App = {
             if (isJose) {
                 const activeSec = document.querySelector('.section.active');
                 if (!activeSec || activeSec.id !== 'sec-jose') this.navigateTo('jose');
-            } else if (isTaller) {
-                const activeSec = document.querySelector('.section.active');
-                if (!activeSec || activeSec.id !== 'sec-mis-trajes') this.navigateTo('mis-trajes');
             } else if (isDependienta) {
                 const activeSec = document.querySelector('.section.active');
                 const okSec = activeSec && (activeSec.id === 'sec-clientas' || activeSec.id === 'sec-modelos');
@@ -16543,259 +16521,6 @@ App.permisos = {
     },
 };
 
-/* ==========================================================
-   MIS_TRAJES — vista de solo lectura para los talleres.
-   Cuando un taller entra con su email, esta es su única sección.
-   ========================================================== */
-App.misTrajes = {
-    _filtered: [],
-    _viaProxy: false,        // true = los datos vienen del Apps Script proxy
-    _proxyTaller: null,      // nombre del taller devuelto por el proxy
-    _proxyTrajes: [],        // trajes recibidos del proxy (cuando aplica)
-
-    /** Nombre del taller del usuario actual.
-     *  Si los datos vienen del proxy, lo dice el proxy.
-     *  Si no, se busca por email en el catálogo (modo de confianza). */
-    _currentTallerNombre() {
-        if (this._viaProxy && this._proxyTaller) return this._proxyTaller;
-        const email = (App.user?.email || '').toLowerCase().trim();
-        if (!email) return null;
-        const t = App.talleresCatalogo?.findByEmail(email);
-        return t?.NOMBRE || null;
-    },
-
-    /**
-     * Carga los trajes del taller. Dos caminos:
-     *
-     *  - Si hay `tallerProxyUrl` configurado: pide los trajes al Apps Script
-     *    Web App (que filtra server-side). El taller NO necesita acceso al
-     *    sheet — el script corre como Pilar y devuelve solo lo asignado.
-     *
-     *  - Si no hay proxy: lee del sheet directamente (modo "confianza").
-     *    Requiere que el sheet esté compartido con el email del taller.
-     *
-     * El forceRefresh fuerza recarga del proxy / sheet (no usa caché).
-     */
-    async load(forceRefresh = false) {
-        const cont = document.getElementById('misTrajesContent');
-        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando tus trajes…</p></div>';
-        const proxyUrl = App.settings.get('tallerProxyUrl');
-        try {
-            if (proxyUrl && App.token) {
-                // ── Modo proxy: el script identifica al taller y filtra por nosotros ──
-                // fetchTallerProxy gestiona refresh automático del token si caducó.
-                const data = await App.auth.fetchTallerProxy('list');
-                if (!data.ok) {
-                    if (data.error === 'no_taller_for_email') {
-                        if (cont) cont.innerHTML =
-                            '<div class="alert alert-warning" style="margin:20px;">' +
-                            'Tu cuenta no está asociada a ningún taller activo en el catálogo.</div>';
-                        return;
-                    }
-                    throw new Error(`${data.error}: ${data.message || ''}`);
-                }
-                this._viaProxy   = true;
-                this._proxyTaller = data.taller || null;
-                this._proxyTrajes = data.trajes || [];
-                this.filter();
-                return;
-            }
-
-            // ── Modo "confianza": leemos el sheet directamente ──
-            this._viaProxy = false;
-            this._proxyTaller = null;
-            this._proxyTrajes = [];
-
-            // Necesitamos el catálogo de talleres para resolver email → nombre del taller
-            if (!App.talleresCatalogo._data?.length) {
-                await App.talleresCatalogo.load();
-            }
-            // Cargar trajes
-            if (forceRefresh || !App.trajes?.data?.length) {
-                await App.trajes.load(forceRefresh);
-            }
-            // Cargar modelos para mostrar adornos / construcción en la ficha
-            if (App.modelos && !App.modelos._data?.length) {
-                await App.modelos.load().catch(()=>{});
-            }
-            this.filter();
-        } catch (err) {
-            console.error('[misTrajes.load]', err);
-            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
-        }
-    },
-
-    filter() {
-        const cont = document.getElementById('misTrajesContent');
-        const countEl = document.getElementById('misTrajesCount');
-        if (!cont) return;
-        const tallerNombre = this._currentTallerNombre();
-        if (!tallerNombre) {
-            cont.innerHTML =
-                '<div class="alert alert-warning" style="margin:20px;">' +
-                'Tu cuenta no está asociada a ningún taller del catálogo. ' +
-                'Pide que te añadan en la sección "Catálogo talleres".</div>';
-            if (countEl) countEl.textContent = '';
-            return;
-        }
-        const q = (document.getElementById('misTrajesSearch')?.value || '').toLowerCase().trim();
-
-        // Fuente de datos según modo: proxy ya viene filtrado por taller y sin entregados.
-        if (this._viaProxy) {
-            // Trajes del proxy ya vienen filtrados; solo aplicamos búsqueda en cliente.
-            this._filtered = (this._proxyTrajes || []).filter(t => {
-                if (!q) return true;
-                const hay = `${t['Nº'] || ''} ${t['NOMBRE'] || ''} ${t['MODELO'] || ''} ${t['TIPO TELA'] || ''}`.toLowerCase();
-                return hay.includes(q);
-            });
-        } else {
-            const COL = App.trajes.COL;
-            const all = App.trajes.data || [];
-            const tallerUpper = tallerNombre.toUpperCase();
-            // Solo trajes de mi taller, no entregados a la clienta todavía
-            this._filtered = all.filter(t => {
-                const tl = (t[COL.taller] || '').toUpperCase().trim();
-                if (tl !== tallerUpper) return false;
-                const ent = (t[COL.trajeEntregado] || '').toUpperCase().trim();
-                if (ent === 'ENTREGADO') return false;
-                if (q) {
-                    const hay = `${t[COL.num] || ''} ${t[COL.nombre] || ''} ${t[COL.modelo] || ''} ${t[COL.tipoTela] || ''}`.toLowerCase();
-                    if (!hay.includes(q)) return false;
-                }
-                return true;
-            });
-        }
-        if (countEl) countEl.textContent = `${this._filtered.length} traje${this._filtered.length !== 1 ? 's' : ''} en tu taller`;
-        this._render();
-    },
-
-    _render() {
-        const cont = document.getElementById('misTrajesContent');
-        if (!cont) return;
-        if (!this._filtered.length) {
-            cont.innerHTML = '<div class="empty-state" style="padding:40px;"><p>No hay trajes asignados a tu taller en este momento.</p></div>';
-            return;
-        }
-
-        // Separar trajes en dos grupos:
-        //   • "En mi taller" — FECHA ENTREGA TALLER rellena (ya están físicamente).
-        //   • "En camino"    — sin fecha de entrega (todavía en corte / cortador).
-        const enTaller = [];
-        const enCamino = [];
-        for (const t of this._filtered) {
-            const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
-            if (fechaEnt) enTaller.push(t); else enCamino.push(t);
-        }
-
-        cont.innerHTML =
-            this._renderGrupo('🏭 En mi taller', '#1b5e20', '#e8f5e9', enTaller,
-                'Estos trajes están físicamente en tu taller. A trabajar.') +
-            this._renderGrupo('🚛 En camino', '#7c5e10', '#fff3cd', enCamino,
-                'Estos trajes aún no han llegado. Sirven para que vayas preparándote.');
-    },
-
-    /** Pinta un grupo (cards de trajes) con título y color. */
-    _renderGrupo(titulo, color, bgColor, lista, subtitulo) {
-        if (!lista.length) return '';
-        const cards = lista.map(t => this._renderCard(t)).join('');
-        return `
-            <div style="margin-bottom:24px;">
-                <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:8px;">
-                    <h3 style="font-size:16px; font-weight:700; color:${color}; margin:0;">${titulo}</h3>
-                    <span style="font-size:13px; color:#666;">${lista.length} traje${lista.length !== 1 ? 's' : ''}</span>
-                </div>
-                <div style="font-size:12px; color:#666; margin-bottom:10px;">${subtitulo}</div>
-                <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:12px;">${cards}</div>
-            </div>`;
-    },
-
-    /** Card de un traje con TODOS los datos relevantes (no hace falta abrir ficha). */
-    _renderCard(t) {
-        const COL = App.trajes.COL;
-        // Padding: 5 → 005, 23 → 023. Si no es número, deja el valor crudo.
-        const numRaw = String(t[COL.num] || t['Nº'] || '').trim();
-        const numInt = parseInt(numRaw, 10);
-        const num = !isNaN(numInt) ? String(numInt).padStart(3, '0') : numRaw;
-
-        const nombre   = (t[COL.nombre]   || t['NOMBRE']   || '').trim() || '—';
-        const modelo   = (t[COL.modelo]   || t['MODELO']   || '').trim() || '—';
-        const tipoTela = (t[COL.tipoTela] || t['TIPO TELA'] || '').trim();
-        const medidas  = (t[COL.medidas]  || t['MEDIDAS']  || '').trim();
-        const adornos  = (t[COL.adornos]  || t['ADORNOS']  || '').trim();
-        const feria    = (t[COL.feria]    || t['FERIA']    || '').trim();
-        const fechaEnt = (t['FECHA ENTREGA TALLER'] || '').toString().trim();
-
-        // Talla normalizada
-        const tallaTxt = medidas.replace(/^T\.?\s*/i, '').trim();
-
-        return `
-            <div class="card" style="padding:14px;">
-                <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
-                    <strong style="font-size:16px; color:var(--primary);">#${num} · ${nombre}</strong>
-                    ${tallaTxt ? `<span style="font-size:13px; font-weight:600; color:#444;">TALLA ${tallaTxt}</span>` : ''}
-                </div>
-                <div style="font-size:13px; margin-bottom:6px;">
-                    <strong>${modelo}</strong>${tipoTela ? ` · <span style="color:#666;">${tipoTela}</span>` : ''}
-                </div>
-                ${feria ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">&#x1F4CD; ${feria}</div>` : ''}
-                ${fechaEnt ? `<div style="font-size:11px; color:#1b5e20; margin-bottom:6px;">&#x2705; Entregado al taller el <strong>${fechaEnt}</strong></div>` : ''}
-                ${adornos ? `
-                    <div style="border-top:1px solid var(--border-light); margin-top:8px; padding-top:8px;">
-                        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:4px;">Adornos</div>
-                        <div style="font-size:13px; line-height:1.5; white-space:pre-wrap;">${adornos}</div>
-                    </div>
-                ` : ''}
-            </div>`;
-    },
-
-    /** Ficha del traje en solo lectura: solo info del traje (sin teléfono, correo). */
-    verFicha(rowIndex) {
-        // En modo proxy buscamos en _proxyTrajes; en modo confianza, en App.trajes.data
-        const source = this._viaProxy ? this._proxyTrajes : (App.trajes.data || []);
-        const t = source.find(r => r._rowIndex === rowIndex);
-        if (!t) return;
-        // Tanto el proxy como App.trajes.COL usan los mismos nombres de columna como
-        // claves ('Nº', 'NOMBRE', 'MODELO', etc), así que la lectura funciona idéntica.
-        const COL = App.trajes.COL;
-        const num      = String(t[COL.num] || t['Nº'] || '').trim();
-        const nombre   = (t[COL.nombre]   || t['NOMBRE']   || '').trim();
-        const feria    = (t[COL.feria]    || t['FERIA']    || '').trim();
-        const modeloRaw = (t[COL.modelo]   || t['MODELO']  || '').trim();
-        const tipoTela  = (t[COL.tipoTela] || t['TIPO TELA'] || '').trim();
-        const medidas   = (t[COL.medidas]  || t['MEDIDAS'] || '').trim();
-
-        const modeloFull = (App.modelos?._data || []).find(m =>
-            m.NOMBRE && m.NOMBRE.toLowerCase() === modeloRaw.toLowerCase());
-        const adornos     = modeloFull?.ADORNOS         || (t[COL.adornos] || t['ADORNOS'] || '');
-        const escandalloM = modeloFull?.TELA_PPAL_M     || '';
-        const tipoConstr  = modeloFull?.TIPO_CONSTRUCCION || '';
-
-        document.getElementById('misTrajesFichaTitle').innerHTML =
-            `Traje &nbsp;&middot;&nbsp; <span style="color:var(--primary);">#${num}</span>`;
-        document.getElementById('misTrajesFichaSubtitle').textContent =
-            nombre + (feria ? `  ·  ${feria}` : '');
-
-        const fila = (label, value) =>
-            `<tr><td style="padding:5px 0; color:#666; vertical-align:top; min-width:140px;">${label}</td>` +
-            `<td style="padding:5px 0;"><strong>${value || '—'}</strong></td></tr>`;
-
-        document.getElementById('misTrajesFichaBody').innerHTML =
-            `<table style="width:100%; border-collapse:collapse;">` +
-            fila('Modelo', modeloRaw) +
-            (tipoConstr ? fila('Construcción', tipoConstr) : '') +
-            (escandalloM ? fila('Tela ppal', `${escandalloM} m`) : '') +
-            fila('Tipo tela', tipoTela) +
-            (medidas ? fila('Medidas', medidas) : '') +
-            (adornos ? fila('Adornos', `<span style="font-size:12px; line-height:1.5;">${adornos.replace(/\n/g, '<br>')}</span>`) : '') +
-            `</table>`;
-
-        document.getElementById('misTrajesFichaModal').classList.add('active');
-    },
-
-    closeFicha() {
-        document.getElementById('misTrajesFichaModal').classList.remove('active');
-    },
-};
 
 /* ==========================================================
    TELAS — catálogo + stock por tela (TIPO + VARIANTE)
