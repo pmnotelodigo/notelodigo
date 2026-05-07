@@ -3915,31 +3915,31 @@ const App = {
                 return;
             }
 
-            // prompt: '' (vacío) deja a Google decidir:
-            //   - Si tiene sesión Google activa + permisos previos → login silencioso.
-            //   - Si tiene varias cuentas → muestra selector.
-            //   - Si nunca aceptó permisos → muestra consent.
+            // prompt: 'select_account' es la opción FIABLE: siempre fuerza un popup
+            // explícito de Google, incluso con una sola cuenta activa. Antes
+            // probamos `prompt: ''` (silencioso si posible) pero a veces el flujo
+            // FedCM/One-Tap dejaba a Google en un estado raro: aparecía el toast,
+            // el usuario clicaba y el callback no disparaba — había que pulsar
+            // "Iniciar sesión" dos veces para entrar.
+            // Como ya no usamos revoke() en signOut(), el usuario solo ve el
+            // selector de cuenta — la pantalla de permisos NO reaparece.
             const fire = () => {
                 if (!App.tokenClient) return false;
-                App.tokenClient.requestAccessToken({ prompt: '' });
+                App.tokenClient.requestAccessToken({ prompt: 'select_account' });
                 return true;
             };
 
             // Caso 1: tokenClient ya inicializado — disparar directo.
             if (fire()) return;
 
-            // Caso 2: GIS está cargado pero init() no se ha ejecutado aún
-            // (puede pasar si el usuario clica antes de que el setInterval del
-            // bootstrap haya terminado). Inicializamos en el momento.
+            // Caso 2: GIS está cargado pero init() aún no — inicializar en el momento.
             if (typeof google !== 'undefined' && google.accounts) {
                 App.auth.init();
                 if (fire()) return;
             }
 
-            // Caso 3: GIS todavía no ha terminado de cargarse (red lenta,
-            // primera visita, etc.). Esperamos hasta 5 s con polling y, en
-            // cuanto esté disponible, lanzamos la request automáticamente para
-            // que el usuario no tenga que volver a clicar.
+            // Caso 3: GIS todavía no cargó (red lenta, primera visita).
+            // Polling cada 100 ms hasta 5 s, y autodispara en cuanto está listo.
             App.ui.showLoginError('Cargando Google Sign-In, un momento…');
             let attempts = 0;
             const wait = setInterval(() => {
@@ -3948,7 +3948,7 @@ const App = {
                     clearInterval(wait);
                     App.auth.init();
                     if (App.tokenClient) {
-                        App.tokenClient.requestAccessToken({ prompt: '' });
+                        App.tokenClient.requestAccessToken({ prompt: 'select_account' });
                     } else {
                         App.ui.showLoginError('No se pudo inicializar Google Sign-In.');
                     }
