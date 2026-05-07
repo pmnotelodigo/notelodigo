@@ -287,13 +287,39 @@
         .bandeja.active .bandeja-count { background: rgba(255,255,255,0.28); }
         /* Cuando la sub-bandeja tiene items pendientes (count > 0), se destaca en rojo
            para llamar la atención. La clase se aplica desde JS al refrescar el contador. */
+        .bandeja:not(.active) .count.has-pending,
         .bandeja:not(.active) .bandeja-count.has-pending {
             background: #d32f2f;
             color: #fff;
         }
+        .bandeja.active .count.has-pending,
         .bandeja.active .bandeja-count.has-pending {
             background: #fff;
             color: #d32f2f;
+        }
+        /* Punto rojo parpadeante en la esquina superior derecha de la bandeja
+           cuando tiene items pendientes (sustituye al badge global del sidebar
+           mientras estás en Trajes). Se posiciona via .bandeja{position:relative}. */
+        .bandeja { position: relative; }
+        .bandeja.has-pending-dot::after {
+            content: '';
+            position: absolute;
+            top: -3px;
+            right: -3px;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #d32f2f;
+            box-shadow: 0 0 0 2px var(--surface, #fff);
+            animation: bandejaPulse 1.4s ease-in-out infinite;
+            pointer-events: none;
+        }
+        /* Si la bandeja está activa, no mostramos el punto: ya estás viendo esos
+           items. Evita ruido visual. */
+        .bandeja.active.has-pending-dot::after { display: none; }
+        @keyframes bandejaPulse {
+            0%, 100% { opacity: 1;   transform: scale(1); }
+            50%      { opacity: 0.45; transform: scale(0.78); }
         }
         .bandeja-warn:not(.active) { color: var(--danger); border-color: #ffcdd2; }
         .bandeja-warn:not(.active):hover { border-color: var(--danger); }
@@ -1912,7 +1938,7 @@
             <div class="nav-item nav-item-primary" data-section="trajes" onclick="App.ui.navigateTo('trajes')">
                 <span class="nav-icon" style="position:relative;">
                     &#x1F457;
-                    <span id="trajesBadgeSidebar" class="nav-badge" style="display:none;" title="Trajes en bandeja Revisar (incidencias o estancados)">0</span>
+                    <span id="trajesBadgeSidebar" class="nav-badge" style="display:none;" title="Trajes esperando acción: tela, corte, taller, entrega o revisar">0</span>
                 </span>
                 <span class="nav-label">Trajes</span>
             </div>
@@ -7324,6 +7350,11 @@ const App = {
                         App.permisos._renderUI();
                     });
             }
+            // Refrescar el badge de Trajes: si entras a Trajes, se oculta (los chips
+            // ya muestran los pendientes); si sales, vuelve a mostrarse el global.
+            if (App.trajes && typeof App.trajes.refreshBadge === 'function') {
+                App.trajes.refreshBadge();
+            }
         },
 
         /** Aplica restricciones de UI según el rol (admin vs Jose vs Dependienta).
@@ -10526,15 +10557,25 @@ App.trajes = {
             if (this._needsAsignarTaller(t)) counts.asignarTaller++;
         }
         // Bandejas que requieren acción (resaltar en rojo si > 0)
-        const accionables = new Set(['revisar', 'pedirTela', 'esperandoTela', 'asignarTaller']);
+        const accionables = new Set(['revisar', 'pedirTela', 'esperandoTela', 'asignarTaller', 'listos', 'recibidos']);
         for (const [k, v] of Object.entries(counts)) {
             const el = document.getElementById('bdCount-' + k);
             if (!el) continue;
             el.textContent = v;
-            el.classList.toggle('has-pending', accionables.has(k) && v > 0);
+            const isPending = accionables.has(k) && v > 0;
+            el.classList.toggle('has-pending', isPending);
+            // Punto rojo parpadeante sobre la bandeja entera (no solo el chip).
+            const bandejaEl = el.closest('.bandeja');
+            if (bandejaEl) bandejaEl.classList.toggle('has-pending-dot', isPending);
         }
-        // Badge del sidebar: número de trajes en bandeja Revisar (urgencia real)
-        this.refreshBadge(counts.revisar);
+        // Badge del sidebar: suma de TODAS las bandejas accionables.
+        // Significa "hay trajes esperando una acción de Pilar" — se incluyen
+        // pedir/esperando tela, listos para cortar, asignar taller, recibidos
+        // (pdte. entregar) y revisar (incidencias/estancados).
+        const accionablesTotal =
+            counts.esperandoTela + counts.pedirTela + counts.listos +
+            counts.asignarTaller + counts.recibidos + counts.revisar;
+        this.refreshBadge(accionablesTotal);
         // De paso, refrescar el badge de Vista por taller (depende de los mismos datos)
         if (App.talleres && typeof App.talleres.refreshBadge === 'function') {
             App.talleres.refreshBadge();
@@ -10545,19 +10586,35 @@ App.trajes = {
         }
     },
 
-    /** Actualiza el badge rojo del icono "Trajes" del sidebar con los trajes en revisar.
-     *  Si se le pasa un número, lo usa directamente; si no, lo recalcula. */
+    /** Actualiza el badge rojo del icono "Trajes" del sidebar.
+     *  Cuenta TODAS las bandejas accionables (esperando tela, pedir tela,
+     *  listos para cortar, asignar taller, recibidos sin entregar y revisar).
+     *  Si se le pasa un número, lo usa directamente; si no, lo recalcula.
+     *  Nota: si el usuario YA está en la sección Trajes, ocultamos el badge
+     *  porque los chips de bandeja ya muestran los pendientes con punto rojo
+     *  parpadeante — sería redundante. */
     refreshBadge(count) {
         let n = count;
         if (typeof n !== 'number') {
             n = 0;
             for (const t of (this.data || [])) {
-                if (this._needsRevisar(t)) n++;
+                const b = this._getBandeja(t);
+                if (b === 'esperandoTela' || b === 'pedirTela' ||
+                    b === 'listos' || b === 'asignarTaller' ||
+                    b === 'recibidos') {
+                    n++;
+                    continue;
+                }
+                if (this._isPedirUrgente(t)) { n++; continue; }
+                if (this._needsAsignarTaller(t)) { n++; continue; }
+                if (this._needsRevisar(t)) { n++; continue; }
             }
         }
         const el = document.getElementById('trajesBadgeSidebar');
         if (!el) return;
-        if (n > 0) {
+        // Si Trajes está activa, no mostramos el badge global (los chips ya avisan).
+        const trajesActive = !!document.querySelector('#sec-trajes.section.active');
+        if (n > 0 && !trajesActive) {
             el.textContent = n > 99 ? '99+' : String(n);
             el.style.display = '';
         } else {
