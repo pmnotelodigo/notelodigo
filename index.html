@@ -4001,25 +4001,39 @@ const App = {
         },
 
         _handleTokenResponse(resp) {
+            console.log('[auth] _handleTokenResponse', {
+                hasToken: !!resp?.access_token,
+                hasError: !!resp?.error,
+                error: resp?.error,
+                scope: resp?.scope,
+            });
             if (resp.error) {
                 App.ui.showLoginError('Error de autenticacion: ' + resp.error);
+                return;
+            }
+            if (!resp.access_token) {
+                console.warn('[auth] resp sin access_token — no se completa el login');
+                App.ui.showLoginError('Google no devolvió un token válido. Reintenta.');
                 return;
             }
             App.token = resp.access_token;
             localStorage.setItem(CONFIG.keys.accessToken, resp.access_token);
 
-            // Get user info
+            // Get user info — si falla, seguimos adelante con valores por defecto
+            // (no debemos bloquear el login si userinfo da timeout/403/etc).
             fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                 headers: { 'Authorization': 'Bearer ' + resp.access_token }
             })
             .then(r => r.json())
             .then(info => {
+                console.log('[auth] userinfo OK', { name: info.name, email: info.email });
                 App.user = { name: info.name || info.email || 'Usuario', email: info.email || '' };
                 localStorage.setItem(CONFIG.keys.userName, App.user.name);
                 localStorage.setItem(CONFIG.keys.userEmail, App.user.email);
                 App.auth._onAuthenticated();
             })
-            .catch(() => {
+            .catch(err => {
+                console.warn('[auth] userinfo falló — continuando con usuario genérico', err);
                 App.user = { name: 'Usuario', email: '' };
                 App.auth._onAuthenticated();
             });
@@ -4215,29 +4229,21 @@ const App = {
                 if (loaded) App.toast.show('Guía de tallas cargada desde Drive ✓', 'success', 2500);
             }).catch(() => {});
 
-            // Validate token by making a lightweight API call
+            // Avisar si falta configurar el LISTADO. Sin validate-token con
+            // 401-retry-silencioso: ese retry disparaba un segundo
+            // requestAccessToken justo después del login, lo que en algunas cuentas
+            // (workspace, MFA, FedCM) provocaba que el flujo se quedara colgado y
+            // hiciera falta pulsar "Iniciar sesión" dos veces. dashboard.load() ya
+            // hace la primera llamada API; si el token está mal, el handler global
+            // de errores 401 lo detecta y muestra el banner "Sesión expirada".
             const listadoId = App.settings.get('listadoId');
             if (!listadoId) {
                 App.toast.show('Configura el LISTADO TRAJES en Ajustes', 'warning', 6000);
                 return;
             }
-            App.sheets.getTitle(listadoId)
-                .then(title => {
-                    App.ui.setConnection('online');
-                    App.toast.show('Conectado a Google Drive', 'success');
-                    App.dashboard.load();
-                })
-                .catch(err => {
-                    if (err.status === 401) {
-                        // Token expired — request new one silently
-                        localStorage.removeItem(CONFIG.keys.accessToken);
-                        App.token = null;
-                        App.tokenClient.requestAccessToken({ prompt: '' });
-                    } else {
-                        App.ui.setConnection('offline');
-                        App.toast.show('Error conectando: ' + err.message, 'error');
-                    }
-                });
+            App.ui.setConnection('online');
+            App.toast.show('Conectado a Google Drive', 'success');
+            App.dashboard.load();
         },
 
         /** Get current access token, refreshing if needed */
