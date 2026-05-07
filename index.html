@@ -317,27 +317,43 @@
             pointer-events: none;
         }
         .sidebar-footer {
-            padding: 15px 20px;
+            padding: 12px 16px;
             border-top: 1px solid rgba(255,255,255,0.15);
             font-size: 12px;
-            opacity: 0.6;
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            gap: 8px;
         }
-        .sidebar-footer .user-name { font-weight: 600; opacity: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+        .sidebar-footer .user-name {
+            font-weight: 600;
+            opacity: 0.9;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 13px;
+        }
+        .sidebar-footer .footer-actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .sidebar-footer .footer-btn,
         .sidebar-footer .logout-btn {
             cursor: pointer;
             opacity: 0.85;
             font-weight: 600;
-            font-size: 12px;
+            font-size: 11px;
             padding: 5px 10px;
             border-radius: 6px;
             border: 1px solid rgba(255,255,255,0.25);
             background: rgba(255,255,255,0.05);
             transition: all var(--transition);
             white-space: nowrap;
+            flex: 1;
+            text-align: center;
+            user-select: none;
         }
+        .sidebar-footer .footer-btn:hover,
         .sidebar-footer .logout-btn:hover {
             opacity: 1;
             background: rgba(255,255,255,0.18);
@@ -1923,7 +1939,14 @@
         </div>
         <div class="sidebar-footer">
             <span class="user-name" id="sidebarUser">—</span>
-            <span class="logout-btn" onclick="App.auth.signOut()" title="Cerrar sesi&oacute;n">Cerrar sesi&oacute;n</span>
+            <div class="footer-actions">
+                <span class="footer-btn" onclick="App.auth.switchAccount()" title="Cambiar a otra cuenta de Google sin perder permisos">
+                    &#x1F504; Cambiar
+                </span>
+                <span class="logout-btn" onclick="App.auth.signOut()" title="Cerrar sesi&oacute;n">
+                    Cerrar sesi&oacute;n
+                </span>
+            </div>
         </div>
     </nav>
 
@@ -3490,19 +3513,13 @@
                                 Comprobando...
                             </div>
                         </div>
+                        <!-- Botones de sesión: viven en el footer del sidebar.
+                             Aquí solo dejamos un mini botón de re-login por si la sesión
+                             expira mientras el usuario está en Ajustes (caso raro). -->
                         <div style="display:flex; gap:10px; margin-bottom:4px; flex-wrap:wrap;">
                             <button class="btn btn-primary btn-sm" id="btnSignIn"
                                     onclick="App.auth.signIn()" style="display:none;">
                                 &#x1F511; Iniciar sesi&oacute;n con Google
-                            </button>
-                            <button class="btn btn-secondary btn-sm" id="btnSwitchAccount"
-                                    onclick="App.auth.switchAccount()" style="display:none;"
-                                    title="Cambiar de cuenta de Google sin perder permisos">
-                                &#x1F504; Cambiar cuenta
-                            </button>
-                            <button class="btn btn-secondary btn-sm" id="btnSignOut"
-                                    onclick="App.auth.signOut()" style="display:none;">
-                                Cerrar sesi&oacute;n
                             </button>
                         </div>
                     </div>
@@ -3897,21 +3914,49 @@ const App = {
                 App.ui.showLoginError('El Client ID no está configurado. Edita app-notelodigo.html y rellena APP_CLIENT_ID.');
                 return;
             }
-            if (!App.tokenClient) {
-                App.auth.init();
-            }
-            if (App.tokenClient) {
-                // prompt: '' (vacío) deja a Google decidir.
-                //   - Si el usuario ya tiene sesión Google activa en el navegador y
-                //     ha concedido permisos antes → login silencioso, sin pantallas.
-                //   - Si tiene varias cuentas → Google muestra el selector.
-                //   - Si nunca aceptó permisos → muestra la pantalla de consent.
-                // Antes usábamos 'select_account', que forzaba el selector aunque
-                // hubiera una sola cuenta — molesto al volver a entrar.
+
+            // prompt: '' (vacío) deja a Google decidir:
+            //   - Si tiene sesión Google activa + permisos previos → login silencioso.
+            //   - Si tiene varias cuentas → muestra selector.
+            //   - Si nunca aceptó permisos → muestra consent.
+            const fire = () => {
+                if (!App.tokenClient) return false;
                 App.tokenClient.requestAccessToken({ prompt: '' });
-            } else {
-                App.ui.showLoginError('No se pudo inicializar Google Sign-In. Verifica el Client ID en el código fuente.');
+                return true;
+            };
+
+            // Caso 1: tokenClient ya inicializado — disparar directo.
+            if (fire()) return;
+
+            // Caso 2: GIS está cargado pero init() no se ha ejecutado aún
+            // (puede pasar si el usuario clica antes de que el setInterval del
+            // bootstrap haya terminado). Inicializamos en el momento.
+            if (typeof google !== 'undefined' && google.accounts) {
+                App.auth.init();
+                if (fire()) return;
             }
+
+            // Caso 3: GIS todavía no ha terminado de cargarse (red lenta,
+            // primera visita, etc.). Esperamos hasta 5 s con polling y, en
+            // cuanto esté disponible, lanzamos la request automáticamente para
+            // que el usuario no tenga que volver a clicar.
+            App.ui.showLoginError('Cargando Google Sign-In, un momento…');
+            let attempts = 0;
+            const wait = setInterval(() => {
+                attempts++;
+                if (typeof google !== 'undefined' && google.accounts) {
+                    clearInterval(wait);
+                    App.auth.init();
+                    if (App.tokenClient) {
+                        App.tokenClient.requestAccessToken({ prompt: '' });
+                    } else {
+                        App.ui.showLoginError('No se pudo inicializar Google Sign-In.');
+                    }
+                } else if (attempts >= 50) {  // 50 × 100 ms = 5 s
+                    clearInterval(wait);
+                    App.ui.showLoginError('No se pudo cargar Google Identity Services. Verifica tu conexión y recarga la página.');
+                }
+            }, 100);
         },
 
         signOut() {
@@ -4044,23 +4089,20 @@ const App = {
 
         /** Actualiza el bloque de estado en la sección Ajustes */
         updateStatusDisplay() {
-            const statusEl      = document.getElementById('authStatusDisplay');
-            const btnSignIn     = document.getElementById('btnSignIn');
-            const btnSignOut    = document.getElementById('btnSignOut');
-            const btnSwitchAcct = document.getElementById('btnSwitchAccount');
+            const statusEl  = document.getElementById('authStatusDisplay');
+            const btnSignIn = document.getElementById('btnSignIn');
+            // Cerrar sesi\u00f3n y Cambiar cuenta viven en el footer del sidebar
+            // (siempre visibles cuando hay sesi\u00f3n activa). Aqu\u00ed solo gestionamos
+            // el estado y el mini bot\u00f3n de re-login para el caso "sesi\u00f3n expirada".
             if (!statusEl) return;
             if (App.token && App.user) {
                 statusEl.className = 'alert alert-success';
                 statusEl.textContent = `Conectado como ${App.user.name} (${App.user.email})`;
-                if (btnSignIn)     btnSignIn.style.display     = 'none';
-                if (btnSignOut)    btnSignOut.style.display    = 'inline-flex';
-                if (btnSwitchAcct) btnSwitchAcct.style.display = 'inline-flex';
+                if (btnSignIn) btnSignIn.style.display = 'none';
             } else {
                 statusEl.className = 'alert alert-warning';
                 statusEl.textContent = 'Sesi\u00f3n expirada. Pulsa "Reconectar" en el banner superior o inicia sesi\u00f3n de nuevo.';
-                if (btnSignIn)     btnSignIn.style.display     = 'inline-flex';
-                if (btnSignOut)    btnSignOut.style.display    = 'none';
-                if (btnSwitchAcct) btnSwitchAcct.style.display = 'none';
+                if (btnSignIn) btnSignIn.style.display = 'inline-flex';
             }
         },
 
