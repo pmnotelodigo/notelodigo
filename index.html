@@ -3068,10 +3068,6 @@
                                 <input type="email" class="form-input" id="stockNewCorreo" placeholder="opcional">
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label>Fecha en la que viene a recoger</label>
-                            <input type="date" class="form-input" id="stockNewFechaVenida">
-                        </div>
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                             <div class="form-group">
                                 <label>Modelo</label>
@@ -3120,10 +3116,6 @@
                                 <label>Correo</label>
                                 <input type="email" class="form-input" id="stockEditCorreo">
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Fecha en la que viene</label>
-                            <input type="date" class="form-input" id="stockEditFechaVenida">
                         </div>
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                             <div class="form-group">
@@ -17809,6 +17801,9 @@ App.telas = {
    ========================================================== */
 App.stock = {
     TAB: 'STOCK',
+    // Mantenemos FECHA VENIDA en HEADERS para no romper sheets ya creados con
+    // ese esquema; simplemente no la mostramos en los modales (la "fecha de
+    // venida" pasa a ser FECHA CREACION = el día de la venta = hoy automático).
     HEADERS: [
         'Nº', 'FECHA CREACION', 'NOMBRE', 'TELEFONO', 'CORREO',
         'FECHA VENIDA', 'MODELO', 'TIPO TELA', 'ESTADO',
@@ -17966,7 +17961,7 @@ App.stock = {
                             <th style="width:60px;">N&ordm;</th>
                             <th>Clienta</th>
                             <th>Modelo / Tela</th>
-                            <th style="white-space:nowrap;">Viene</th>
+                            <th style="white-space:nowrap;">Vendido</th>
                             <th style="text-align:center;">Estado</th>
                             <th style="width:40px;"></th>
                         </tr>
@@ -17982,7 +17977,7 @@ App.stock = {
         const tel    = t[this.COL.telefono] || '';
         const modelo = t[this.COL.modelo] || '—';
         const tela   = t[this.COL.tipoTela] || '';
-        const fVen   = t[this.COL.fechaVenida] || '';
+        const fCre   = t[this.COL.fechaCreacion] || '';
         const estado = (t[this.COL.estado] || 'EN_TALLER').toUpperCase();
         const estadoChip = this._estadoChip(estado);
         return `
@@ -17996,7 +17991,7 @@ App.stock = {
                     <div>${modelo}</div>
                     ${tela ? `<div style="font-size:11px; color:#666;">${tela}</div>` : ''}
                 </td>
-                <td style="white-space:nowrap; font-size:12px;">${fVen || '—'}</td>
+                <td style="white-space:nowrap; font-size:12px;">${fCre || '—'}</td>
                 <td style="text-align:center;">${estadoChip}</td>
                 <td onclick="event.stopPropagation();">
                     <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:3px 8px;"
@@ -18018,7 +18013,6 @@ App.stock = {
         get('stockNewNombre').value      = '';
         get('stockNewTelefono').value    = '';
         get('stockNewCorreo').value      = '';
-        get('stockNewFechaVenida').value = '';
         get('stockNewModelo').value      = '';
         get('stockNewTipoTela').value    = '';
         get('stockNewNotas').value       = '';
@@ -18049,7 +18043,8 @@ App.stock = {
                 [this.COL.nombre]:        nombre,
                 [this.COL.telefono]:      (get('stockNewTelefono').value || '').trim(),
                 [this.COL.correo]:        (get('stockNewCorreo').value || '').trim(),
-                [this.COL.fechaVenida]:   this._toSheetDate(get('stockNewFechaVenida').value),
+                // FECHA VENIDA = mismo día que la venta. Pasa directo al taller propio.
+                [this.COL.fechaVenida]:   this._todayDDMMYYYY(),
                 [this.COL.modelo]:        (get('stockNewModelo').value || '').trim().toUpperCase(),
                 [this.COL.tipoTela]:      (get('stockNewTipoTela').value || '').trim().toUpperCase(),
                 [this.COL.estado]:        this.ESTADOS.EN_TALLER,
@@ -18082,7 +18077,6 @@ App.stock = {
         get('stockEditNombre').value      = t[this.COL.nombre] || '';
         get('stockEditTelefono').value    = t[this.COL.telefono] || '';
         get('stockEditCorreo').value      = t[this.COL.correo] || '';
-        get('stockEditFechaVenida').value = this._toInputDate(t[this.COL.fechaVenida]);
         get('stockEditModelo').value      = t[this.COL.modelo] || '';
         get('stockEditTipoTela').value    = t[this.COL.tipoTela] || '';
         get('stockEditNotas').value       = t[this.COL.notas] || '';
@@ -18134,7 +18128,6 @@ App.stock = {
                 [this.COL.nombre,       (get('stockEditNombre').value || '').trim().toUpperCase()],
                 [this.COL.telefono,     (get('stockEditTelefono').value || '').trim()],
                 [this.COL.correo,       (get('stockEditCorreo').value || '').trim()],
-                [this.COL.fechaVenida,  this._toSheetDate(get('stockEditFechaVenida').value)],
                 [this.COL.modelo,       (get('stockEditModelo').value || '').trim().toUpperCase()],
                 [this.COL.tipoTela,     (get('stockEditTipoTela').value || '').trim().toUpperCase()],
                 [this.COL.notas,        (get('stockEditNotas').value || '').trim()],
