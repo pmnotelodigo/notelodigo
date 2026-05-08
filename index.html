@@ -15399,28 +15399,33 @@ App.jose = {
         // de TODAS las fases anteriores (las que ya ocurrieron). En "histórico"
         // se ven las cuatro: enviado a corte → recogido del corte → llevado
         // al taller → recogido del taller.
+        // Si una fecha esperada en esta fase está vacía (legacy, edición a
+        // mano del sheet, etc.) la mostramos con "(sin fecha)" para que el
+        // usuario vea el hueco en lugar de pensar que la línea no aplica.
         const fEnv = (t[COL.fechaEnviadoCorte]  || '').toString().trim();
         const fRec = (t[COL.fechaRecogidoCorte] || '').toString().trim();
         const fEnt = (t[COL.fechaEntregaTaller] || '').toString().trim();
         const fRcd = (t[COL.fechaRecibido]      || '').toString().trim();
         const timelineItems = [];
-        // cortador: enviado a corte (actual)
-        if ((this._bandeja === 'cortador' || this._bandeja === 'llevar' ||
-             this._bandeja === 'recoger'  || this._bandeja === 'historico') && fEnv) {
-            timelineItems.push(`<span title="Fecha en que Pilar mandó la ficha al cortador">&#x1F4E4; Enviado a corte: <strong>${fEnv}</strong></span>`);
+        const placeholder = '<em style="color:#aaa; font-style:normal;">(sin fecha)</em>';
+        const showVal = (v) => v ? `<strong>${v}</strong>` : placeholder;
+        // cortador y posteriores: enviado a corte
+        if (this._bandeja === 'cortador' || this._bandeja === 'llevar' ||
+            this._bandeja === 'recoger'  || this._bandeja === 'historico') {
+            timelineItems.push(`<span title="Fecha en que Pilar mandó la ficha al cortador">&#x1F4E4; Enviado a corte: ${showVal(fEnv)}</span>`);
         }
         // llevar y posteriores: recogido del corte
-        if ((this._bandeja === 'llevar' || this._bandeja === 'recoger' ||
-             this._bandeja === 'historico') && fRec) {
-            timelineItems.push(`<span title="Fecha en que Jose recogió el corte del cortador">&#x1F4E5; Recogido del corte: <strong>${fRec}</strong></span>`);
+        if (this._bandeja === 'llevar' || this._bandeja === 'recoger' ||
+            this._bandeja === 'historico') {
+            timelineItems.push(`<span title="Fecha en que Jose recogió el corte del cortador">&#x1F4E5; Recogido del corte: ${showVal(fRec)}</span>`);
         }
         // recoger y posteriores: llevado al taller
-        if ((this._bandeja === 'recoger' || this._bandeja === 'historico') && fEnt) {
-            timelineItems.push(`<span title="Fecha en que Jose llevó el corte al taller">&#x1F3ED; Llevado al taller: <strong>${fEnt}</strong></span>`);
+        if (this._bandeja === 'recoger' || this._bandeja === 'historico') {
+            timelineItems.push(`<span title="Fecha en que Jose llevó el corte al taller">&#x1F3ED; Llevado al taller: ${showVal(fEnt)}</span>`);
         }
         // histórico: recogido del taller
-        if (this._bandeja === 'historico' && fRcd) {
-            timelineItems.push(`<span title="Fecha en que Jose recogió el traje terminado del taller">&#x1F4E6; Recogido del taller: <strong>${fRcd}</strong></span>`);
+        if (this._bandeja === 'historico') {
+            timelineItems.push(`<span title="Fecha en que Jose recogió el traje terminado del taller">&#x1F4E6; Recogido del taller: ${showVal(fRcd)}</span>`);
         }
         const timelineHtml = timelineItems.length
             ? `<div style="font-size:11px; color:#666; margin-bottom:6px; line-height:1.6;">` +
