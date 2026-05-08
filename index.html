@@ -1942,6 +1942,13 @@
                 </span>
                 <span class="nav-label">Trajes</span>
             </div>
+            <div class="nav-item nav-item-primary" data-section="stock" onclick="App.ui.navigateTo('stock')">
+                <span class="nav-icon" style="position:relative;">
+                    &#x1F458;
+                    <span id="stockBadgeSidebar" class="nav-badge" style="display:none;" title="Trajes de stock pendientes (en taller / arreglados sin entregar)">0</span>
+                </span>
+                <span class="nav-label">Trajes de stock</span>
+            </div>
             <div class="nav-item nav-item-primary" data-section="corte" onclick="App.ui.navigateTo('corte')">
                 <span class="nav-icon">&#x2702;&#xFE0F;</span>
                 <span class="nav-label">Corte</span>
@@ -2975,6 +2982,204 @@
                         <button class="btn btn-secondary" onclick="App.trajes.closeEditModal()">Cancelar</button>
                         <button class="btn btn-primary" onclick="App.trajes.guardarEdicion()" id="btnGuardarEdicion">
                             Guardar cambios
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Trajes de stock -->
+            <!-- Flujo: una clienta entra a la tienda, se prueba un traje de stock,
+                 se lo lleva. La dependienta abre una ficha rápida con sus datos
+                 y modelo/tela del traje. Estado por defecto = EN_TALLER (porque
+                 los trajes de stock siempre necesitan retoques que se hacen en
+                 el taller propio de la tienda). Pilar marca como ARREGLADO
+                 cuando esté listo, lo que dispara un modal con plantilla de
+                 mensaje WhatsApp para avisar a la clienta. Al recogerlo, se
+                 marca como ENTREGADO. -->
+            <div class="section" id="sec-stock">
+                <!-- Header -->
+                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+                    <h2 style="margin:0; font-size:18px; font-weight:700;">&#x1F458; Trajes de stock</h2>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn btn-secondary btn-sm" onclick="App.stock.load(true)" title="Recargar desde el sheet">
+                            &#x21BB; Actualizar
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="App.stock.openCreateModal()">
+                            + Nueva venta de stock
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bandejas (filtros principales) -->
+                <div class="trajes-bandejas" id="stockBandejas" style="margin-bottom:14px;">
+                    <div class="bandeja active" data-bandeja="todos" onclick="App.stock.setBandeja('todos')">
+                        &#x1F4CB; Todos <span class="count" id="stockCount-todos">&mdash;</span>
+                    </div>
+                    <div class="bandeja bandeja-warn" data-bandeja="enTaller" onclick="App.stock.setBandeja('enTaller')"
+                         title="Trajes de stock que se están arreglando en el taller propio.">
+                        &#x1FAA1; En taller <span class="count" id="stockCount-enTaller">&mdash;</span>
+                    </div>
+                    <div class="bandeja" data-bandeja="arreglados" onclick="App.stock.setBandeja('arreglados')"
+                         title="Trajes ya arreglados, esperando que la clienta venga a recogerlos.">
+                        &#x2705; Arreglados <span class="count" id="stockCount-arreglados">&mdash;</span>
+                    </div>
+                    <div class="bandeja" data-bandeja="entregados" onclick="App.stock.setBandeja('entregados')"
+                         title="Trajes ya entregados a la clienta — histórico.">
+                        &#x1F4E6; Entregados <span class="count" id="stockCount-entregados">&mdash;</span>
+                    </div>
+                </div>
+
+                <!-- Toolbar de búsqueda -->
+                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <input type="text" class="form-input" id="stockSearch"
+                               placeholder="&#x1F50D; Buscar por nombre, modelo, tela, n&ordm;..."
+                               style="flex:1; min-width:180px; max-width:300px; margin:0;"
+                               oninput="App.stock.filter()">
+                        <span id="stockCount" style="font-size:13px; color:var(--text-muted);"></span>
+                    </div>
+                </div>
+
+                <!-- Listado -->
+                <div id="stockList">
+                    <div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando trajes de stock&hellip;</p></div>
+                </div>
+            </div>
+
+            <!-- MODAL: Nueva venta de stock -->
+            <div class="modal-overlay" id="stockNewModal">
+                <div class="modal" style="max-width:520px;">
+                    <div class="modal-header">
+                        <h3 style="margin:0; font-size:16px;">&#x1F458; Nueva venta de stock</h3>
+                        <span style="font-size:12px; color:var(--text-muted);">La clienta se lleva el traje hoy. Se rellena al taller propio para retoques.</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>Nombre de la clienta *</label>
+                            <input type="text" class="form-input" id="stockNewNombre" placeholder="ANDREA RODRIGUEZ" autocomplete="off">
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group">
+                                <label>Tel&eacute;fono</label>
+                                <input type="tel" class="form-input" id="stockNewTelefono" placeholder="600 00 00 00">
+                            </div>
+                            <div class="form-group">
+                                <label>Correo</label>
+                                <input type="email" class="form-input" id="stockNewCorreo" placeholder="opcional">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha en la que viene a recoger</label>
+                            <input type="date" class="form-input" id="stockNewFechaVenida">
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group">
+                                <label>Modelo</label>
+                                <input type="text" class="form-input" id="stockNewModelo" placeholder="ROCIO" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label>Tipo de tela / color</label>
+                                <input type="text" class="form-input" id="stockNewTipoTela" placeholder="BAMBULA / BLANCA" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Notas (opcional)</label>
+                            <textarea class="form-input" id="stockNewNotas" rows="2" placeholder="Ej: subir bajo, arreglar tirantes..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="App.stock.closeCreateModal()">Cancelar</button>
+                        <button class="btn btn-primary" id="btnStockNewSave" onclick="App.stock.guardarNueva()">
+                            Crear ficha
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL: Ver / editar ficha de stock -->
+            <div class="modal-overlay" id="stockEditModal">
+                <div class="modal" style="max-width:520px;">
+                    <div class="modal-header">
+                        <div>
+                            <h3 style="margin:0; font-size:16px;">&#x1F458; Ficha de stock</h3>
+                            <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="stockEditHeader"></div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" onclick="App.stock.closeEditModal()">&times; Cerrar</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>Nombre</label>
+                            <input type="text" class="form-input" id="stockEditNombre">
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group">
+                                <label>Tel&eacute;fono</label>
+                                <input type="tel" class="form-input" id="stockEditTelefono">
+                            </div>
+                            <div class="form-group">
+                                <label>Correo</label>
+                                <input type="email" class="form-input" id="stockEditCorreo">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha en la que viene</label>
+                            <input type="date" class="form-input" id="stockEditFechaVenida">
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group">
+                                <label>Modelo</label>
+                                <input type="text" class="form-input" id="stockEditModelo">
+                            </div>
+                            <div class="form-group">
+                                <label>Tipo de tela</label>
+                                <input type="text" class="form-input" id="stockEditTipoTela">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Notas</label>
+                            <textarea class="form-input" id="stockEditNotas" rows="2"></textarea>
+                        </div>
+
+                        <div style="border-top:1px solid var(--border-light); margin-top:14px; padding-top:12px;">
+                            <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); margin-bottom:8px;">Estado</div>
+                            <div id="stockEstadoActions" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+                            <div id="stockEstadoTimeline" style="font-size:11px; color:#666; margin-top:10px; line-height:1.5;"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-danger btn-sm" id="btnStockBorrar" onclick="App.stock.borrar()" style="margin-right:auto;">
+                            &#x1F5D1;&#xFE0F; Borrar
+                        </button>
+                        <button class="btn btn-secondary" onclick="App.stock.closeEditModal()">Cancelar</button>
+                        <button class="btn btn-primary" id="btnStockEditSave" onclick="App.stock.guardarEdicion()">
+                            Guardar cambios
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL: Avisar clienta cuando un traje pasa a ARREGLADO -->
+            <div class="modal-overlay" id="stockAvisoModal">
+                <div class="modal" style="max-width:480px;">
+                    <div class="modal-header">
+                        <h3 style="margin:0; font-size:16px;">&#x1F4F2; Avisar a la clienta</h3>
+                    </div>
+                    <div class="modal-body">
+                        <div style="font-size:13px; color:#444; margin-bottom:10px;">
+                            El traje est&aacute; arreglado. ¿Avisas a <strong id="stockAvisoNombre"></strong> para que venga a recogerlo?
+                        </div>
+                        <div class="form-group">
+                            <label>Mensaje (puedes editarlo antes de enviarlo)</label>
+                            <textarea class="form-input" id="stockAvisoMensaje" rows="5" style="font-size:13px;"></textarea>
+                        </div>
+                        <div id="stockAvisoNoTel" style="display:none; font-size:12px; color:#7c3a00; background:#fff8e1; border-left:3px solid #f59e0b; padding:6px 10px; border-radius:4px; margin-top:6px;">
+                            &#x26A0;&#xFE0F; Esta clienta no tiene tel&eacute;fono registrado. A&ntilde;ade uno en su ficha para enviar el WhatsApp.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="App.stock.cerrarAviso()">Cerrar</button>
+                        <button class="btn btn-primary" id="btnStockAvisoWhatsApp" onclick="App.stock.enviarAvisoWhatsApp()">
+                            &#x1F4F2; Abrir WhatsApp
                         </button>
                     </div>
                 </div>
@@ -4901,6 +5106,37 @@ const App = {
         async getTabTitles(spreadsheetId) {
             const props = await this.getSheetProperties(spreadsheetId);
             return props.map(p => p.title);
+        },
+
+        /**
+         * Garantiza que existe una pestaña con el nombre dado y, si la creamos,
+         * escribe la fila de cabeceras. Idempotente: si ya existe, no hace nada.
+         * Devuelve `{ created: true|false, tab: {title, sheetId} }`.
+         *
+         * Pensado para módulos como Trajes de stock que necesitan una pestaña
+         * lateral en el LISTADO_<SEASON> sin que Pilar tenga que crearla a mano.
+         */
+        async ensureSheet(spreadsheetId, tabName, headers) {
+            const props = await this.getSheetProperties(spreadsheetId);
+            const existing = props.find(p => p.title === tabName);
+            if (existing) return { created: false, tab: existing };
+            // 1) Crear la pestaña vía batchUpdate.addSheet
+            const addResp = await this._fetch(
+                `${CONFIG.SHEETS_API}/${spreadsheetId}:batchUpdate`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        requests: [{ addSheet: { properties: { title: tabName } } }],
+                    }),
+                }
+            );
+            const newProps = addResp?.replies?.[0]?.addSheet?.properties;
+            // 2) Escribir cabeceras (si vinieron)
+            if (headers && headers.length) {
+                const lastCol = this._colLetter(headers.length - 1);
+                await this.writeRange(spreadsheetId, `${tabName}!A1:${lastCol}1`, [headers]);
+            }
+            return { created: true, tab: newProps };
         },
 
         /**
@@ -7341,6 +7577,7 @@ const App = {
             dashboard:  { title: 'Inicio',            subtitle: 'Panel de control' },
             clientas:   { title: 'Fichas',            subtitle: 'Fichas de clientas' },
             trajes:     { title: 'Trajes',            subtitle: 'Seguimiento de produccion' },
+            stock:      { title: 'Trajes de stock',   subtitle: 'Trajes vendidos en tienda con retoques en taller propio' },
             corte:      { title: 'Corte',             subtitle: 'Orden de corte por modelo' },
             pedidos:    { title: 'Pedidos',           subtitle: 'Pedidos a proveedor — recepción y stock' },
             jose:       { title: 'Jose',              subtitle: 'Logística entre cortador y talleres' },
@@ -7366,9 +7603,10 @@ const App = {
             if (App.isJose && App.isJose() && sectionId !== 'jose') {
                 sectionId = 'jose';
             }
-            // Si el usuario es Dependienta, solo puede entrar a clientas o modelos.
+            // Si el usuario es Dependienta, solo puede entrar a clientas, modelos o stock.
             // Cualquier otra sección la mandamos a 'clientas' por defecto.
-            if (App.isDependienta && App.isDependienta() && sectionId !== 'clientas' && sectionId !== 'modelos') {
+            if (App.isDependienta && App.isDependienta() &&
+                sectionId !== 'clientas' && sectionId !== 'modelos' && sectionId !== 'stock') {
                 sectionId = 'clientas';
             }
             // Update sidebar
@@ -7438,7 +7676,7 @@ const App = {
             const allowed = isJose
                 ? new Set(['jose'])
                 : isDependienta
-                    ? new Set(['clientas', 'modelos'])
+                    ? new Set(['clientas', 'modelos', 'stock'])  // dependienta también gestiona stock
                     : null;   // admin: todo permitido
 
             // Sidebar nav-items
@@ -17561,6 +17799,499 @@ App.telas = {
 };
 
 /* ==========================================================
+   STOCK — Trajes de stock (vendidos en tienda, retoques en taller propio).
+   ──────────────────────────────────────────────────────────
+   Persistencia: pestaña "STOCK" dentro del LISTADO_<SEASON>. Se crea sola
+   con sus cabeceras la primera vez que se entra (App.sheets.ensureSheet).
+   Estados: EN_TALLER (default) → ARREGLADO (Pilar avisa a la clienta) →
+   ENTREGADO (clienta recoge). Nº autoincremental tipo "S001, S002, …"
+   independiente del listado de trajes a medida.
+   ========================================================== */
+App.stock = {
+    TAB: 'STOCK',
+    HEADERS: [
+        'Nº', 'FECHA CREACION', 'NOMBRE', 'TELEFONO', 'CORREO',
+        'FECHA VENIDA', 'MODELO', 'TIPO TELA', 'ESTADO',
+        'FECHA ARREGLADO', 'FECHA ENTREGADO', 'NOTAS',
+    ],
+    COL: {
+        num: 'Nº', fechaCreacion: 'FECHA CREACION', nombre: 'NOMBRE',
+        telefono: 'TELEFONO', correo: 'CORREO', fechaVenida: 'FECHA VENIDA',
+        modelo: 'MODELO', tipoTela: 'TIPO TELA', estado: 'ESTADO',
+        fechaArreglado: 'FECHA ARREGLADO', fechaEntregado: 'FECHA ENTREGADO',
+        notas: 'NOTAS',
+    },
+    ESTADOS: { EN_TALLER: 'EN_TALLER', ARREGLADO: 'ARREGLADO', ENTREGADO: 'ENTREGADO' },
+
+    data: [],
+    filtered: [],
+    _bandeja: 'todos',
+    _editRowIndex: null,
+    _avisoTraje: null,   // datos del traje que disparó el modal de aviso
+
+    // ── Helpers de fecha ─────────────────────────────────────────────────
+    _todayDDMMYYYY() {
+        const d = new Date();
+        return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    },
+    /** "DD/MM/YYYY" → "YYYY-MM-DD" para inputs type="date". Tolera vacío. */
+    _toInputDate(raw) {
+        const s = (raw || '').toString().trim();
+        if (!s) return '';
+        let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if (m) {
+            const yyyy = m[3].length === 2 ? '20' + m[3] : m[3];
+            return `${yyyy}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+        }
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+        return '';
+    },
+    /** Inverso: "YYYY-MM-DD" → "DD/MM/YYYY" para escribir al sheet. */
+    _toSheetDate(raw) {
+        const s = (raw || '').toString().trim();
+        if (!s) return '';
+        const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+        return s;
+    },
+
+    // ── Helpers de Sheet ─────────────────────────────────────────────────
+    /** Asegura que la pestaña STOCK existe con sus cabeceras. */
+    async _ensureTab() {
+        const sheetId = App.settings.get('listadoId');
+        if (!sheetId) throw new Error('No hay LISTADO configurado para esta temporada.');
+        await App.sheets.ensureSheet(sheetId, this.TAB, this.HEADERS);
+        return sheetId;
+    },
+
+    /** Genera el siguiente Nº "S001, S002, …" basado en data en memoria. */
+    _siguienteNum() {
+        let max = 0;
+        for (const r of (this.data || [])) {
+            const m = String(r[this.COL.num] || '').match(/^S?(\d+)$/i);
+            if (m) max = Math.max(max, parseInt(m[1], 10));
+        }
+        return 'S' + String(max + 1).padStart(3, '0');
+    },
+
+    /** Calcula la bandeja en la que cae un traje según su estado. */
+    _getBandeja(t) {
+        const e = (t[this.COL.estado] || '').toUpperCase().trim();
+        if (e === this.ESTADOS.ENTREGADO) return 'entregados';
+        if (e === this.ESTADOS.ARREGLADO) return 'arreglados';
+        return 'enTaller';   // EN_TALLER o vacío → en taller
+    },
+
+    // ── Carga ─────────────────────────────────────────────────────────────
+    async load(forceRefresh = false) {
+        const cont = document.getElementById('stockList');
+        if (cont) cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando trajes de stock&hellip;</p></div>';
+        try {
+            const sheetId = await this._ensureTab();
+            // Leemos todas las filas (A:L cubre nuestras 12 columnas)
+            const lastCol = App.sheets._colLetter(this.HEADERS.length - 1);
+            const rows = await App.sheets.readRange(sheetId, `${this.TAB}!A1:${lastCol}1000`);
+            if (!rows.length) { this.data = []; this.filter(); return; }
+            const headers = rows[0].map(h => String(h || '').trim());
+            this.data = rows.slice(1).map((row, idx) => {
+                const obj = { _rowIndex: idx + 2 };
+                headers.forEach((h, i) => obj[h] = (row[i] || '').toString().trim());
+                return obj;
+            }).filter(r => r[this.COL.nombre]);
+            this.filter();
+            this.refreshBadge();
+        } catch (err) {
+            console.error('[stock.load]', err);
+            if (cont) cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error: ${err.message}</div>`;
+        }
+    },
+
+    // ── Filtrado y bandejas ─────────────────────────────────────────────
+    setBandeja(b) {
+        this._bandeja = b;
+        document.querySelectorAll('#stockBandejas .bandeja').forEach(el => {
+            el.classList.toggle('active', el.dataset.bandeja === b);
+        });
+        this.filter();
+    },
+
+    filter() {
+        const q = (document.getElementById('stockSearch')?.value || '').toLowerCase().trim();
+        const bandeja = this._bandeja;
+        // Contadores por bandeja sobre TODOS los datos
+        const counts = { todos: 0, enTaller: 0, arreglados: 0, entregados: 0 };
+        for (const t of this.data) {
+            counts.todos++;
+            counts[this._getBandeja(t)]++;
+        }
+        for (const k of Object.keys(counts)) {
+            const el = document.getElementById('stockCount-' + k);
+            if (el) el.textContent = counts[k];
+        }
+        this.filtered = this.data.filter(t => {
+            if (bandeja !== 'todos' && this._getBandeja(t) !== bandeja) return false;
+            if (q) {
+                const hay = [
+                    t[this.COL.num], t[this.COL.nombre], t[this.COL.modelo],
+                    t[this.COL.tipoTela], t[this.COL.telefono],
+                ].filter(Boolean).join(' ').toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+        this.render();
+        this.refreshBadge();
+    },
+
+    // ── Render ──────────────────────────────────────────────────────────
+    render() {
+        const cont = document.getElementById('stockList');
+        const total = this.filtered.length;
+        const countEl = document.getElementById('stockCount');
+        if (countEl) countEl.textContent = `${total} resultado${total !== 1 ? 's' : ''}`;
+        if (!cont) return;
+        if (total === 0) {
+            cont.innerHTML =
+                '<div class="empty-state"><div class="empty-icon">&#x1F458;</div>' +
+                '<h3>Sin trajes de stock</h3>' +
+                '<p>Crea una nueva venta de stock con el bot&oacute;n de arriba.</p></div>';
+            return;
+        }
+        const rows = this.filtered.map(t => this._renderRow(t)).join('');
+        cont.innerHTML = `
+            <div class="table-container" style="overflow:auto;">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th style="width:60px;">N&ordm;</th>
+                            <th>Clienta</th>
+                            <th>Modelo / Tela</th>
+                            <th style="white-space:nowrap;">Viene</th>
+                            <th style="text-align:center;">Estado</th>
+                            <th style="width:40px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    },
+
+    _renderRow(t) {
+        const num    = t[this.COL.num] || '—';
+        const nombre = t[this.COL.nombre] || '—';
+        const tel    = t[this.COL.telefono] || '';
+        const modelo = t[this.COL.modelo] || '—';
+        const tela   = t[this.COL.tipoTela] || '';
+        const fVen   = t[this.COL.fechaVenida] || '';
+        const estado = (t[this.COL.estado] || 'EN_TALLER').toUpperCase();
+        const estadoChip = this._estadoChip(estado);
+        return `
+            <tr style="cursor:pointer;" onclick="App.stock.openEditModal(${t._rowIndex})">
+                <td style="font-weight:600; color:var(--primary);">${num}</td>
+                <td>
+                    <div style="font-weight:500;">${nombre}</div>
+                    ${tel ? `<div style="font-size:11px; color:#666;">${tel}</div>` : ''}
+                </td>
+                <td>
+                    <div>${modelo}</div>
+                    ${tela ? `<div style="font-size:11px; color:#666;">${tela}</div>` : ''}
+                </td>
+                <td style="white-space:nowrap; font-size:12px;">${fVen || '—'}</td>
+                <td style="text-align:center;">${estadoChip}</td>
+                <td onclick="event.stopPropagation();">
+                    <button class="btn btn-secondary btn-sm" style="font-size:11px; padding:3px 8px;"
+                            onclick="App.stock.openEditModal(${t._rowIndex})">Abrir</button>
+                </td>
+            </tr>`;
+    },
+
+    _estadoChip(estado) {
+        const e = (estado || 'EN_TALLER').toUpperCase();
+        if (e === 'ARREGLADO')  return '<span class="chip" style="background:#c8e6c9; color:#1b5e20; font-weight:600;">&check; ARREGLADO</span>';
+        if (e === 'ENTREGADO')  return '<span class="chip" style="background:#e0e0e0; color:#444;">&#x1F4E6; ENTREGADO</span>';
+        return '<span class="chip" style="background:#fff3e0; color:#e65100; font-weight:600;">&#x1FAA1; EN TALLER</span>';
+    },
+
+    // ── Modal: nueva ─────────────────────────────────────────────────────
+    openCreateModal() {
+        const get = id => document.getElementById(id);
+        get('stockNewNombre').value      = '';
+        get('stockNewTelefono').value    = '';
+        get('stockNewCorreo').value      = '';
+        get('stockNewFechaVenida').value = '';
+        get('stockNewModelo').value      = '';
+        get('stockNewTipoTela').value    = '';
+        get('stockNewNotas').value       = '';
+        get('stockNewModal').classList.add('active');
+        setTimeout(() => get('stockNewNombre').focus(), 50);
+    },
+    closeCreateModal() {
+        document.getElementById('stockNewModal').classList.remove('active');
+    },
+
+    async guardarNueva() {
+        const get = id => document.getElementById(id);
+        const btn = get('btnStockNewSave');
+        const _resetBtn = (() => { const orig = btn.textContent; return () => { btn.disabled = false; btn.textContent = orig; }; })();
+        btn.disabled = true; btn.textContent = 'Guardando…';
+        try {
+            const nombre = (get('stockNewNombre').value || '').trim().toUpperCase();
+            if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); _resetBtn(); return; }
+            const sheetId = await this._ensureTab();
+            // Asegurar que tenemos data cargada para calcular el siguiente Nº
+            if (!this.data.length) {
+                await this.load(true);
+            }
+            const num = this._siguienteNum();
+            const nuevaFila = {
+                [this.COL.num]:           num,
+                [this.COL.fechaCreacion]: this._todayDDMMYYYY(),
+                [this.COL.nombre]:        nombre,
+                [this.COL.telefono]:      (get('stockNewTelefono').value || '').trim(),
+                [this.COL.correo]:        (get('stockNewCorreo').value || '').trim(),
+                [this.COL.fechaVenida]:   this._toSheetDate(get('stockNewFechaVenida').value),
+                [this.COL.modelo]:        (get('stockNewModelo').value || '').trim().toUpperCase(),
+                [this.COL.tipoTela]:      (get('stockNewTipoTela').value || '').trim().toUpperCase(),
+                [this.COL.estado]:        this.ESTADOS.EN_TALLER,
+                [this.COL.fechaArreglado]:'',
+                [this.COL.fechaEntregado]:'',
+                [this.COL.notas]:         (get('stockNewNotas').value || '').trim(),
+            };
+            const row = this.HEADERS.map(h => nuevaFila[h] || '');
+            const lastCol = App.sheets._colLetter(this.HEADERS.length - 1);
+            await App.sheets.appendRows(sheetId, `${this.TAB}!A:${lastCol}`, [row]);
+            App.toast.show(`Traje de stock #${num} creado`, 'success');
+            this.closeCreateModal();
+            await this.load(true);
+        } catch (err) {
+            console.error('[stock.guardarNueva]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        } finally {
+            _resetBtn();
+        }
+    },
+
+    // ── Modal: editar ────────────────────────────────────────────────────
+    openEditModal(rowIndex) {
+        const t = this.data.find(r => r._rowIndex === rowIndex);
+        if (!t) return;
+        this._editRowIndex = rowIndex;
+        const get = id => document.getElementById(id);
+        get('stockEditHeader').textContent =
+            `${t[this.COL.num] || ''} · creada ${t[this.COL.fechaCreacion] || '—'}`;
+        get('stockEditNombre').value      = t[this.COL.nombre] || '';
+        get('stockEditTelefono').value    = t[this.COL.telefono] || '';
+        get('stockEditCorreo').value      = t[this.COL.correo] || '';
+        get('stockEditFechaVenida').value = this._toInputDate(t[this.COL.fechaVenida]);
+        get('stockEditModelo').value      = t[this.COL.modelo] || '';
+        get('stockEditTipoTela').value    = t[this.COL.tipoTela] || '';
+        get('stockEditNotas').value       = t[this.COL.notas] || '';
+
+        // Botones de cambio de estado dinámicos (timeline en texto pequeño debajo)
+        const estado = (t[this.COL.estado] || 'EN_TALLER').toUpperCase();
+        const actions = get('stockEstadoActions');
+        const tl = get('stockEstadoTimeline');
+        actions.innerHTML = '';
+        if (estado === 'EN_TALLER') {
+            actions.innerHTML =
+                this._estadoChip(estado) +
+                `<button class="btn btn-primary btn-sm" style="font-size:12px;" onclick="App.stock.cambiarEstado('ARREGLADO')">&check; Marcar como ARREGLADO</button>`;
+        } else if (estado === 'ARREGLADO') {
+            actions.innerHTML =
+                this._estadoChip(estado) +
+                `<button class="btn btn-primary btn-sm" style="font-size:12px;" onclick="App.stock.cambiarEstado('ENTREGADO')">&#x1F4E6; Marcar como ENTREGADO</button>` +
+                `<button class="btn btn-secondary btn-sm" style="font-size:12px;" onclick="App.stock._abrirAvisoModal()">&#x1F4F2; Avisar a la clienta</button>` +
+                `<button class="btn btn-secondary btn-sm" style="font-size:12px;" onclick="App.stock.cambiarEstado('EN_TALLER')">&#x21A9; Volver a EN TALLER</button>`;
+        } else { // ENTREGADO
+            actions.innerHTML =
+                this._estadoChip(estado) +
+                `<button class="btn btn-secondary btn-sm" style="font-size:12px;" onclick="App.stock.cambiarEstado('ARREGLADO')">&#x21A9; Volver a ARREGLADO</button>`;
+        }
+        const lines = [];
+        if (t[this.COL.fechaCreacion])  lines.push(`&#x1F58A;&#xFE0F; Creada: <strong>${t[this.COL.fechaCreacion]}</strong>`);
+        if (t[this.COL.fechaArreglado]) lines.push(`&check; Arreglado: <strong>${t[this.COL.fechaArreglado]}</strong>`);
+        if (t[this.COL.fechaEntregado]) lines.push(`&#x1F4E6; Entregado: <strong>${t[this.COL.fechaEntregado]}</strong>`);
+        tl.innerHTML = lines.join('<br>');
+
+        get('stockEditModal').classList.add('active');
+    },
+    closeEditModal() {
+        document.getElementById('stockEditModal').classList.remove('active');
+        this._editRowIndex = null;
+    },
+
+    /** Guarda los campos editables del modal (no el estado — eso va por cambiarEstado). */
+    async guardarEdicion() {
+        const rowIndex = this._editRowIndex;
+        if (!rowIndex) return;
+        const get = id => document.getElementById(id);
+        const btn = get('btnStockEditSave');
+        const orig = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Guardando…';
+        try {
+            const sheetId = await this._ensureTab();
+            const updates = [
+                [this.COL.nombre,       (get('stockEditNombre').value || '').trim().toUpperCase()],
+                [this.COL.telefono,     (get('stockEditTelefono').value || '').trim()],
+                [this.COL.correo,       (get('stockEditCorreo').value || '').trim()],
+                [this.COL.fechaVenida,  this._toSheetDate(get('stockEditFechaVenida').value)],
+                [this.COL.modelo,       (get('stockEditModelo').value || '').trim().toUpperCase()],
+                [this.COL.tipoTela,     (get('stockEditTipoTela').value || '').trim().toUpperCase()],
+                [this.COL.notas,        (get('stockEditNotas').value || '').trim()],
+            ];
+            const rangeUpdates = updates
+                .map(([col, val]) => {
+                    const idx = this.HEADERS.indexOf(col);
+                    if (idx < 0) return null;
+                    const letter = App.sheets._colLetter(idx);
+                    return { range: `${this.TAB}!${letter}${rowIndex}`, values: [[val]] };
+                })
+                .filter(Boolean);
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+            // Reflejar en memoria
+            const t = this.data.find(r => r._rowIndex === rowIndex);
+            if (t) updates.forEach(([col, val]) => { t[col] = val; });
+            this.filter();
+            App.toast.show('Cambios guardados', 'success');
+            this.closeEditModal();
+        } catch (err) {
+            console.error('[stock.guardarEdicion]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        } finally {
+            btn.disabled = false; btn.textContent = orig;
+        }
+    },
+
+    /** Cambia el estado del traje activo. Si pasa a ARREGLADO, abre el modal
+     *  de aviso a la clienta. Si pasa a ENTREGADO, registra la fecha. */
+    async cambiarEstado(nuevo) {
+        const rowIndex = this._editRowIndex;
+        if (!rowIndex) return;
+        const t = this.data.find(r => r._rowIndex === rowIndex);
+        if (!t) return;
+        try {
+            const sheetId = await this._ensureTab();
+            const updates = [[this.COL.estado, nuevo]];
+            if (nuevo === 'ARREGLADO' && !t[this.COL.fechaArreglado]) {
+                updates.push([this.COL.fechaArreglado, this._todayDDMMYYYY()]);
+            }
+            if (nuevo === 'ENTREGADO' && !t[this.COL.fechaEntregado]) {
+                updates.push([this.COL.fechaEntregado, this._todayDDMMYYYY()]);
+            }
+            const rangeUpdates = updates.map(([col, val]) => {
+                const idx = this.HEADERS.indexOf(col);
+                const letter = App.sheets._colLetter(idx);
+                return { range: `${this.TAB}!${letter}${rowIndex}`, values: [[val]] };
+            });
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+            updates.forEach(([col, val]) => { t[col] = val; });
+            this.filter();
+            App.toast.show(`Estado: ${nuevo}`, 'success');
+            // Refrescar el modal para reflejar el cambio
+            this.openEditModal(rowIndex);
+            // Si pasó a ARREGLADO, ofrecer aviso a la clienta inmediatamente
+            if (nuevo === 'ARREGLADO') {
+                this._abrirAvisoModal();
+            }
+        } catch (err) {
+            console.error('[stock.cambiarEstado]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    // ── Modal: aviso WhatsApp ───────────────────────────────────────────
+    _abrirAvisoModal() {
+        const rowIndex = this._editRowIndex;
+        const t = this.data.find(r => r._rowIndex === rowIndex);
+        if (!t) return;
+        this._avisoTraje = t;
+        const nombreFull = (t[this.COL.nombre] || '').trim();
+        const primerNombre = nombreFull.split(/\s+/)[0] || nombreFull;
+        const modelo = (t[this.COL.modelo] || '').trim();
+        const tel = (t[this.COL.telefono] || '').trim();
+        document.getElementById('stockAvisoNombre').textContent = nombreFull || '(sin nombre)';
+        const plantilla =
+            `¡Hola ${primerNombre}! Soy Pilar de NOTELODIGO. ` +
+            `Tu traje de stock${modelo ? ' (' + modelo + ')' : ''} ya está arreglado y lo tienes listo para recoger. ` +
+            `¿Cuándo te viene bien pasar por la tienda?`;
+        document.getElementById('stockAvisoMensaje').value = plantilla;
+        const noTelEl = document.getElementById('stockAvisoNoTel');
+        const btn = document.getElementById('btnStockAvisoWhatsApp');
+        if (!tel) {
+            noTelEl.style.display = '';
+            btn.disabled = true;
+        } else {
+            noTelEl.style.display = 'none';
+            btn.disabled = false;
+        }
+        document.getElementById('stockAvisoModal').classList.add('active');
+    },
+    cerrarAviso() {
+        document.getElementById('stockAvisoModal').classList.remove('active');
+        this._avisoTraje = null;
+    },
+    enviarAvisoWhatsApp() {
+        const t = this._avisoTraje;
+        if (!t) return;
+        const tel = (t[this.COL.telefono] || '').replace(/\D/g, '');
+        if (!tel) { App.toast.show('La clienta no tiene teléfono', 'warning'); return; }
+        const msg = encodeURIComponent(document.getElementById('stockAvisoMensaje').value || '');
+        const numWithCountry = tel.length === 9 ? '34' + tel : tel;   // España por defecto
+        const url = `https://wa.me/${numWithCountry}?text=${msg}`;
+        window.open(url, '_blank', 'noopener');
+        this.cerrarAviso();
+    },
+
+    // ── Borrar fila ──────────────────────────────────────────────────────
+    async borrar() {
+        const rowIndex = this._editRowIndex;
+        if (!rowIndex) return;
+        const t = this.data.find(r => r._rowIndex === rowIndex);
+        if (!t) return;
+        const ok = await App.ui.confirmDialog({
+            title: '\u{1F5D1}\u{FE0F} Borrar ficha de stock',
+            message: `¿Borrar la ficha de <strong>${t[this.COL.nombre] || ''}</strong> (Nº ${t[this.COL.num] || ''})?<br><br>Esta acción no se puede deshacer.`,
+            actions: [
+                { label: 'Sí, borrar', value: 'ok', style: 'danger' },
+                { label: 'Cancelar',   value: null, style: 'secondary' },
+            ],
+        });
+        if (ok !== 'ok') return;
+        try {
+            const sheetId = await this._ensureTab();
+            // Borrar limpiando todos los campos de la fila (mantenemos la fila para no romper rowIndex de otras filas)
+            const lastCol = App.sheets._colLetter(this.HEADERS.length - 1);
+            await App.sheets.writeRange(sheetId, `${this.TAB}!A${rowIndex}:${lastCol}${rowIndex}`,
+                [new Array(this.HEADERS.length).fill('')]);
+            App.toast.show('Ficha borrada', 'success');
+            this.closeEditModal();
+            await this.load(true);
+        } catch (err) {
+            console.error('[stock.borrar]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    // ── Badge sidebar ────────────────────────────────────────────────────
+    refreshBadge() {
+        const el = document.getElementById('stockBadgeSidebar');
+        if (!el) return;
+        // Suma de "EN_TALLER" + "ARREGLADO" (los pendientes de acción)
+        let n = 0;
+        for (const t of (this.data || [])) {
+            const e = (t[this.COL.estado] || 'EN_TALLER').toUpperCase();
+            if (e === 'EN_TALLER' || e === 'ARREGLADO') n++;
+        }
+        if (n > 0) {
+            el.textContent = n > 99 ? '99+' : String(n);
+            el.style.display = '';
+        } else {
+            el.style.display = 'none';
+        }
+    },
+};
+
+/* ==========================================================
    TALLERES — stub mínimo (vista "Vista por taller" eliminada 2026-05-06).
    Solo se mantienen los helpers consumidos por otros módulos:
    - _allTalleres() → trajes / jose / pedidos lo usan para dropdowns de talleres.
@@ -17614,6 +18345,12 @@ App.ui.navigateTo = function(sectionId) {
             // tocó el stock en la sección Telas y ha vuelto aquí.
             App.trajes.filter();
         }
+    }
+    if (sectionId === 'stock') {
+        // Auto-crea la pestaña STOCK la primera vez (ensureSheet es idempotente).
+        // Siempre forzamos refresh: la sección la usan dependientas + Pilar de
+        // forma colaborativa, y los cambios deben verse al instante.
+        App.stock.load(true).catch(e => console.warn('[stock.load]', e.message));
     }
     if (sectionId === 'corte') {
         // Si el caller (ej. Trajes→shortcut) va a gestionar la carga manualmente,
