@@ -16597,6 +16597,17 @@ App.talleresCatalogo = {
         const opacity = active ? '' : 'opacity:0.55;';
         const inactiveBadge = active ? '' :
             '<span class="chip" style="background:#999; color:white; font-size:10px;">inactivo</span>';
+        // Botón "Ver como" — solo para talleres activos. Abre taller.html en una
+        // pestaña nueva con ?asTaller=NOMBRE; el proxy reconoce a Pilar como
+        // admin y le devuelve los trajes de ese taller. Pilar ve LITERALMENTE
+        // la pantalla del taller.
+        const verComoBtn = active
+            ? `<button class="btn btn-secondary btn-sm" style="font-size:11px; padding:3px 9px; margin-top:8px;"
+                       onclick="event.stopPropagation(); App.talleresCatalogo.verComoTaller('${escName}')"
+                       title="Abre en una pestaña nueva la vista que ve este taller en su app">
+                   &#x1F441;&#xFE0F; Ver como ${t.NOMBRE}
+               </button>`
+            : '';
         return `
         <div class="card" style="padding:14px; ${opacity} cursor:pointer;"
              onclick="App.talleresCatalogo.openModal('${escName}')">
@@ -16607,7 +16618,16 @@ App.talleresCatalogo = {
             ${t.EMAIL ? `<div style="font-size:12px; color:#444; margin-bottom:4px;">&#x1F4E7; <span class="mono">${t.EMAIL}</span></div>` : '<div style="font-size:11px; color:#999; margin-bottom:4px;">sin email — el taller no podrá entrar a su vista</div>'}
             ${t.TELEFONO ? `<div style="font-size:11px; color:#888;">&#x1F4DE; ${t.TELEFONO}</div>` : ''}
             ${t.NOTAS ? `<div style="font-size:11px; color:var(--text-muted); margin-top:6px;">${t.NOTAS}</div>` : ''}
+            ${verComoBtn}
         </div>`;
+    },
+
+    /** Abre taller.html en una pestaña nueva con ?asTaller=NOMBRE para que el
+     *  admin (Pilar/Andrés) vea la app del taller con sus trajes. Requiere que
+     *  el admin esté en ADMIN_EMAILS del taller-proxy.gs. */
+    verComoTaller(nombre) {
+        const url = `./taller.html?asTaller=${encodeURIComponent(nombre)}`;
+        window.open(url, '_blank', 'noopener');
     },
 
     openModal(nombre) {
