@@ -454,9 +454,23 @@
                     scope: 'openid email profile',
                     callback: App._onTokenResponse,
                 });
-                // Si hay sesión guardada, intenta usarla
-                const savedToken = localStorage.getItem(STORAGE_KEY_TOKEN);
-                const savedEmail = localStorage.getItem(STORAGE_KEY_EMAIL);
+                // Compartimos origen con index.html (la app de admin), así que
+                // podemos detectar la sesión activa allí. Si la cuenta del admin
+                // difiere de la del taller cacheada, preferimos la del admin —
+                // así no acabas mirando taller.html con la sesión de Pilar
+                // mientras estabas trabajando como Andrés en index.html.
+                let savedToken = localStorage.getItem(STORAGE_KEY_TOKEN);
+                let savedEmail = localStorage.getItem(STORAGE_KEY_EMAIL);
+                const adminToken = localStorage.getItem('pilar_access_token');
+                const adminEmail = localStorage.getItem('pilar_user_email');
+                if (adminToken && adminEmail && adminEmail !== savedEmail) {
+                    // Hay un admin logueado en index.html con cuenta distinta.
+                    // Usamos su token y email aquí para que sea coherente.
+                    savedToken = adminToken;
+                    savedEmail = adminEmail;
+                    localStorage.setItem(STORAGE_KEY_TOKEN, adminToken);
+                    localStorage.setItem(STORAGE_KEY_EMAIL, adminEmail);
+                }
                 if (savedToken && savedEmail) {
                     App.token = savedToken;
                     App.user = { email: savedEmail };
@@ -742,13 +756,23 @@
             async _abrirSelectorAdmin() {
                 try {
                     const data = await App._callProxy('whoami');
-                    if (data && data.ok && data.talleresDisponibles) {
+                    if (data && data.ok && Array.isArray(data.talleresDisponibles)) {
                         App._viewingAs = null;
                         App._isAdmin   = true;
+                        // Limpiar también la cabecera para que no muestre el
+                        // taller anterior mientras se elige otro.
+                        const hdr = document.getElementById('tallerNombre');
+                        if (hdr) hdr.textContent = '\u{1F441}\u{FE0F} Modo admin';
                         App._renderAdminPickerInline(data.talleresDisponibles);
                     } else if (data && data.ok && data.isAdmin === false) {
-                        // No debería pasar (entró aquí desde modo admin), pero por si acaso.
                         App._renderError('No tienes permisos de admin.');
+                    } else {
+                        // El proxy no devolvió la lista — probablemente no se ha
+                        // redeployado con la versión nueva. Damos un mensaje útil.
+                        App._renderError(
+                            'No se pudo obtener la lista de talleres. ' +
+                            'Verifica que el Apps Script esté actualizado y redeployado.'
+                        );
                     }
                 } catch (e) {
                     App._renderError('Error: ' + e.message);
