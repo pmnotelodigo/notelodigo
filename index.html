@@ -17381,6 +17381,85 @@ App.telas = {
                 .telas-low-badge { background:#c2185b; color:white; padding:2px 6px; border-radius:10px; font-size:10px; font-weight:600; }
                 .telas-edit-btn { color:#888; cursor:pointer; padding:2px 6px; border-radius:4px; }
                 .telas-edit-btn:hover { background:#f0f0f0; color:#c2185b; }
+
+                /* ───────── Vista móvil — cada fila pasa a card vertical ─────────
+                   En móviles (≤ 768 px) la tabla horizontal es ilegible y los inputs
+                   minúsculos. Convertimos cada <tr> en un bloque tipo "ficha" con
+                   etiquetas claras a la izquierda y valores a la derecha. El input
+                   de stock se hace mucho más grande y accesible al pulgar. */
+                @media (max-width: 768px) {
+                    .telas-table thead { display:none; }
+                    .telas-table, .telas-table tbody { display:block; }
+                    .telas-table tr {
+                        display:block;
+                        background:white;
+                        border:1px solid #eee;
+                        border-radius:8px;
+                        margin-bottom:10px;
+                        padding:10px 12px;
+                        box-shadow:0 1px 2px rgba(0,0,0,0.04);
+                    }
+                    .telas-table tr.telas-group-header {
+                        background:#fce4ec;
+                        border:none;
+                        margin-top:18px;
+                        margin-bottom:8px;
+                        padding:10px 12px;
+                        font-size:14px;
+                        box-shadow:none;
+                    }
+                    /* La fila de cabecera de grupo tiene un colspan="7" en una sola td */
+                    .telas-table tr.telas-group-header td {
+                        display:block;
+                        padding:0;
+                        border:none;
+                    }
+                    .telas-table tr.telas-group-header td::before { content:none; }
+                    .telas-table td {
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:center;
+                        gap:10px;
+                        padding:6px 0;
+                        border:none;
+                        font-size:14px;
+                        text-align:right;
+                    }
+                    .telas-table td:first-child {
+                        /* Variante — título de la card */
+                        border-bottom:1px solid #f3e8ee;
+                        padding-bottom:8px;
+                        margin-bottom:4px;
+                        justify-content:flex-start;
+                        font-size:16px;
+                    }
+                    .telas-table td:first-child::before { content:none; }
+                    .telas-table td::before {
+                        content: attr(data-label);
+                        font-weight:600;
+                        color:#888;
+                        font-size:12px;
+                        text-transform:uppercase;
+                        letter-spacing:0.4px;
+                        text-align:left;
+                        flex:0 0 auto;
+                    }
+                    /* Input de stock más grande y fácil de tocar */
+                    .telas-stock-input {
+                        width:100px;
+                        font-size:16px;
+                        padding:8px 10px;
+                    }
+                    /* Botón de editar como botón completo, no icono mínimo */
+                    .telas-edit-btn {
+                        background:#fce4ec;
+                        color:#c2185b;
+                        font-weight:600;
+                        font-size:13px;
+                        padding:6px 12px;
+                    }
+                    .telas-edit-btn::after { content:" Editar"; }
+                }
             </style>
         `;
 
@@ -17474,19 +17553,19 @@ App.telas = {
                 : '<span style="color:#4caf50; font-size:11px;">&check; ok</span>');
         return `
             <tr class="${cls}" data-tipo="${t.TIPO}" data-variante="${t.VARIANTE}">
-                <td><strong>${t.VARIANTE}</strong></td>
-                <td>${t.PROVEEDOR || '—'}</td>
-                <td style="text-align:right;">
+                <td data-label="Variante"><strong>${t.VARIANTE}</strong></td>
+                <td data-label="Proveedor">${t.PROVEEDOR || '—'}</td>
+                <td data-label="Stock (m)" style="text-align:right;">
                     <input type="number" step="0.5" class="telas-stock-input"
                            value="${stockVal}"
                            onchange="App.telas._onStockInputChange(event, '${escKey}')"
                            onblur="App.telas._onStockBlur(event, '${escKey}')"
                            onkeydown="App.telas._onStockKeydown(event)">
                 </td>
-                <td style="text-align:right; color:#888;">${umbralVal || '—'}</td>
-                <td>${ubic}</td>
-                <td>${estadoBadge}</td>
-                <td><span class="telas-edit-btn" onclick="App.telas.openModal('${escKey}')" title="Editar">&#x270F;&#xFE0F;</span></td>
+                <td data-label="Umbral" style="text-align:right; color:#888;">${umbralVal || '—'}</td>
+                <td data-label="Ubicación">${ubic}</td>
+                <td data-label="Estado">${estadoBadge}</td>
+                <td data-label="Acciones"><span class="telas-edit-btn" onclick="App.telas.openModal('${escKey}')" title="Editar">&#x270F;&#xFE0F;</span></td>
             </tr>
         `;
     },
