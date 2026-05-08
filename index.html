@@ -15741,7 +15741,11 @@ App.jose = {
         }
         // DIAG temporal: dump del string final que va al DOM
         console.log('[jose.verFicha→render]', {
+            num, rowIndex, modelo: modeloRaw,
             adornosTraje, adornosModelo,
+            t_ADORNOS: t['ADORNOS'],
+            t_keys_with_ADORN: Object.keys(t).filter(k => k.toUpperCase().includes('ADORN')),
+            tc_ADORNOS: tc?.['ADORNOS'],
             adornos_raw: adornos,
             adornos_html: adornos.replace(/\n/g, '<br>'),
         });
