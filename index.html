@@ -18017,7 +18017,58 @@ App.stock = {
         get('stockNewTipoTela').value    = '';
         get('stockNewNotas').value       = '';
         get('stockNewModal').classList.add('active');
+        // Cargar catálogos si aún no están en memoria, para que los combobox
+        // de Modelo y Tipo de tela tengan opciones. Fire-and-forget — si están
+        // vacíos al abrir el modal, las primeras pulsaciones no autocompletan;
+        // tras la carga sí (los combobox leen la fuente cada vez que se abren).
+        this._ensureCatalogosLoaded();
+        this._attachComboboxes('stockNewModelo', 'stockNewTipoTela');
         setTimeout(() => get('stockNewNombre').focus(), 50);
+    },
+
+    /** Carga catálogos de Modelos y Telas en background si están vacíos. */
+    _ensureCatalogosLoaded() {
+        if (App.modelos && !App.modelos._data?.length && typeof App.modelos.load === 'function') {
+            App.modelos.load().catch(e => console.warn('[stock.modelos.load]', e.message));
+        }
+        if (App.telas && !App.telas._data?.length && typeof App.telas.load === 'function') {
+            App.telas.load().catch(e => console.warn('[stock.telas.load]', e.message));
+        }
+    },
+
+    /** Engancha comboboxes de Modelo y Tipo de tela a los inputs dados. La
+     *  función `attachCombobox` es idempotente (usa `dataset.comboboxAttached`),
+     *  así que se puede llamar cada vez que se abre el modal sin duplicar
+     *  listeners. El input de tela acepta tanto "TIPO" como "TIPO / VARIANTE";
+     *  el dropdown sugiere las combinaciones existentes en el catálogo Telas. */
+    _attachComboboxes(modeloInputId, tipoTelaInputId) {
+        const modeloInput = document.getElementById(modeloInputId);
+        const telaInput   = document.getElementById(tipoTelaInputId);
+        if (modeloInput) {
+            App.ui.attachCombobox(modeloInput, () => {
+                const cat = (App.modelos?._data || [])
+                    .filter(m => m.NOMBRE && App.modelos._isActive(m))
+                    .map(m => m.NOMBRE);
+                // Incluir también los modelos ya usados en stock para no perder legacy
+                const enUso = [...new Set(
+                    (this.data || []).map(t => (t[this.COL.modelo] || '').trim()).filter(Boolean)
+                )];
+                return [...new Set([...cat, ...enUso])].sort();
+            }, async (val) => App.modelos.addQuick(val));
+        }
+        if (telaInput) {
+            App.ui.attachCombobox(telaInput, () => {
+                const telas = (App.telas?._data || [])
+                    .filter(t => t.TIPO && App.telas._isActive(t));
+                // Sugerimos "TIPO / VARIANTE" cuando hay variante, o solo "TIPO".
+                const opts = telas.map(t =>
+                    t.VARIANTE ? `${t.TIPO} / ${t.VARIANTE}` : t.TIPO);
+                const enUso = [...new Set(
+                    (this.data || []).map(t => (t[this.COL.tipoTela] || '').trim()).filter(Boolean)
+                )];
+                return [...new Set([...opts, ...enUso])].sort();
+            });
+        }
     },
     closeCreateModal() {
         document.getElementById('stockNewModal').classList.remove('active');
@@ -18080,6 +18131,9 @@ App.stock = {
         get('stockEditModelo').value      = t[this.COL.modelo] || '';
         get('stockEditTipoTela').value    = t[this.COL.tipoTela] || '';
         get('stockEditNotas').value       = t[this.COL.notas] || '';
+        // Combobox sobre Modelo + Tipo de tela (idempotente)
+        this._ensureCatalogosLoaded();
+        this._attachComboboxes('stockEditModelo', 'stockEditTipoTela');
 
         // Botones de cambio de estado dinámicos (timeline en texto pequeño debajo)
         const estado = (t[this.COL.estado] || 'EN_TALLER').toUpperCase();
