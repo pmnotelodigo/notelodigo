@@ -15739,6 +15739,12 @@ App.jose = {
         } else {
             adornos = adornosModelo || adornosTraje;
         }
+        // DIAG temporal: dump del string final que va al DOM
+        console.log('[jose.verFicha→render]', {
+            adornosTraje, adornosModelo,
+            adornos_raw: adornos,
+            adornos_html: adornos.replace(/\n/g, '<br>'),
+        });
 
         document.getElementById('joseFichaTitle').innerHTML =
             `Ficha del traje &nbsp;&middot;&nbsp; <span style="color:var(--primary);">#${num}</span>`;
