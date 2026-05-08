@@ -422,6 +422,12 @@
             tallerNombre: null,
             trajes: [],
             _refreshingToken: false,
+            // Vista tipo "carpetas" (estilo Jose): null = vista de carpetas
+            // (En taller / Entregados); 'enTaller' o 'entregados' = trajes
+            // dentro de esa carpeta. Se persiste a sessionStorage para que
+            // un refresh accidental no devuelva al taller a la vista de
+            // carpetas si estaba dentro.
+            _selectedFolder: null,
             // Caché de fichas detalladas en memoria. Tras cargar la lista, lanzamos
             // prefetch en background — al clicar una card, las medidas suelen estar
             // ya cargadas y el modal abre instantáneamente.
@@ -713,25 +719,87 @@
                         enTaller.push(t);
                     }
                 }
-                body.innerHTML =
-                    App._renderGrupo('\u{1F3ED} En mi taller', '#1b5e20', enTaller,
-                        'Estos trajes están físicamente en tu taller.') +
-                    App._renderGrupo('\u{2705} Entregados', '#444', entregados,
-                        'Archivo del taller. Trajes que ya entregaste a NOTELODIGO.', true);
+
+                // Si el taller eligió una carpeta concreta, mostramos los trajes
+                // dentro con un botón "Volver a carpetas" arriba.
+                if (App._selectedFolder === 'enTaller' || App._selectedFolder === 'entregados') {
+                    const isEntregados = App._selectedFolder === 'entregados';
+                    const lista        = isEntregados ? entregados : enTaller;
+                    const titulo       = isEntregados ? '\u{2705} Entregados' : '\u{1F3ED} En mi taller';
+                    const color        = isEntregados ? '#444' : '#1b5e20';
+                    const subtitulo    = isEntregados
+                        ? 'Archivo del taller. Trajes que ya entregaste a NOTELODIGO.'
+                        : 'Estos trajes están físicamente en tu taller.';
+                    if (!lista.length) {
+                        // Si la carpeta quedó vacía (p.ej. tras un refresh y el dato
+                        // cambió), volver automáticamente a la vista de carpetas
+                        // para no dejar una pantalla vacía con sólo el botón Volver.
+                        App._selectedFolder = null;
+                        return App._render();
+                    }
+                    const cards = lista.map(t => App._renderCard(t, isEntregados)).join('');
+                    body.innerHTML = `
+                        <div style="margin-bottom:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <button class="btn btn-secondary" onclick="App.volverACarpetas()" style="font-size:13px;">&larr; Volver a carpetas</button>
+                            <span style="font-size:18px; font-weight:600; color:${color};">${titulo}</span>
+                            <span style="font-size:13px; color:#666;">(${lista.length} traje${lista.length !== 1 ? 's' : ''})</span>
+                        </div>
+                        <div class="desc" style="margin-bottom:12px; color:#666; font-size:13px;">${subtitulo}</div>
+                        <div class="cards-grid">${cards}</div>
+                    `;
+                    return;
+                }
+
+                // Vista CARPETAS — dos cards grandes, una por bandeja.
+                // Mostramos siempre las dos para que el taller vea ambas opciones
+                // aunque alguna esté vacía (estilo "estanterías"). Si está vacía,
+                // se muestra atenuada y no se puede pulsar.
+                body.innerHTML = `
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; max-width:720px; margin:0 auto;">
+                        ${App._renderFolderCard('enTaller',  enTaller.length,   '\u{1F3ED}', 'En mi taller', '#1b5e20', 'Trajes que tienes ahora mismo en el taller.')}
+                        ${App._renderFolderCard('entregados', entregados.length, '\u{2705}', 'Entregados',    '#444',     'Archivo de los trajes que ya devolviste a NOTELODIGO.')}
+                    </div>
+                `;
             },
 
-            _renderGrupo(titulo, color, lista, subtitulo, muted) {
-                if (!lista.length) return '';
-                const cards = lista.map(t => App._renderCard(t, muted)).join('');
+            /** Tarjeta-carpeta clicable. Si count=0, se ve atenuada y sin click. */
+            _renderFolderCard(key, count, emoji, titulo, color, descripcion) {
+                const empty = count === 0;
+                const baseStyle = 'padding:24px; text-align:center; border:2px solid var(--border-light); ' +
+                                  'border-radius:8px; background:var(--surface, #fff); transition:transform 0.1s, border-color 0.1s;';
+                if (empty) {
+                    return `
+                        <div class="card" style="${baseStyle} opacity:0.45; cursor:default;">
+                            <div style="font-size:48px; margin-bottom:8px;">${emoji}</div>
+                            <div style="font-size:18px; font-weight:600; color:${color}; margin-bottom:6px;">${titulo}</div>
+                            <div style="font-size:14px; color:#666;"><strong>0</strong> trajes</div>
+                            <div style="font-size:11px; color:#999; margin-top:8px;">${descripcion}</div>
+                        </div>`;
+                }
                 return `
-                    <div class="grupo${muted ? ' grupo-muted' : ''}">
-                        <div class="grupo-header">
-                            <h2 style="color:${color};">${titulo}</h2>
-                            <span class="count">${lista.length} traje${lista.length !== 1 ? 's' : ''}</span>
-                        </div>
-                        <div class="desc">${subtitulo}</div>
-                        <div class="cards-grid">${cards}</div>
+                    <div class="card" style="${baseStyle} cursor:pointer;"
+                         onmouseover="this.style.transform='scale(1.02)'; this.style.borderColor='${color}';"
+                         onmouseout="this.style.transform=''; this.style.borderColor='var(--border-light)';"
+                         onclick="App.abrirCarpeta('${key}')">
+                        <div style="font-size:48px; margin-bottom:8px;">${emoji}</div>
+                        <div style="font-size:18px; font-weight:600; color:${color}; margin-bottom:6px;">${titulo}</div>
+                        <div style="font-size:14px; color:#444;"><strong>${count}</strong> traje${count !== 1 ? 's' : ''}</div>
+                        <div style="font-size:11px; color:#888; margin-top:8px;">${descripcion}</div>
                     </div>`;
+            },
+
+            /** Entra en una carpeta (cambia a vista de cards). */
+            abrirCarpeta(key) {
+                App._selectedFolder = key;
+                App._render();
+                window.scrollTo(0, 0);
+            },
+
+            /** Vuelve a la vista de carpetas. */
+            volverACarpetas() {
+                App._selectedFolder = null;
+                App._render();
+                window.scrollTo(0, 0);
             },
 
             _renderCard(t, muted) {
