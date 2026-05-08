@@ -428,6 +428,11 @@
             // un refresh accidental no devuelva al taller a la vista de
             // carpetas si estaba dentro.
             _selectedFolder: null,
+            // Modo admin: si la persona logueada es admin (Pilar/Andrés) y
+            // está usando ?asTaller=NOMBRE para ver lo que ve un taller.
+            // _viewingAs guarda el nombre canónico del taller que está viendo.
+            _isAdmin: false,
+            _viewingAs: null,
             // Caché de fichas detalladas en memoria. Tras cargar la lista, lanzamos
             // prefetch en background — al clicar una card, las medidas suelen estar
             // ya cargadas y el modal abre instantáneamente.
@@ -598,6 +603,13 @@
                             }
                             return;
                         }
+                        if (data && data.error === 'admin_needs_taller') {
+                            // Pilar (admin) entró a taller.html sin ?asTaller=NOMBRE.
+                            // Pedimos al proxy la lista de talleres activos y mostramos
+                            // un selector ya dentro de la app (no en login).
+                            await App._renderAdminPicker(fromLogin);
+                            return;
+                        }
                         const errMsg = 'Error: ' + (data?.error || 'desconocido') + ' — ' + (data?.message || '');
                         if (fromLogin) {
                             App._hideLoginLoading();
@@ -609,6 +621,8 @@
                     }
                     App.tallerNombre = data.taller || null;
                     App.trajes = data.trajes || [];
+                    App._isAdmin   = !!data.isAdmin;
+                    App._viewingAs = data.viewingAs || null;
                     document.getElementById('tallerNombre').textContent =
                         '\u{1F3ED} ' + (App.tallerNombre || 'Mis trajes');
                     App._render();
@@ -648,10 +662,22 @@
                 }
             },
 
+            /** Lee el query param ?asTaller=NOMBRE de la URL. Si está, los
+             *  admins ven los trajes de ese taller en lugar de los suyos. */
+            _getAsTallerParam() {
+                try {
+                    return new URLSearchParams(window.location.search).get('asTaller') || '';
+                } catch (_) { return ''; }
+            },
+
             async _callProxy(action, extras) {
                 // extras es un objeto opcional con parámetros adicionales: {num: '003'}.
                 const buildUrl = (token) => {
                     const params = new URLSearchParams({ token: token, action: action });
+                    // Si la URL tiene ?asTaller=NOMBRE, lo propagamos al proxy
+                    // para que el modo admin funcione ("ver como BRENES").
+                    const asTaller = App._getAsTallerParam();
+                    if (asTaller) params.append('asTaller', asTaller);
                     if (extras) {
                         for (const k of Object.keys(extras)) params.append(k, extras[k]);
                     }
@@ -689,13 +715,124 @@
                 });
             },
 
+            /** Banner visible en la cabecera del body cuando un admin está
+             *  viendo la app como otro taller (?asTaller=NOMBRE). Le permite
+             *  saber en todo momento que NO es la cuenta del taller, además
+             *  de cambiar a otro taller o cerrar el modo. Devuelve '' si no
+             *  estamos en modo admin. */
+            _renderAdminBanner() {
+                if (!App._isAdmin || !App._viewingAs) return '';
+                const safe = App._esc(App._viewingAs);
+                return `
+                    <div style="margin-bottom:14px; padding:10px 14px; background:#fff8e1;
+                                border:1px solid #f59e0b; border-radius:8px; display:flex;
+                                gap:10px; align-items:center; flex-wrap:wrap; font-size:13px;">
+                        <span style="font-size:16px;">&#x1F441;&#xFE0F;</span>
+                        <span>Modo admin · viendo como <strong>${safe}</strong></span>
+                        <span style="flex:1;"></span>
+                        <button class="btn btn-secondary" style="font-size:12px; padding:4px 10px;"
+                                onclick="App._abrirSelectorAdmin()">Cambiar taller</button>
+                        <button class="btn btn-secondary" style="font-size:12px; padding:4px 10px;"
+                                onclick="App._salirModoAdmin()">Salir</button>
+                    </div>`;
+            },
+
+            /** Re-llamar al proxy en modo whoami para listar talleres y dejar
+             *  que el admin cambie de taller sin tener que volver a index.html. */
+            async _abrirSelectorAdmin() {
+                try {
+                    const data = await App._callProxy('whoami');
+                    if (data && data.ok && data.talleresDisponibles) {
+                        App._viewingAs = null;
+                        App._isAdmin   = true;
+                        App._renderAdminPickerInline(data.talleresDisponibles);
+                    } else if (data && data.ok && data.isAdmin === false) {
+                        // No debería pasar (entró aquí desde modo admin), pero por si acaso.
+                        App._renderError('No tienes permisos de admin.');
+                    }
+                } catch (e) {
+                    App._renderError('Error: ' + e.message);
+                }
+            },
+
+            /** Sale del modo admin → vuelve a index.html (la app de Pilar). */
+            _salirModoAdmin() {
+                window.location.replace('./');
+            },
+
+            /** Construye el selector de talleres para admins sin asTaller, ya
+             *  dentro de la app (no en el login screen). */
+            async _renderAdminPicker(fromLogin) {
+                let lista = [];
+                try {
+                    const data = await App._callProxy('whoami');
+                    if (data && data.ok && data.talleresDisponibles) {
+                        lista = data.talleresDisponibles;
+                    }
+                } catch (_) { /* fall through */ }
+                if (fromLogin) {
+                    App._showApp();   // pasamos a la app aunque sea para mostrar el selector
+                }
+                document.getElementById('tallerNombre').textContent = '\u{1F441}\u{FE0F} Modo admin';
+                App._renderAdminPickerInline(lista);
+            },
+
+            /** Pinta el selector dentro de #appBody. */
+            _renderAdminPickerInline(talleres) {
+                const body = document.getElementById('appBody');
+                if (!body) return;
+                const opts = talleres.length
+                    ? talleres.map(tl => `<option value="${App._esc(tl)}">${App._esc(tl)}</option>`).join('')
+                    : '<option value="">— no hay talleres activos —</option>';
+                body.innerHTML = `
+                    <div class="card" style="max-width:480px; margin:40px auto; padding:24px; text-align:center;">
+                        <div style="font-size:42px; margin-bottom:10px;">&#x1F441;&#xFE0F;</div>
+                        <h2 style="margin:0 0 6px 0;">Modo administrador</h2>
+                        <div style="color:#666; font-size:13px; margin-bottom:18px;">
+                            Estás logueado como <strong>${App._esc(App.user?.email || '')}</strong>.
+                            Elige el taller cuya vista quieres ver.
+                        </div>
+                        <div style="display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;">
+                            <select id="adminTallerSelect" class="form-input" style="font-size:14px; min-width:200px;">
+                                ${opts}
+                            </select>
+                            <button class="btn btn-primary" onclick="App._adminEntrarTaller()" style="font-size:14px;">
+                                Entrar
+                            </button>
+                        </div>
+                        <div style="margin-top:18px;">
+                            <button class="btn btn-secondary" onclick="App._salirModoAdmin()" style="font-size:13px;">
+                                &larr; Volver a la app de admin
+                            </button>
+                        </div>
+                    </div>
+                `;
+            },
+
+            /** Click en el botón "Entrar" del selector → navega a taller.html con
+             *  el parámetro adecuado para que el proxy devuelva el taller elegido. */
+            _adminEntrarTaller() {
+                const sel = document.getElementById('adminTallerSelect');
+                const v = (sel?.value || '').trim();
+                if (!v) return;
+                // Reescribir URL con asTaller=NOMBRE y recargar.
+                const u = new URL(window.location.href);
+                u.searchParams.set('asTaller', v);
+                window.location.replace(u.toString());
+            },
+
             // ─── Render ───
             _render() {
                 const body = document.getElementById('appBody');
                 if (!body) return;
+                const banner = App._renderAdminBanner();
                 if (!App.trajes.length) {
-                    body.innerHTML =
-                        '<div class="empty"><p>No tienes trajes asignados ahora mismo.</p></div>';
+                    body.innerHTML = banner +
+                        '<div class="empty"><p>' +
+                        (App._isAdmin && App._viewingAs
+                            ? 'Este taller no tiene trajes asignados ahora mismo.'
+                            : 'No tienes trajes asignados ahora mismo.') +
+                        '</p></div>';
                     return;
                 }
                 // Separamos en:
@@ -738,7 +875,7 @@
                         return App._render();
                     }
                     const cards = lista.map(t => App._renderCard(t, isEntregados)).join('');
-                    body.innerHTML = `
+                    body.innerHTML = banner + `
                         <div style="margin-bottom:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                             <button class="btn btn-secondary" onclick="App.volverACarpetas()" style="font-size:13px;">&larr; Volver a carpetas</button>
                             <span style="font-size:18px; font-weight:600; color:${color};">${titulo}</span>
@@ -754,7 +891,7 @@
                 // Mostramos siempre las dos para que el taller vea ambas opciones
                 // aunque alguna esté vacía (estilo "estanterías"). Si está vacía,
                 // se muestra atenuada y no se puede pulsar.
-                body.innerHTML = `
+                body.innerHTML = banner + `
                     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; max-width:720px; margin:0 auto;">
                         ${App._renderFolderCard('enTaller',  enTaller.length,   '\u{1F3ED}', 'En mi taller', '#1b5e20', 'Trajes que tienes ahora mismo en el taller.')}
                         ${App._renderFolderCard('entregados', entregados.length, '\u{2705}', 'Entregados',    '#444',     'Archivo de los trajes que ya devolviste a NOTELODIGO.')}
