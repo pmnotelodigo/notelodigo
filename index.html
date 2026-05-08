@@ -15699,9 +15699,27 @@ App.jose = {
         }
     },
 
-    /** Modal: ficha completa del traje (info clave + clienta + adornos + cambio de taller). */
+    /** Modal: ficha completa del traje (info clave + clienta + adornos + cambio de taller).
+     *  Si los datos en memoria son potencialmente stale (carga inicial sin terminar),
+     *  forzamos un refresh antes de pintar para que ADORNOS y demás campos
+     *  reflejen el sheet real. Sin esto, abrir la ficha justo después de
+     *  navegar a Jose puede mostrar valores cacheados de la sesión anterior. */
     async verFicha(rowIndex) {
-        const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+        let t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+        // Si la carga inicial de Jose aún no ha terminado (o nunca se ejecutó),
+        // refrescamos antes de continuar. Mostramos el modal vacío con spinner
+        // para feedback inmediato.
+        const lastLoad = this._lastLoadAt || 0;
+        const stale = !t || (Date.now() - lastLoad) > 5000;
+        if (stale) {
+            try {
+                await App.trajes.load(true);
+                this._lastLoadAt = Date.now();
+                t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            } catch (e) {
+                console.warn('[jose.verFicha refresh]', e.message);
+            }
+        }
         const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
         if (!t) { App.toast.show('Traje no encontrado.', 'error'); return; }
         const COL = App.trajes.COL;
@@ -15730,8 +15748,11 @@ App.jose = {
         // ambas fuentes vienen del mismo LISTADO pero a veces una está más
         // fresca que la otra tras escrituras concurrentes (Jose recarga trajes
         // pero no necesariamente clientas, y al revés).
-        const adornosTraje = (t[COL.adornos] || tc?.[COL.adornos] || tc?.['ADORNOS'] || '')
-            .toString().trim();
+        // Leemos directamente con la string literal 'ADORNOS' para evitar
+        // cualquier ambigüedad con COL.adornos (algún caracter invisible que
+        // estuviera causando que t[COL.adornos] devolviera undefined aunque
+        // t['ADORNOS'] sí tuviera el valor — visto en logs reales).
+        const adornosTraje = (t['ADORNOS'] || tc?.['ADORNOS'] || '').toString().trim();
         const adornosModelo  = (modeloFull?.ADORNOS || '').toString().trim();
         let adornos = '';
         if (adornosModelo && adornosTraje && adornosTraje !== adornosModelo) {
@@ -15739,15 +15760,16 @@ App.jose = {
         } else {
             adornos = adornosModelo || adornosTraje;
         }
-        // DIAG temporal: dump del string final que va al DOM
+        // DIAG temporal: comparar t['ADORNOS'] directo vs t[COL.adornos] vía COL
         console.log('[jose.verFicha→render]', {
             num, rowIndex, modelo: modeloRaw,
             adornosTraje, adornosModelo,
-            t_ADORNOS: t['ADORNOS'],
-            t_keys_with_ADORN: Object.keys(t).filter(k => k.toUpperCase().includes('ADORN')),
-            tc_ADORNOS: tc?.['ADORNOS'],
+            t_ADORNOS_literal: t['ADORNOS'],
+            t_ADORNOS_via_COL: t[COL.adornos],
+            COL_adornos_value: COL.adornos,
+            COL_adornos_length: COL.adornos?.length,
+            COL_adornos_charcodes: [...(COL.adornos || '')].map(c => c.charCodeAt(0)),
             adornos_raw: adornos,
-            adornos_html: adornos.replace(/\n/g, '<br>'),
         });
 
         document.getElementById('joseFichaTitle').innerHTML =
