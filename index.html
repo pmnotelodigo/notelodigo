@@ -2780,8 +2780,13 @@
                         <!-- Timeline de hitos del traje (resumen visual de las 4 fechas) -->
                         <div id="editTrajeTimeline" style="display:none; margin-bottom:10px;"></div>
 
-                        <!-- Traje: fila 1 = modelo + talla, fila 2 = tipo tela + variante (cascada) -->
+                        <!-- Traje: fila 0 = feria, fila 1 = modelo + talla, fila 2 = tipo tela + variante (cascada) -->
                         <div style="padding-bottom:10px; border-bottom:1px solid var(--border-light); margin-bottom:10px;">
+                            <!-- Fila 0: feria (a la que va el traje — visible para Pilar y editable) -->
+                            <div class="form-group" style="margin:0 0 8px;">
+                                <label style="font-size:11px;">Feria</label>
+                                <input type="text" class="form-input" id="editTrajeFeria" placeholder="Ej: SEVILLA 27, HUELVA…" style="font-size:12px;" autocomplete="off">
+                            </div>
                             <!-- Fila 1: modelo (más ancho) + talla -->
                             <div style="display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-bottom:8px;">
                                 <div class="form-group" style="margin:0;">
@@ -10747,6 +10752,8 @@ App.trajes = {
 
     // Mapeo de columnas filtrables → función para extraer el valor de cada traje
     _filterableCols: {
+        feria:        { label: 'Feria',         emptyLabel: '(Sin feria)',
+                                                get: (t, self) => (t[self.COL.feria] || '').trim() || '' },
         modelo:       { label: 'Modelo',        get: (t, self) => self._modeloPrincipal(t[self.COL.modelo]) || '' },
         telaRecibida: { label: 'Tela recibida', get: (t, self) => (t[self.COL.telaRecibida] || '').toUpperCase() || '' },
         tela:         { label: 'Tela',          get: (t, self) => (t[self.COL.tipoTela] || '').trim() || '' },
@@ -10804,7 +10811,7 @@ App.trajes = {
                 const def = this._filterableCols[colKey];
                 if (!def) continue;
                 const val = def.get(t, this);
-                const displayVal = val || '(vacío)';
+                const displayVal = val || def.emptyLabel || '(vacío)';
                 if (!allowedSet.has(displayVal)) return false;
             }
             return true;
@@ -10836,14 +10843,15 @@ App.trajes = {
         if (!def) return;
 
         // Recopilar valores únicos de TODOS los datos (no solo filtered)
+        const emptyLabel = def.emptyLabel || '(vacío)';
         const valuesSet = new Set();
         this.data.forEach(t => {
             const v = def.get(t, this);
-            valuesSet.add(v || '(vacío)');
+            valuesSet.add(v || emptyLabel);
         });
         const values = [...valuesSet].sort((a, b) => {
-            if (a === '(vacío)') return 1;
-            if (b === '(vacío)') return -1;
+            if (a === emptyLabel) return 1;
+            if (b === emptyLabel) return -1;
             return a.localeCompare(b);
         });
 
@@ -11148,7 +11156,10 @@ App.trajes = {
         // Entrega separada en dos columnas: "Del taller" (Pilar) + "Entregado" (clienta).
         const tableHeader = `<tr>
             <th style="width:40px;">N&ordm;</th>
-            <th style="min-width:130px;">Clienta</th>
+            <th style="min-width:130px;">
+                <div>Clienta</div>
+                <div class="${fClass('feria')}" onclick="event.stopPropagation(); App.trajes._openColFilter('feria', this.parentElement)" style="font-size:10px; font-weight:500; color:var(--text-muted); text-transform:none; letter-spacing:0; cursor:pointer;">Feria ${fIcon('feria')}</div>
+            </th>
             <th style="min-width:120px;">
                 <div class="${fClass('modelo')}" onclick="App.trajes._openColFilter('modelo', this.parentElement)" style="cursor:pointer;">Modelo ${fIcon('modelo')}</div>
                 <div class="${fClass('tela')}" onclick="event.stopPropagation(); App.trajes._openColFilter('tela', this.parentElement)" style="font-size:10px; font-weight:500; color:var(--text-muted); text-transform:none; letter-spacing:0; cursor:pointer;">Tela ${fIcon('tela')}</div>
@@ -12241,6 +12252,7 @@ App.trajes = {
         };
 
         // Campos del traje
+        set('editTrajeFeria',    t[this.COL.feria]);
         set('editTrajeModelo',   t[this.COL.modelo]);
         set('editTrajeTipoTela', t[this.COL.tipoTela]);   // hidden — valor combinado
         // Sub-comboboxes de tela: parsear "TIPO / VARIANTE" si encaja, si no dejar todo en VARIANTE
@@ -12623,6 +12635,7 @@ App.trajes = {
 
             const updates = [
                 ['ESTADO',               (document.getElementById('editTrajeEstado')?.value             || '').trim()],
+                ['FERIA',                (document.getElementById('editTrajeFeria')?.value              || '').trim()],
                 ['MODELO',               (document.getElementById('editTrajeModelo')?.value             || '').trim()],
                 ['TIPO TELA',            (document.getElementById('editTrajeTipoTela')?.value           || '').trim()],
                 ['MEDIDAS',              (document.getElementById('editTrajeMedidas')?.value            || '').trim()],
