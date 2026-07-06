@@ -1850,8 +1850,7 @@
             <strong style="display:block; margin-bottom:8px; color:#C2185B; font-size:14px;">&#x1F44B; &iquest;Primera vez en este dispositivo?</strong>
             <ol style="margin:0 0 8px; padding-left:20px; color:#5D4037;">
                 <li style="margin-bottom:4px;">Pulsa <strong>Iniciar sesi&oacute;n con Google</strong> arriba.</li>
-                <li style="margin-bottom:4px;">Una vez dentro, ve a <strong>Ajustes</strong> &#x2699;&#xFE0F; en el men&uacute; lateral.</li>
-                <li>Pega el <strong>ID de la carpeta CONFIG</strong> de Drive y selecciona la temporada activa.</li>
+                <li>Una vez dentro, selecciona la <strong>temporada activa</strong> en el desplegable de arriba. Nada m&aacute;s &mdash; la carpeta de Drive ya viene configurada.</li>
             </ol>
             <div style="font-size:11.5px; color:#999;">Si ya has configurado la app aqu&iacute; antes, ignora estos pasos.</div>
         </div>
@@ -3778,25 +3777,18 @@
                         <!-- A) Sin carpeta enlazada -->
                         <div id="folderStateEmpty" style="display:none; margin-bottom:16px;">
                             <div class="alert alert-warning" style="margin-bottom:12px;">
-                                &#x26A0;&#xFE0F; La app no tiene carpeta de Drive enlazada todav&iacute;a.
-                                <br><small style="opacity:0.8;">Debe ser la carpeta <strong>CONFIG</strong> dentro de <em>APP NOTELODIGO</em> en Drive.</small>
+                                &#x26A0;&#xFE0F; No se pudo acceder a la carpeta <strong>CONFIG</strong> de Drive.
+                                <br><small style="opacity:0.8;">La carpeta va fija en el c&oacute;digo de la app. Comprueba que tu cuenta tiene acceso a <em>APP NOTELODIGO/CONFIG</em> en Drive.</small>
                             </div>
-                            <button class="btn btn-secondary btn-sm" onclick="App.settings.showFolderInput()">
-                                &#x1F4C2; Enlazar carpeta de Drive
-                            </button>
                         </div>
 
-                        <!-- B) Carpeta enlazada — muestra nombre -->
+                        <!-- B) Carpeta enlazada — muestra nombre (fija en el código, no se puede cambiar) -->
                         <div id="folderStateLinked" style="display:none; margin-bottom:16px;">
                             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                                 <div class="alert alert-success" style="margin:0; flex:1; min-width:0;">
                                     &#x1F4C1; <strong id="folderLinkedName">Cargando&hellip;</strong>
                                     <span style="color:var(--text-muted); font-size:12px;" id="folderLinkedSub"></span>
                                 </div>
-                                <button class="btn btn-secondary btn-sm" onclick="App.settings.showFolderInput()"
-                                        style="white-space:nowrap; flex-shrink:0;">
-                                    Cambiar carpeta
-                                </button>
                             </div>
                         </div>
 
@@ -3998,6 +3990,13 @@
 // Google Cloud Console → APIs y servicios → Credenciales → ID de cliente OAuth
 // Añade 'http://localhost:8080' como origen autorizado en esa credencial.
 const APP_CLIENT_ID = '128632131275-qupsldl5kubithuo46vq72te64ijlv48.apps.googleusercontent.com';
+// ────────────────────────────────────────────────────────────────────────────
+
+// ─── CARPETA CONFIG DE DRIVE (fija en el código, no configurable) ──────────
+// ID de la carpeta CONFIG dentro de APP NOTELODIGO en Drive. Es el mismo
+// CONFIG_FOLDER_ID que usa taller-proxy.gs. El usuario ya no tiene que
+// enlazarla desde Ajustes: la app la usa directamente.
+const APP_CONFIG_FOLDER_ID = '16SMc-byVr7nuHE3QhWBZuPgTmQc9Yl4G';
 // ────────────────────────────────────────────────────────────────────────────
 
 const CONFIG = {
@@ -5709,6 +5708,11 @@ const App = {
          * If no configsFolderId is set, this is a no-op.
          */
         async load() {
+            // Recordar la temporada que estaba activa en esta sesión ANTES de
+            // recargar la lista. Así, crear una temporada nueva NO cambia la
+            // temporada activa (antes, la nueva podía "colarse" como data[0]
+            // por orden alfabético y quedar seleccionada sin recargar datos).
+            const prevName = this._current ? this._current.NOMBRE : null;
             this._loaded = false;
             this._data = [];
             this._current = null;
@@ -5763,10 +5767,12 @@ const App = {
 
                 this._data = data;
 
-                // Pick current season: user preference > ACTIVA=SI > first
+                // Pick current season:
+                //   user preference > la que ya estaba activa en esta sesión > ACTIVA=SI > first
                 const pref = App.settings.getLocal('currentSeason');
                 this._current =
                     (pref && data.find(s => s.NOMBRE === pref)) ||
+                    (prevName && data.find(s => s.NOMBRE === prevName)) ||
                     data.find(s => (s.ACTIVA || '').toUpperCase() === 'SI') ||
                     data[0];
 
@@ -5851,6 +5857,13 @@ const App = {
             }
 
             await this.load();
+
+            // Fijar la temporada activa actual como preferencia si aún no había
+            // ninguna guardada: así, al recargar la página, la temporada recién
+            // creada no se activa sola (seguirá activa la que se estaba usando).
+            if (!App.settings.getLocal('currentSeason') && this._current) {
+                App.settings.set('currentSeason', this._current.NOMBRE);
+            }
         },
 
         /** Update a season: rewrite the key/value rows; rename the file if NOMBRE changed. */
@@ -6234,6 +6247,8 @@ const App = {
          * if a config sheet is linked; otherwise fall back to localStorage.
          */
         get(key) {
+            // La carpeta CONFIG está fija en el código — siempre gana
+            if (key === 'configsFolderId' && APP_CONFIG_FOLDER_ID) return APP_CONFIG_FOLDER_ID;
             // If this is a per-season key AND seasons are enabled, use the season value
             if (CONFIG.SEASON_KEYS[key] && App.seasons && App.seasons.isEnabled()) {
                 const cur = App.seasons.current();
@@ -6247,6 +6262,8 @@ const App = {
 
         /** Force-read from localStorage, ignoring seasons (useful in UI forms) */
         getLocal(key) {
+            // La carpeta CONFIG está fija en el código — siempre gana
+            if (key === 'configsFolderId' && APP_CONFIG_FOLDER_ID) return APP_CONFIG_FOLDER_ID;
             return localStorage.getItem(CONFIG.keys[key]) || '';
         },
 
