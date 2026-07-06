@@ -3772,46 +3772,11 @@
                             Cada temporada (25-26, 26-27&hellip;) tiene su propio LISTADO DE TRAJES, ORDEN DE CORTE y carpeta de fichas en Drive.
                         </p>
 
-                        <!-- Estado de la carpeta: se muestra uno u otro según el estado -->
+                        <!-- La carpeta CONFIG de Drive va fija en el código (APP_CONFIG_FOLDER_ID),
+                             igual que la URL del proxy de talleres (APP_TALLER_PROXY_URL).
+                             Ya no hay nada que enlazar ni configurar aquí. -->
 
-                        <!-- A) Sin carpeta enlazada -->
-                        <div id="folderStateEmpty" style="display:none; margin-bottom:16px;">
-                            <div class="alert alert-warning" style="margin-bottom:12px;">
-                                &#x26A0;&#xFE0F; No se pudo acceder a la carpeta <strong>CONFIG</strong> de Drive.
-                                <br><small style="opacity:0.8;">La carpeta va fija en el c&oacute;digo de la app. Comprueba que tu cuenta tiene acceso a <em>APP NOTELODIGO/CONFIG</em> en Drive.</small>
-                            </div>
-                        </div>
-
-                        <!-- B) Carpeta enlazada — muestra nombre (fija en el código, no se puede cambiar) -->
-                        <div id="folderStateLinked" style="display:none; margin-bottom:16px;">
-                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                                <div class="alert alert-success" style="margin:0; flex:1; min-width:0;">
-                                    &#x1F4C1; <strong id="folderLinkedName">Cargando&hellip;</strong>
-                                    <span style="color:var(--text-muted); font-size:12px;" id="folderLinkedSub"></span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- C) Input para pegar URL/ID (oculto por defecto, se muestra al pulsar enlazar/cambiar) -->
-                        <div id="folderStateInput" style="display:none; margin-bottom:16px;">
-                            <div class="form-group" style="margin-bottom:8px;">
-                                <label>Carpeta <strong>CONFIG</strong> de Drive</label>
-                                <input type="text" class="form-input mono" id="cfgConfigsFolderId"
-                                       placeholder="https://drive.google.com/drive/folders/...">
-                                <small>Abre la carpeta <strong>CONFIG</strong> en Drive (dentro de <em>APP NOTELODIGO</em>), copia la URL de la barra del navegador y p&eacute;gala aqu&iacute;.</small>
-                            </div>
-                            <div style="display:flex; gap:8px;">
-                                <button class="btn btn-primary btn-sm" onclick="App.settings.saveConfigsFolderId()">
-                                    Guardar
-                                </button>
-                                <button class="btn btn-secondary btn-sm" onclick="App.settings.hideFolderInput()">
-                                    Cancelar
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Botón crear temporada — solo visible si hay carpeta enlazada -->
-                        <div id="folderActionBar" style="display:none; margin-bottom:16px;">
+                        <div id="folderActionBar" style="margin-bottom:16px;">
                             <button class="btn btn-primary btn-sm" onclick="App.settings.createSeasonFromScratch()">
                                 &#x2795; Crear temporada nueva
                             </button>
@@ -3826,60 +3791,12 @@
                     </div>
                 </div>
 
-                <!-- ========= 2.5. PROXY DE TALLERES (Apps Script) ========= -->
-                <div class="card">
-                    <div class="card-title">&#x1F510; Proxy de talleres (Apps Script)</div>
-                    <div class="settings-section">
-                        <p style="font-size:13px; color:var(--text-light); margin:0 0 10px;">
-                            Permite que los talleres vean SOLO sus trajes sin tener acceso al sheet.
-                            Sin esto, los talleres tendrían que tener acceso compartido al LISTADO
-                            (verían todos los datos). Con el proxy, un script de tu cuenta filtra
-                            por ellos y les devuelve solo lo suyo.
-                        </p>
-
-                        <details style="margin-bottom:12px; padding:10px; background:var(--background); border-radius:6px;">
-                            <summary style="cursor:pointer; font-weight:600; font-size:13px;">
-                                &#x1F4D6; ¿Cómo se despliega? (una sola vez)
-                            </summary>
-                            <ol style="margin:10px 0 0 0; padding-left:24px; font-size:13px; color:var(--text-light); line-height:1.6;">
-                                <li>Abre <a href="https://script.google.com" target="_blank" rel="noopener">script.google.com</a> y crea un proyecto nuevo.</li>
-                                <li>Pega el contenido de <code>taller-proxy.gs</code> (en la carpeta GITHUB_PAGES de tu Drive).</li>
-                                <li>Copia el <strong>CONFIG_FOLDER_ID</strong> abajo y pégalo en el script donde dice <code>PEGA_AQUI_EL_ID_DE_LA_CARPETA_CONFIG</code>.</li>
-                                <li>Save. Deploy → New deployment → Type: Web app. Execute as: Me. Who has access: Anyone. Deploy. Autoriza permisos.</li>
-                                <li>Copia la URL que termina en <code>/exec</code> y pégala abajo. Pulsa "Guardar URL" y luego "Probar conexión".</li>
-                                <li>A partir de aquí <strong>nunca más hay que tocar el script</strong>. Cuando Pilar active otra temporada desde la app, el script se entera solo (en menos de 5 minutos).</li>
-                            </ol>
-                        </details>
-
-                        <div class="form-group" style="margin-bottom:8px;">
-                            <label>CONFIG_FOLDER_ID (lo que el script necesita)</label>
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                <input type="text" class="form-input mono" id="cfgConfigFolderIdReadOnly"
-                                       readonly style="flex:1;"
-                                       placeholder="Configura primero la carpeta CONFIG arriba">
-                                <button class="btn btn-secondary btn-sm" onclick="App.settings.copyConfigFolderId()"
-                                        title="Copiar al portapapeles">
-                                    &#x1F4CB; Copiar
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="form-group" style="margin-bottom:8px;">
-                            <label for="cfgTallerProxyUrl">URL del Web App</label>
-                            <input type="url" class="form-input mono" id="cfgTallerProxyUrl"
-                                   placeholder="https://script.google.com/macros/s/.../exec">
-                        </div>
-                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <button class="btn btn-primary btn-sm" onclick="App.settings.saveTallerProxyUrl()">
-                                Guardar URL
-                            </button>
-                            <button class="btn btn-secondary btn-sm" onclick="App.settings.testTallerProxy()">
-                                Probar conexión
-                            </button>
-                            <span id="tallerProxyStatus" style="font-size:12px; color:var(--text-muted);"></span>
-                        </div>
-                    </div>
-                </div>
+                <!-- ========= 2.5. PROXY DE TALLERES — tarjeta eliminada 2026-07-06.
+                     El proxy (Apps Script) está desplegado y vivo; su URL va fija en el
+                     código (APP_TALLER_PROXY_URL) igual que en taller.html, y el
+                     CONFIG_FOLDER_ID va fijo tanto aquí (APP_CONFIG_FOLDER_ID) como en
+                     taller-proxy.gs. No había nada que Pilar pudiera/debiera tocar.
+                     Instrucciones de deploy: ver cabecera de taller-proxy.gs. -->
 
                 <!-- ========= 2.7. ROLES Y PERMISOS ========= -->
                 <div class="card">
@@ -3931,7 +3848,7 @@
                         <div class="form-group" style="margin-bottom:0;">
                             <label>Zona de peligro</label>
                             <p style="font-size:13px; color:var(--text-light); margin:4px 0 10px;">
-                                Borra toda la configuraci&oacute;n guardada en este navegador (Client ID, carpeta de temporadas, cach&eacute;). No toca nada en Drive.
+                                Borra los datos guardados en este navegador (temporada seleccionada y cach&eacute;). No toca nada en Drive.
                             </p>
                             <button class="btn btn-danger btn-sm" onclick="App.settings.resetAll()">
                                 Restablecer configuraci&oacute;n local
@@ -3997,6 +3914,12 @@ const APP_CLIENT_ID = '128632131275-qupsldl5kubithuo46vq72te64ijlv48.apps.google
 // CONFIG_FOLDER_ID que usa taller-proxy.gs. El usuario ya no tiene que
 // enlazarla desde Ajustes: la app la usa directamente.
 const APP_CONFIG_FOLDER_ID = '16SMc-byVr7nuHE3QhWBZuPgTmQc9Yl4G';
+
+// ─── PROXY DE TALLERES (Apps Script Web App, fijo en el código) ────────────
+// Misma URL que la constante PROXY_URL de taller.html. Se usa en el login
+// para detectar si el usuario es un taller (whoami). Si algún día se
+// redeploya el script con otra URL, actualizar aquí y en taller.html.
+const APP_TALLER_PROXY_URL = 'https://script.google.com/macros/s/AKfycbyHPPhgW4ManiccoNiCzuyCupJASXh6nlDTV-HsHrvzaZ6YiTIubzYwcnXzi4MA_yrE/exec';
 // ────────────────────────────────────────────────────────────────────────────
 
 const CONFIG = {
@@ -6247,8 +6170,9 @@ const App = {
          * if a config sheet is linked; otherwise fall back to localStorage.
          */
         get(key) {
-            // La carpeta CONFIG está fija en el código — siempre gana
+            // La carpeta CONFIG y el proxy de talleres están fijos en el código
             if (key === 'configsFolderId' && APP_CONFIG_FOLDER_ID) return APP_CONFIG_FOLDER_ID;
+            if (key === 'tallerProxyUrl' && APP_TALLER_PROXY_URL) return APP_TALLER_PROXY_URL;
             // If this is a per-season key AND seasons are enabled, use the season value
             if (CONFIG.SEASON_KEYS[key] && App.seasons && App.seasons.isEnabled()) {
                 const cur = App.seasons.current();
@@ -6262,8 +6186,9 @@ const App = {
 
         /** Force-read from localStorage, ignoring seasons (useful in UI forms) */
         getLocal(key) {
-            // La carpeta CONFIG está fija en el código — siempre gana
+            // La carpeta CONFIG y el proxy de talleres están fijos en el código
             if (key === 'configsFolderId' && APP_CONFIG_FOLDER_ID) return APP_CONFIG_FOLDER_ID;
+            if (key === 'tallerProxyUrl' && APP_TALLER_PROXY_URL) return APP_TALLER_PROXY_URL;
             return localStorage.getItem(CONFIG.keys[key]) || '';
         },
 
@@ -6350,12 +6275,11 @@ const App = {
 
         /** Reset all settings */
         resetAll() {
-            const msg = 'Esto borrara TODA la configuracion guardada en este navegador:\n\n' +
-                '  - OAuth Client ID\n' +
-                '  - Carpeta de temporadas\n' +
+            const msg = 'Esto borrara los datos guardados en este navegador:\n\n' +
                 '  - Temporada seleccionada\n' +
                 '  - Cache local\n\n' +
-                'NO toca nada en Drive. Podras volver a configurar todo despues.\n\n' +
+                'NO toca nada en Drive. La carpeta CONFIG y el proxy van fijos en el codigo,\n' +
+                'asi que la app seguira funcionando tras recargar.\n\n' +
                 'Continuar?';
             if (!confirm(msg)) return;
             Object.values(CONFIG.keys).forEach(k => localStorage.removeItem(k));
