@@ -1783,25 +1783,26 @@
             }
         }
 
-        /* ── Rol Dependienta ──────────────────────────────────────────────
-           Modelos en modo solo-lectura: ocultamos botones de creación,
-           guardado y borrado, y deshabilitamos los inputs del modal. */
-        body.role-dependienta #sec-modelos button[onclick*="openModal()"],
-        body.role-dependienta #modeloModal #btnModeloSave,
-        body.role-dependienta #modeloModal #btnModeloMarkInactive,
-        body.role-dependienta #modeloModal #btnModeloFotoUpload,
-        body.role-dependienta #modeloModal button[onclick*="removeFoto"],
-        body.role-dependienta #modeloModal #modeloFotoFile {
+        /* ── Modelos en solo lectura (roles Dependienta y Jose) ──────────
+           Ocultamos botones de creación, guardado y borrado, y
+           deshabilitamos los inputs del modal. La clase la pone
+           applyRolePermissions() para ambos roles. */
+        body.modelos-readonly #sec-modelos button[onclick*="openModal()"],
+        body.modelos-readonly #modeloModal #btnModeloSave,
+        body.modelos-readonly #modeloModal #btnModeloMarkInactive,
+        body.modelos-readonly #modeloModal #btnModeloFotoUpload,
+        body.modelos-readonly #modeloModal button[onclick*="removeFoto"],
+        body.modelos-readonly #modeloModal #modeloFotoFile {
             display: none !important;
         }
-        body.role-dependienta #modeloModal input,
-        body.role-dependienta #modeloModal select,
-        body.role-dependienta #modeloModal textarea {
+        body.modelos-readonly #modeloModal input,
+        body.modelos-readonly #modeloModal select,
+        body.modelos-readonly #modeloModal textarea {
             pointer-events: none;
             background: #f5f5f5 !important;
             color: #555 !important;
         }
-        body.role-dependienta #modeloModalTitle::after {
+        body.modelos-readonly #modeloModalTitle::after {
             content: " (solo lectura)";
             font-size: 0.8em;
             color: var(--text-muted);
@@ -2023,7 +2024,9 @@
             <div class="topbar-right">
                 <div class="season-selector" id="seasonSelector" style="display:none;">
                     <span class="season-icon">&#x1F4C5;</span>
-                    <select id="seasonSelect" onchange="App.seasons.onSelectorChange(event)"></select>
+                    <!-- La temporada activa es global (ACTIVA=SI en Drive) y solo se
+                         cambia desde Ajustes → Temporadas. Aquí solo se muestra. -->
+                    <span id="seasonCurrentLabel" style="font-weight:600;"></span>
                     <span class="season-divider"></span>
                     <button type="button" class="season-action"
                             id="btnSeasonReload"
@@ -3803,7 +3806,8 @@
                     <div class="card-title">&#x1F465; Roles y permisos</div>
                     <div class="settings-section">
                         <p style="font-size:13px; color:var(--text-light); margin:0 0 14px;">
-                            Controla qué ve cada usuario según su email Google. Los emails que no estén en ninguna lista entran como <strong>admin</strong> (ven toda la app).
+                            Controla qué ve cada usuario según su email Google. <strong>Solo los emails dados de alta aquí (o en el catálogo de talleres) pueden entrar en la app.</strong>
+                            Los <strong>Admin</strong> ven toda la app; el resto de roles solo ven sus secciones.
                             Cambios efectivos en el siguiente inicio de sesión del usuario.
                         </p>
                         <!-- Aviso: la app está en modo Prueba en Google Cloud, así que añadir
@@ -3940,6 +3944,13 @@ const CONFIG = {
     // Umbral de retal: si después de un movimiento de stock,
     // (stock % UNIDAD_PEDIDO_M) cae en (0, RETAL_UMBRAL_M], se ofrece descartar el retal.
     RETAL_UMBRAL_M: 6,
+    // Emails Google (lowercase) que SIEMPRE son admin, aunque el tab PERMISOS
+    // no se pueda leer o alguien los borre de la lista por error. Es la vía de
+    // emergencia anti-bloqueo: los admins "normales" (Pilar) se gestionan
+    // desde Ajustes → Roles y permisos (rol ADMIN del tab PERMISOS).
+    ADMIN_EMAILS: [
+        'rgfandres@gmail.com',
+    ],
     // Emails Google (lowercase) restringidos a la sección "Jose": logística entre cortador y talleres.
     // Estos usuarios solo verán esa sección — el resto del menú queda oculto.
     JOSE_EMAILS: [
@@ -4054,6 +4065,35 @@ const App = {
     },
     /** True si el usuario actual NO está restringido (ve toda la app). */
     isAdmin() { return !this.isJose() && !this.isTaller() && !this.isDependienta(); },
+
+    /** Resuelve el rol de acceso del usuario actual de forma FAIL-CLOSED.
+     *  Se usa como "puerta" en el login (_onAuthenticated), DESPUÉS de cargar
+     *  permisos y de la detección de taller. Valores posibles:
+     *   - 'ADMIN'        : en la lista ADMIN (tab PERMISOS o CONFIG.ADMIN_EMAILS)
+     *   - 'JOSE'         : rol Jose
+     *   - 'DEPENDIENTA'  : rol Dependienta
+     *   - 'TALLER'       : taller (normalmente redirigido antes a taller.html)
+     *   - 'ERROR'        : no se pudo leer PERMISOS (sin acceso a la carpeta
+     *                      CONFIG / al sheet CATALOGOS, fallo de red, …)
+     *   - 'DENIED'       : PERMISOS leído correctamente pero el email no está
+     *                      en ninguna lista → sin acceso.
+     */
+    resolveAccessRole() {
+        const email = (this.user?.email || '').toLowerCase().trim();
+        if (!email) return 'ERROR';
+        // Vía de emergencia: admins hardcoded SIEMPRE entran, pase lo que pase.
+        const hardAdmins = (CONFIG.ADMIN_EMAILS || []).map(e => e.toLowerCase().trim());
+        if (hardAdmins.includes(email)) return 'ADMIN';
+        // Si PERMISOS no se pudo leer, no podemos verificar el rol → bloquear.
+        if (!App.permisos || !App.permisos._loaded) return 'ERROR';
+        if (App.permisos.adminEmails().includes(email)) return 'ADMIN';
+        if (this.isJose()) return 'JOSE';
+        if (this.isDependienta()) return 'DEPENDIENTA';
+        if (this.isTaller()) return 'TALLER';
+        // Sin rol asignado → sin acceso. No hay excepciones: todo el mundo
+        // debe estar dado de alta como Admin, Jose, Dependienta o Taller.
+        return 'DENIED';
+    },
 
     /* -------------------------------------------------------
        AUTH — Google OAuth2 via GIS
@@ -4333,18 +4373,10 @@ const App = {
             // ── FASE 1: cargas críticas (identidad y permisos del usuario) ──
             // Estas DEBEN terminar antes de mostrar la app. Sin ellas no
             // podemos aplicar el rol correcto ni saber qué temporadas hay.
+            // ORDEN IMPORTANTE: primero permisos (para poder bloquear cuentas
+            // no autorizadas ANTES de cargar nada más), luego temporadas.
 
-            // 1. Temporadas
-            try {
-                await App.seasons.load();
-                if (!stillCurrent()) return;
-                App.seasons.renderSelector();
-            } catch (e) {
-                console.warn('[login] seasons.load:', e);
-            }
-            if (!stillCurrent()) return;
-
-            // 2. Auto-detección del sheet CATALOGOS_NOTELODIGO en la carpeta CONFIG
+            // 1. Auto-detección del sheet CATALOGOS_NOTELODIGO en la carpeta CONFIG
             App.ui.showLoginLoading('Buscando catálogos…');
             try {
                 const folderId = App.settings.getLocal('configsFolderId');
@@ -4358,7 +4390,7 @@ const App = {
             }
             if (!stillCurrent()) return;
 
-            // 3. Permisos (Jose / Dependientas) desde el tab PERMISOS
+            // 2. Permisos (Admin / Jose / Dependientas) desde el tab PERMISOS
             App.ui.showLoginLoading('Comprobando permisos…');
             if (App.permisos && typeof App.permisos.load === 'function') {
                 try { await App.permisos.load(); } catch (e) {
@@ -4367,7 +4399,7 @@ const App = {
             }
             if (!stillCurrent()) return;
 
-            // 4. Detectar si el usuario es taller (vía proxy si está configurado)
+            // 3. Detectar si el usuario es taller (vía proxy si está configurado)
             const proxyUrl = App.settings.get('tallerProxyUrl');
             let tallerIdentificado = false;
             if (proxyUrl && App.token) {
@@ -4385,7 +4417,7 @@ const App = {
             }
             if (!stillCurrent()) return;
 
-            // 5. Catálogo de talleres (necesario para isTaller por email cuando no hay proxy)
+            // 4. Catálogo de talleres (necesario para isTaller por email cuando no hay proxy)
             if (!tallerIdentificado && App.talleresCatalogo && typeof App.talleresCatalogo.load === 'function') {
                 try { await App.talleresCatalogo.load(); } catch (e) {
                     console.warn('[login] talleresCatalogo.load:', e.message);
@@ -4393,7 +4425,7 @@ const App = {
             }
             if (!stillCurrent()) return;
 
-            // 6. Si el usuario logueado es un TALLER, redirigir a taller.html.
+            // 5. Si el usuario logueado es un TALLER, redirigir a taller.html.
             // ESCAPE HATCH: si la URL tiene `?force-admin=1`, NO redirigimos.
             // Útil para emergencias (p.ej. el admin se puso a sí mismo como
             // taller para probar y ahora no puede entrar al admin para arreglarlo).
@@ -4415,6 +4447,44 @@ const App = {
             if (_isTallerNow && forceAdmin) {
                 console.log('[login] isTaller=true pero force-admin=1 — entrando como admin');
             }
+
+            // 6. PUERTA DE ACCESO (fail-closed): si no podemos verificar el rol
+            // del usuario, o su email no está dado de alta en ninguna lista,
+            // NO entra. Antes, cualquier fallo silencioso al leer PERMISOS
+            // dejaba entrar como admin — eso permitía que p.ej. Jose viera
+            // toda la app si su cuenta no podía leer el sheet de permisos.
+            const accessRole = App.resolveAccessRole();
+            console.log('[login] rol de acceso →', accessRole, App.user?.email);
+            if (accessRole === 'ERROR') {
+                const motivo = (App.permisos && App.permisos._error) ? ` Motivo: ${App.permisos._error}` : '';
+                App.ui.hideLoginLoading();
+                App.ui.showLoginError(
+                    `No se pudieron comprobar los permisos de tu cuenta (${App.user?.email || 'desconocida'}).` +
+                    `${motivo} Puede que tu cuenta no tenga acceso a la carpeta CONFIG de Drive. ` +
+                    `Vuelve a intentarlo o avisa a Pilar/Andrés.`
+                );
+                return;
+            }
+            if (accessRole === 'DENIED') {
+                App.ui.hideLoginLoading();
+                App.ui.showLoginError(
+                    `Tu cuenta (${App.user?.email || ''}) no tiene acceso a la app. ` +
+                    `Pide a Pilar que te dé de alta en Ajustes → Roles y permisos.`
+                );
+                return;
+            }
+            // 7. Temporadas (solo para usuarios ya autorizados). La temporada
+            // activa es GLOBAL: la marca ACTIVA=SI en Drive (la fija Pilar
+            // desde Ajustes) y aplica a todas las cuentas por igual.
+            App.ui.showLoginLoading('Cargando temporadas…');
+            try {
+                await App.seasons.load();
+                if (!stillCurrent()) return;
+                App.seasons.renderSelector();
+            } catch (e) {
+                console.warn('[login] seasons.load:', e);
+            }
+            if (!stillCurrent()) return;
 
             // ── FASE 2: cargas de datos del dashboard ──
             // Listado de trajes + dashboard. También bloqueamos hasta que
@@ -5631,11 +5701,6 @@ const App = {
          * If no configsFolderId is set, this is a no-op.
          */
         async load() {
-            // Recordar la temporada que estaba activa en esta sesión ANTES de
-            // recargar la lista. Así, crear una temporada nueva NO cambia la
-            // temporada activa (antes, la nueva podía "colarse" como data[0]
-            // por orden alfabético y quedar seleccionada sin recargar datos).
-            const prevName = this._current ? this._current.NOMBRE : null;
             this._loaded = false;
             this._data = [];
             this._current = null;
@@ -5690,12 +5755,10 @@ const App = {
 
                 this._data = data;
 
-                // Pick current season:
-                //   user preference > la que ya estaba activa en esta sesión > ACTIVA=SI > first
-                const pref = App.settings.getLocal('currentSeason');
+                // Temporada actual = la GLOBAL: la marcada ACTIVA=SI en Drive
+                // (la fija Pilar desde Ajustes). Ya NO hay preferencia por
+                // usuario/navegador — todas las cuentas ven la misma temporada.
                 this._current =
-                    (pref && data.find(s => s.NOMBRE === pref)) ||
-                    (prevName && data.find(s => s.NOMBRE === prevName)) ||
                     data.find(s => (s.ACTIVA || '').toUpperCase() === 'SI') ||
                     data[0];
 
@@ -5707,12 +5770,13 @@ const App = {
             }
         },
 
-        /** Switch to a different season by name. Clears cache & reloads UI data. */
+        /** (Interno) Cambia la temporada de ESTA sesión y recarga datos/caché.
+         *  No escribe preferencias locales: la temporada activa es global
+         *  (ACTIVA=SI en Drive). Usar activate() para cambiarla para todos. */
         async setCurrent(nombre) {
             const s = this._data.find(x => x.NOMBRE === nombre);
             if (!s) { App.toast.show('Temporada no encontrada: ' + nombre, 'error'); return; }
             this._current = s;
-            App.settings.set('currentSeason', nombre);
 
             // Invalidate caches and reload active sections
             await App.cache.clear();
@@ -5722,6 +5786,27 @@ const App = {
             // Refresh visible data
             if (App.dashboard) App.dashboard.load();
             if (App.clientas) { App.clientas.data = []; await App.clientas.load(true); }
+        },
+
+        /** Activa una temporada PARA TODOS los usuarios: escribe ACTIVA=SI en
+         *  su CONFIG_APP_* de Drive (y lo quita de las demás), y cambia la
+         *  sesión actual a esa temporada. Solo la usa el admin desde Ajustes.
+         *  El resto de cuentas la verán en su siguiente inicio de sesión. */
+        async activate(nombre) {
+            const s = this._data.find(x => x.NOMBRE === nombre);
+            if (!s) { App.toast.show('Temporada no encontrada: ' + nombre, 'error'); return; }
+            if (!confirm(`¿Hacer "${nombre}" la temporada activa para TODOS los usuarios de la app?`)) return;
+            try {
+                App.toast.show('Activando temporada…', 'info', 2500);
+                await this.update(nombre, { ...s, ACTIVA: 'SI' });
+                await this.setCurrent(nombre);
+                if (App.settings && typeof App.settings.renderSeasonsList === 'function') {
+                    App.settings.renderSeasonsList();
+                }
+            } catch (err) {
+                console.error('[seasons.activate]', err);
+                App.toast.show('Error activando temporada: ' + err.message, 'error');
+            }
         },
 
         /** Normalize a season payload to only include SEASON_HEADERS keys */
@@ -5780,13 +5865,6 @@ const App = {
             }
 
             await this.load();
-
-            // Fijar la temporada activa actual como preferencia si aún no había
-            // ninguna guardada: así, al recargar la página, la temporada recién
-            // creada no se activa sola (seguirá activa la que se estaba usando).
-            if (!App.settings.getLocal('currentSeason') && this._current) {
-                App.settings.set('currentSeason', this._current.NOMBRE);
-            }
         },
 
         /** Update a season: rewrite the key/value rows; rename the file if NOMBRE changed. */
@@ -5820,11 +5898,6 @@ const App = {
                 // Update local cache for the edited season before clearing others
                 Object.assign(existing, normalized);
                 await this._clearActivaOnOthers(fileId);
-            }
-
-            // If this was the current season and name changed, update the pointer
-            if (App.settings.getLocal('currentSeason') === originalNombre) {
-                App.settings.set('currentSeason', normalized.NOMBRE);
             }
 
             await this.load();
@@ -6105,7 +6178,9 @@ const App = {
             }
         },
 
-        /** Render the season selector in the topbar */
+        /** Pinta la temporada activa en el topbar (solo lectura).
+         *  La temporada activa es global (ACTIVA=SI); se cambia únicamente
+         *  desde Ajustes → Temporadas (admin). */
         renderSelector() {
             const el = document.getElementById('seasonSelector');
             if (!el) return;
@@ -6115,15 +6190,8 @@ const App = {
                 return;
             }
             el.style.display = 'flex';
-            const sel = document.getElementById('seasonSelect');
-            sel.innerHTML = this._data.map(s =>
-                `<option value="${s.NOMBRE}" ${s === this._current ? 'selected' : ''}>${s.NOMBRE}</option>`
-            ).join('');
-        },
-
-        onSelectorChange(evt) {
-            const nombre = evt.target.value;
-            this.setCurrent(nombre);
+            const lbl = document.getElementById('seasonCurrentLabel');
+            if (lbl) lbl.textContent = this._current ? this._current.NOMBRE : '—';
         },
 
         // Re-lee la lista de temporadas desde la carpeta de configs en Drive.
@@ -6524,19 +6592,18 @@ const App = {
                 return;
             }
 
-            const current = App.seasons.current();
             let html = '<div class="table-container"><table>';
             html += '<tr><th>Nombre</th><th>Pestaña</th><th>LISTADO</th><th>Estado</th><th></th></tr>';
             seasons.forEach(s => {
-                const isCurrent = current && s.NOMBRE === current.NOMBRE;
+                const isActiva = (s.ACTIVA || '').toUpperCase() === 'SI';
                 const short = (v) => v ? v.substring(0,10) + '…' : '<em style="color:var(--text-muted)">—</em>';
                 html += `<tr>
-                    <td data-label="Nombre"><strong>${s.NOMBRE}</strong>${isCurrent ? ' <span class="badge badge-success" style="margin-left:6px;">activa</span>' : ''}</td>
+                    <td data-label="Nombre"><strong>${s.NOMBRE}</strong>${isActiva ? ' <span class="badge badge-success" style="margin-left:6px;">activa (todos)</span>' : ''}</td>
                     <td data-label="Pesta&ntilde;a">${s.LISTADO_TAB || '—'}</td>
                     <td data-label="LISTADO" class="mono" style="font-size:11px;">${short(s.LISTADO_ID)}</td>
-                    <td data-label="Estado">${(s.ACTIVA || '').toUpperCase() === 'SI' ? '<span class="badge badge-info">por defecto</span>' : '—'}</td>
+                    <td data-label="Estado">${isActiva ? '<span class="badge badge-info">temporada activa global</span>' : '—'}</td>
                     <td style="text-align:right; white-space:nowrap;">
-                        ${!isCurrent ? `<button class="btn btn-secondary btn-sm" onclick="App.seasons.setCurrent('${s.NOMBRE.replace(/'/g,"\\'")}')">Activar</button>` : ''}
+                        ${!isActiva ? `<button class="btn btn-secondary btn-sm" onclick="App.seasons.activate('${s.NOMBRE.replace(/'/g,"\\'")}')" title="Hacerla la temporada activa para todos los usuarios">Activar para todos</button>` : ''}
                         <button class="btn btn-secondary btn-sm" onclick="App.settings.openSeasonModal('${s.NOMBRE.replace(/'/g,"\\'")}')">Editar</button>
                     </td>
                 </tr>`;
@@ -6607,6 +6674,11 @@ const App = {
                     await App.seasons.update(original, payload);
                 } else {
                     await App.seasons.add(payload);
+                }
+                // Si se ha marcado ACTIVA=SI, pasa a ser la temporada global:
+                // recargar caché y datos de esta sesión para reflejarla ya.
+                if (payload.ACTIVA === 'SI') {
+                    await App.seasons.setCurrent(payload.NOMBRE);
                 }
                 App.toast.show('Temporada guardada', 'success');
                 this.closeSeasonModal();
@@ -7532,14 +7604,15 @@ const App = {
                 window.location.replace('./taller.html');
                 return;
             }
-            // Si el usuario está restringido (Jose), forzar la sección "jose"
-            if (App.isJose && App.isJose() && sectionId !== 'jose') {
+            // Jose: solo su sección + Modelos (solo lectura).
+            if (App.isJose && App.isJose() &&
+                sectionId !== 'jose' && sectionId !== 'modelos') {
                 sectionId = 'jose';
             }
-            // Si el usuario es Dependienta, solo puede entrar a clientas, modelos o stock.
-            // Cualquier otra sección la mandamos a 'clientas' por defecto.
+            // Dependienta: solo Clientas + Modelos (solo lectura).
+            // (decisión 2026-07-10: se les quita Stock; Modelos se mantiene read-only)
             if (App.isDependienta && App.isDependienta() &&
-                sectionId !== 'clientas' && sectionId !== 'modelos' && sectionId !== 'stock') {
+                sectionId !== 'clientas' && sectionId !== 'modelos') {
                 sectionId = 'clientas';
             }
             // Update sidebar
@@ -7596,8 +7669,9 @@ const App = {
         },
 
         /** Aplica restricciones de UI según el rol (admin vs Jose vs Dependienta).
-         *  - Jose ve solo la sección "jose".
-         *  - Dependienta ve "clientas" (CRUD) y "modelos" (read-only).
+         *  - Jose ve "jose" y "modelos" (read-only).
+         *  - Dependienta ve "clientas" (ver/crear/editar) y "modelos" (read-only).
+         *    (2026-07-10: se les quitó Stock.)
          *  - Admin ve todo.
          *  - Taller: NO entra aquí — _onAuthenticated lo redirige a taller.html antes
          *    de llegar a este punto. La rama isTaller del navigateTo es safety net.
@@ -7607,9 +7681,9 @@ const App = {
             const isDependienta = App.isDependienta && App.isDependienta();
             const restricted = isJose || isDependienta;
             const allowed = isJose
-                ? new Set(['jose'])
+                ? new Set(['jose', 'modelos'])
                 : isDependienta
-                    ? new Set(['clientas', 'modelos', 'stock'])  // dependienta también gestiona stock
+                    ? new Set(['clientas', 'modelos'])
                     : null;   // admin: todo permitido
 
             // Sidebar nav-items
@@ -7640,15 +7714,23 @@ const App = {
                 }
             });
 
-            // ── Modelos en modo solo-lectura para Dependientas ──
+            // ── Modelos en modo solo-lectura para Dependientas y Jose ──
             // Ocultamos botones de crear/editar/borrar en sección Modelos.
             // El usuario aún puede abrir el modal para ver detalles, pero no puede guardar/borrar.
-            document.body.classList.toggle('role-dependienta', !!isDependienta);
+            document.body.classList.toggle('modelos-readonly', !!(isDependienta || isJose));
 
-            // Forzar navegación a la única sección permitida
+            // ── Topbar temporada: los roles restringidos solo ven la etiqueta
+            // con la temporada activa; los botones de recargar/crear son admin. ──
+            const btnReload = document.getElementById('btnSeasonReload');
+            const btnAdd    = document.getElementById('btnSeasonAdd');
+            if (btnReload) btnReload.style.display = restricted ? 'none' : '';
+            if (btnAdd)    btnAdd.style.display    = restricted ? 'none' : '';
+
+            // Forzar navegación a una sección permitida
             if (isJose) {
                 const activeSec = document.querySelector('.section.active');
-                if (!activeSec || activeSec.id !== 'sec-jose') this.navigateTo('jose');
+                const okSec = activeSec && (activeSec.id === 'sec-jose' || activeSec.id === 'sec-modelos');
+                if (!okSec) this.navigateTo('jose');
             } else if (isDependienta) {
                 const activeSec = document.querySelector('.section.active');
                 const okSec = activeSec && (activeSec.id === 'sec-clientas' || activeSec.id === 'sec-modelos');
@@ -16895,8 +16977,16 @@ App.talleresCatalogo = {
 App.permisos = {
     HEADERS: ['ROL', 'EMAIL'],
     TAB: 'PERMISOS',
-    _data: { jose: [], dependientas: [] },  // arrays de emails lowercase
+    _data: { admins: [], jose: [], dependientas: [] },  // arrays de emails lowercase
     _loaded: false,
+    _error: null,   // mensaje si la última carga FALLÓ (sin acceso, red, …)
+
+    /** Lista efectiva de emails Admin: tab PERMISOS + CONFIG.ADMIN_EMAILS (anti-bloqueo). */
+    adminEmails() {
+        const hard = (CONFIG.ADMIN_EMAILS || []).map(e => e.toLowerCase().trim()).filter(Boolean);
+        const sheet = this._loaded ? this._data.admins : [];
+        return [...new Set([...sheet, ...hard])];
+    },
 
     /** Lista efectiva de emails Jose: tab PERMISOS si está cargado, sino CONFIG hardcoded. */
     joseEmails() {
@@ -16912,33 +17002,49 @@ App.permisos = {
             : (CONFIG.DEPENDIENTAS_EMAILS || []).map(e => e.toLowerCase().trim()).filter(Boolean);
     },
 
-    /** Lee el tab PERMISOS del catalogosId. Si no existe, _loaded=false (fallback CONFIG). */
+    /** Lee el tab PERMISOS del catalogosId.
+     *  Distinguimos dos situaciones que antes se confundían (y eso hacía que
+     *  un fallo de acceso dejara entrar a cualquiera como admin):
+     *   - Tab PERMISOS no existe (instalación nueva) → _loaded=true con listas
+     *     vacías (modo compatibilidad; se crea al añadir el primer email).
+     *   - No se pudo leer (sin acceso al sheet, red, …) → _loaded=false y
+     *     _error con el motivo → la puerta de acceso BLOQUEA al usuario. */
     async load(forceRefresh = false) {
+        this._loaded = false;
+        this._error = null;
         const sheetId = App.settings.get('catalogosId');
-        if (!sheetId) { this._loaded = false; return; }
+        if (!sheetId) {
+            this._error = 'No se encontró el sheet CATALOGOS_NOTELODIGO (¿tu cuenta tiene acceso a la carpeta CONFIG de Drive?).';
+            return;
+        }
+        let rows;
         try {
-            const range = `${this.TAB}!A2:B`;
-            const rows = await App.sheets.readRange(sheetId, range).catch(() => null);
-            if (rows === null) {
-                // Tab no existe — _loaded=false → fallback a CONFIG
-                this._loaded = false;
+            rows = await App.sheets.readRange(sheetId, `${this.TAB}!A2:B`);
+        } catch (err) {
+            const msg = (err && err.message) || String(err);
+            if (/unable to parse range/i.test(msg)) {
+                // El tab PERMISOS aún no existe → no es un error de acceso.
+                this._data = { admins: [], jose: [], dependientas: [] };
+                this._loaded = true;
                 return;
             }
-            const jose = [];
-            const dependientas = [];
-            for (const r of rows || []) {
-                const rol = (r[0] || '').toString().toUpperCase().trim();
-                const email = (r[1] || '').toString().toLowerCase().trim();
-                if (!email) continue;
-                if (rol === 'JOSE') jose.push(email);
-                else if (rol === 'DEPENDIENTA') dependientas.push(email);
-            }
-            this._data = { jose, dependientas };
-            this._loaded = true;
-        } catch (err) {
             console.warn('[permisos.load]', err);
-            this._loaded = false;
+            this._error = msg;
+            return;
         }
+        const admins = [];
+        const jose = [];
+        const dependientas = [];
+        for (const r of rows || []) {
+            const rol = (r[0] || '').toString().toUpperCase().trim();
+            const email = (r[1] || '').toString().toLowerCase().trim();
+            if (!email) continue;
+            if (rol === 'ADMIN') admins.push(email);
+            else if (rol === 'JOSE') jose.push(email);
+            else if (rol === 'DEPENDIENTA') dependientas.push(email);
+        }
+        this._data = { admins, jose, dependientas };
+        this._loaded = true;
     },
 
     /** Crea el tab PERMISOS si no existe y escribe headers. */
@@ -16951,20 +17057,36 @@ App.permisos = {
         await App.sheets.writeRange(sheetId, `${this.TAB}!A1:B1`, [this.HEADERS]);
     },
 
-    /** Añade un email a un rol (JOSE o DEPENDIENTA). */
+    /** Nombre "humano" de cada rol para toasts y confirmaciones. */
+    _rolLabel(r) {
+        return r === 'ADMIN' ? 'Admin' : r === 'JOSE' ? 'Jose' : 'Dependientas';
+    },
+
+    /** Añade un email a un rol (ADMIN, JOSE o DEPENDIENTA). */
     async addEmail(rol, email) {
         const r = (rol || '').toString().toUpperCase().trim();
         const e = (email || '').toString().toLowerCase().trim();
-        if (!['JOSE', 'DEPENDIENTA'].includes(r)) {
+        if (!['ADMIN', 'JOSE', 'DEPENDIENTA'].includes(r)) {
             App.toast.show('Rol no válido', 'error'); return false;
         }
         if (!e || !e.includes('@')) {
             App.toast.show('Email no válido', 'error'); return false;
         }
         await this.load(true);   // refrescar antes de comprobar duplicados
-        const lista = r === 'JOSE' ? this._data.jose : this._data.dependientas;
+        const lista = r === 'ADMIN' ? this._data.admins
+                    : r === 'JOSE' ? this._data.jose
+                    : this._data.dependientas;
         if (lista.includes(e)) {
             App.toast.show('Ese email ya está en la lista', 'info'); return false;
+        }
+        // Un email solo puede tener UN rol: evitar que esté en dos listas.
+        const otras = ['ADMIN', 'JOSE', 'DEPENDIENTA'].filter(x => x !== r);
+        for (const o of otras) {
+            const l = o === 'ADMIN' ? this._data.admins : o === 'JOSE' ? this._data.jose : this._data.dependientas;
+            if (l.includes(e)) {
+                App.toast.show(`Ese email ya tiene el rol ${this._rolLabel(o)}. Quítalo primero de esa lista.`, 'error', 6000);
+                return false;
+            }
         }
         try {
             await this._ensureTab();
@@ -16976,7 +17098,7 @@ App.permisos = {
             if (App.ui && typeof App.ui.applyRolePermissions === 'function') {
                 App.ui.applyRolePermissions();
             }
-            App.toast.show(`Email añadido a ${r === 'JOSE' ? 'Jose' : 'Dependientas'}`, 'success');
+            App.toast.show(`Email añadido a ${this._rolLabel(r)}`, 'success');
             return true;
         } catch (err) {
             console.error('[permisos.addEmail]', err);
@@ -16989,7 +17111,15 @@ App.permisos = {
     async removeEmail(rol, email) {
         const r = (rol || '').toString().toUpperCase().trim();
         const e = (email || '').toString().toLowerCase().trim();
-        if (!confirm(`¿Quitar ${e} del rol ${r === 'JOSE' ? 'Jose' : 'Dependientas'}?`)) return false;
+        // Protección anti-bloqueo: no dejar la app sin ningún admin en el sheet
+        // (los CONFIG.ADMIN_EMAILS hardcoded no cuentan porque no se ven aquí).
+        if (r === 'ADMIN' && this._loaded && this._data.admins.length <= 1) {
+            App.toast.show('No puedes quitar el último Admin. Añade otro Admin primero.', 'error', 6000);
+            return false;
+        }
+        const propio = e === (App.user?.email || '').toLowerCase().trim();
+        const aviso = propio ? '\n\n⚠️ Es TU propio email: perderás el acceso admin al recargar.' : '';
+        if (!confirm(`¿Quitar ${e} del rol ${this._rolLabel(r)}?${aviso}`)) return false;
         try {
             const sheetId = App.settings.get('catalogosId');
             const all = await App.sheets.readRange(sheetId, `${this.TAB}!A2:B`);
@@ -17029,7 +17159,7 @@ App.permisos = {
             if (App.ui && typeof App.ui.applyRolePermissions === 'function') {
                 App.ui.applyRolePermissions();
             }
-            App.toast.show(`Email quitado de ${r === 'JOSE' ? 'Jose' : 'Dependientas'}`, 'success');
+            App.toast.show(`Email quitado de ${this._rolLabel(r)}`, 'success');
             return true;
         } catch (err) {
             console.error('[permisos.removeEmail]', err);
@@ -17071,19 +17201,41 @@ App.permisos = {
         };
 
         const fallbackNote = !this._loaded
-            ? '<div class="alert alert-info" style="margin-bottom:12px; font-size:12px;">' +
-                'El tab <code>PERMISOS</code> aún no existe en <code>CATALOGOS_NOTELODIGO</code>. ' +
-                'Se creará automáticamente al añadir el primer email. Mientras tanto se usan los emails hardcoded en <code>CONFIG</code>.' +
-              '</div>'
-            : '';
+            ? '<div class="alert alert-warning" style="margin-bottom:12px; font-size:12px;">' +
+                'No se pudo leer el tab <code>PERMISOS</code>' +
+                (this._error ? ': ' + this._error : '') +
+                '</div>'
+            : (!this._data.admins.length
+                ? '<div class="alert alert-warning" style="margin-bottom:12px; font-size:12px;">' +
+                    '⚠️ Aún no hay ningún <strong>Admin</strong> dado de alta en esta lista. ' +
+                    'Solo pueden entrar los admins de emergencia fijados en el código. ' +
+                    'Añade aquí a Pilar para que pueda acceder.' +
+                  '</div>'
+                : '');
 
         cont.innerHTML =
             fallbackNote +
+            // Admins (fila completa arriba)
+            '<div style="margin-bottom:16px;">' +
+                '<h4 style="margin:0 0 4px; font-size:14px;">&#x1F511; Admins</h4>' +
+                '<p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">Acceso completo a toda la app. Son los únicos que gestionan temporadas, ajustes y estos permisos.</p>' +
+                renderList('ADMIN', this._loaded ? this._data.admins : []) +
+                '<div style="display:flex; gap:6px; margin-top:8px;">' +
+                    '<input type="email" class="form-input" id="permisoEmailAdmin" ' +
+                           'style="flex:1; font-size:12px; padding:4px 8px; margin:0;" ' +
+                           'placeholder="email@gmail.com" ' +
+                           'onkeydown="if(event.key===\'Enter\') App.permisos._addFromInput(\'ADMIN\')">' +
+                    '<button class="btn btn-primary btn-sm" ' +
+                            'style="font-size:12px; padding:4px 10px;" ' +
+                            'onclick="App.permisos._addFromInput(\'ADMIN\')">' +
+                        '+ Añadir</button>' +
+                '</div>' +
+            '</div>' +
             '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">' +
                 // Jose
                 '<div>' +
                     '<h4 style="margin:0 0 4px; font-size:14px;">&#x1F69B; Jose (logística)</h4>' +
-                    '<p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">Solo ven la sección Jose: cortador, llevar al taller, recoger del taller.</p>' +
+                    '<p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">Ven la sección Jose (cortador, llevar al taller, recoger del taller) y Modelos en solo lectura.</p>' +
                     renderList('JOSE', this.joseEmails()) +
                     '<div style="display:flex; gap:6px; margin-top:8px;">' +
                         '<input type="email" class="form-input" id="permisoEmailJose" ' +
@@ -17099,7 +17251,7 @@ App.permisos = {
                 // Dependientas
                 '<div>' +
                     '<h4 style="margin:0 0 4px; font-size:14px;">&#x1F6CD;&#xFE0F; Dependientas</h4>' +
-                    '<p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">Ven solo Clientas (CRUD) y Modelos (solo lectura).</p>' +
+                    '<p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">Ven Fichas de clienta (ver, crear y editar) y Modelos en solo lectura.</p>' +
                     renderList('DEPENDIENTA', this.dependientasEmails()) +
                     '<div style="display:flex; gap:6px; margin-top:8px;">' +
                         '<input type="email" class="form-input" id="permisoEmailDependienta" ' +
@@ -17114,13 +17266,15 @@ App.permisos = {
                 '</div>' +
             '</div>' +
             '<p style="margin-top:14px; font-size:12px; color:var(--text-muted);">' +
-                '<strong>Nota:</strong> Cualquier email que no esté en estas listas se trata como <strong>admin</strong> (acceso completo). ' +
+                '<strong>Nota:</strong> Solo los emails de estas listas (o del catálogo de talleres) pueden entrar en la app. ' +
                 'Los talleres se gestionan en el <a href="javascript:void(0)" onclick="App.ui.navigateTo(\'talleres-catalogo\')">Catálogo de talleres</a>.' +
             '</p>';
     },
 
     _addFromInput(rol) {
-        const inputId = rol === 'JOSE' ? 'permisoEmailJose' : 'permisoEmailDependienta';
+        const inputId = rol === 'ADMIN' ? 'permisoEmailAdmin'
+                      : rol === 'JOSE' ? 'permisoEmailJose'
+                      : 'permisoEmailDependienta';
         const inp = document.getElementById(inputId);
         if (!inp) return;
         const email = (inp.value || '').trim();
