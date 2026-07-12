@@ -6900,24 +6900,24 @@ const App = {
 
             } catch (err) {
                 console.error('Dashboard load error:', err);
-                // Detectar si el error es por falta de configuración (no hay carpeta CONFIG vinculada
-                // o los IDs no apuntan a recursos accesibles) para mostrar onboarding en lugar de error técnico.
-                const msg = (err.message || '').toLowerCase();
+                // La carpeta CONFIG y el proxy van fijos en el código, así que un
+                // fallo aquí ya NO es "falta configurar": o la sesión/conexión se
+                // ha caído, o no hay ninguna temporada activa que cargar.
                 const noSeason = !App.seasons || !App.seasons.current || !App.seasons.current();
-                const isConfigIssue = noSeason ||
-                    /not found|requested entity|404|no.*configurad|spreadsheet.*not.*found/i.test(msg);
 
-                if (isConfigIssue) {
+                if (noSeason) {
                     document.getElementById('dashboardDetails').innerHTML = `
                         <div class="alert" style="background:#FFF8E7; border:1px solid #D4A574; border-radius:8px; padding:20px;">
-                            <h3 style="margin:0 0 10px; color:#C2185B;">&#x2699;&#xFE0F; Falta configurar la app</h3>
+                            <h3 style="margin:0 0 10px; color:#C2185B;">&#x26A0;&#xFE0F; No se han podido cargar los datos</h3>
                             <p style="margin:0 0 12px; line-height:1.55; color:#5D4037;">
-                                A&uacute;n no has vinculado tu carpeta CONFIG de Drive. Sin esto, la app no sabe d&oacute;nde est&aacute;n tus datos.
+                                Normalmente es porque la <strong>sesi&oacute;n con Google ha caducado</strong> o no hay conexi&oacute;n:
+                                pulsa <strong>Reconectar</strong> en el aviso superior (o Reintentar aqu&iacute; abajo).
                             </p>
                             <p style="margin:0 0 16px; line-height:1.55; color:#5D4037;">
-                                Ve a <strong>Ajustes</strong> &#x2699;&#xFE0F; en el men&uacute; lateral, pega el ID de la carpeta CONFIG y selecciona la temporada activa.
+                                Si la conexi&oacute;n est&aacute; bien, puede que no haya ninguna <strong>temporada activa</strong>:
+                                eso lo activa Pilar en Ajustes &rarr; Temporadas.
                             </p>
-                            <button class="btn btn-primary" onclick="App.ui.navigateTo('ajustes')">Ir a Ajustes &rarr;</button>
+                            <button class="btn btn-primary" onclick="App.dashboard.load()">&#x21BB; Reintentar</button>
                         </div>
                     `;
                 } else {
