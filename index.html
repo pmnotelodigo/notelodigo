@@ -10054,9 +10054,12 @@ App.trajes = {
         fechaRecogidoCorte: 'FECHA RECOGIDO CORTE',
         taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
         trajeRecibido: 'TRAJE RECIBIDO', fechaRecibido: 'FECHA RECIBIDO',
-        // Fecha en que Jose dejó el traje en la tienda (fase "Entregar en
-        // tienda" de su sección). La columna se crea sola en el LISTADO la
-        // primera vez que se marca un traje como entregado en tienda.
+        // Fase "Entregar en tienda" de la sección Jose:
+        // - TRAJE ENTREGADO TIENDA: estado (ENTREGADO | vacío) — es la CONDICIÓN
+        // - FECHA ENTREGADO TIENDA: cuándo se dejó en la tienda (informativa)
+        // Ambas columnas se crean solas en el LISTADO al primer uso. Si la de
+        // estado no existe (legacy), se usa la fecha como condición.
+        trajeEntregadoTienda: 'TRAJE ENTREGADO TIENDA',
         fechaEntregadoTienda: 'FECHA ENTREGADO TIENDA',
         trajeEntregado: 'TRAJE ENTREGADO',
         fechaUltimaMod: 'FECHA ULTIMA MOD',
@@ -15530,6 +15533,7 @@ App.jose = {
         try {
             // SIEMPRE forzar refresh — la sección colaborativa exige datos frescos.
             await App.trajes.load(true);
+            this._applyRecentWrites();
             this._lastLoadAt = Date.now();
             // Cargar modelos y telas si aún no — necesarios para la ficha
             if (App.modelos && !App.modelos._data?.length) {
@@ -15572,6 +15576,7 @@ App.jose = {
         if (Date.now() < this._suspendPollingUntil) return;
         try {
             await App.trajes.load(true);
+            this._applyRecentWrites();
             this._lastLoadAt = Date.now();
             this.filter();
             this._updateLastLoadIndicator();
@@ -15585,6 +15590,45 @@ App.jose = {
      *  con la consistencia eventual de Google Sheets. */
     _pausePolling(ms) {
         this._suspendPollingUntil = Date.now() + (ms || 5000);
+    },
+
+    // ── Capa de escrituras recientes ─────────────────────────────────────
+    // PROBLEMA: si una recarga (polling o entrada a la sección) ya estaba EN
+    // VUELO cuando el usuario pulsa un botón de acción, al terminar esa
+    // lectura machaca App.trajes.data con el estado de ANTES del clic — y el
+    // traje "vuelve" a su bandeja anterior hasta el siguiente refresh (p.ej.
+    // marcar recibido del taller y que no aparezca en "Entregar en tienda").
+    // _pausePolling solo evita ticks futuros, no los que ya están en marcha.
+    // SOLUCIÓN: cada escritura se apunta aquí y se REAPLICA sobre los datos
+    // después de cada recarga, durante _OVERLAY_MS. Así el estado local nunca
+    // retrocede por una lectura antigua o por la consistencia eventual de Sheets.
+    _recentWrites: [],
+    _OVERLAY_MS: 30000,
+
+    /** Registra pares [columna, valor] escritos en una fila. Además pausa el
+     *  polling e invalida la caché del LISTADO (sin recargar) para que Trajes/
+     *  Fichas/Inicio tampoco sirvan datos anteriores a la escritura. */
+    _noteWrites(rowIndex, pairs) {
+        const until = Date.now() + this._OVERLAY_MS;
+        for (const [col, val] of pairs) {
+            this._recentWrites.push({ rowIndex, col, val, until });
+        }
+        this._pausePolling(5000);
+        try {
+            const p = App.sheets?.invalidateListadoCache?.(true);
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+        } catch (_) {}
+    },
+
+    /** Reaplica las escrituras recientes (no caducadas) sobre App.trajes.data.
+     *  Llamar SIEMPRE justo después de cada `await App.trajes.load(true)`. */
+    _applyRecentWrites() {
+        const now = Date.now();
+        this._recentWrites = this._recentWrites.filter(w => w.until > now);
+        for (const w of this._recentWrites) {
+            const t = (App.trajes?.data || []).find(r => r._rowIndex === w.rowIndex);
+            if (t) t[w.col] = w.val;
+        }
     },
 
     /** Pinta el indicador "actualizado hace X" en el header de Jose. */
@@ -15651,6 +15695,12 @@ App.jose = {
             const recibido  = (t[COL.trajeRecibido]        || '').toUpperCase().trim();
             const entregado = (t[COL.trajeEntregado]       || '').toUpperCase().trim();
             const fTienda   = (t[COL.fechaEntregadoTienda] || '').toString().trim();
+            // Condición "ya está en la tienda": columna de estado si existe;
+            // fallback a la fecha si la columna aún no se ha creado (legacy).
+            const estTiendaRaw = t[COL.trajeEntregadoTienda];
+            const enTienda = (estTiendaRaw !== undefined)
+                ? (estTiendaRaw || '').toUpperCase().trim() === 'ENTREGADO'
+                : !!fTienda;
             // Solo logueamos los que tienen TALLER (los relevantes para Jose)
             const tallerLog = (t[COL.taller] || '').trim();
             if (tallerLog) {
@@ -15668,7 +15718,7 @@ App.jose = {
             //   así que también cuenta como histórico (cubre datos antiguos
             //   de antes de que existiera esta fase).
             if (recibido === 'RECIBIDO') {
-                if (fTienda || entregado === 'ENTREGADO') historico.push(t);
+                if (enTienda || entregado === 'ENTREGADO') historico.push(t);
                 else tienda.push(t);
                 continue;
             }
@@ -16042,7 +16092,7 @@ App.jose = {
             };
             await App.trajes._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
 
-            this._pausePolling(5000);
+            this._noteWrites(rowIndex, updates);
             App.toast.show(`Traje #${t[COL.num]} marcado como recogido del cortador`, 'success', 3000);
             this.filter();
         } catch (err) {
@@ -16105,7 +16155,7 @@ App.jose = {
                     : `Traje #${t[COL.num]}: taller desasignado`,
                 'info', 2500
             );
-            this._pausePolling(5000);
+            this._noteWrites(rowIndex, [[COL.taller, tallerLimpio], [COL.fechaUltimaMod, hoy]]);
             // No llamamos a filter() para no perder el dropdown si Jose lo está usando.
             // Refrescamos los badges (sidebar) y la card del traje en sitio.
             if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
@@ -16164,8 +16214,7 @@ App.jose = {
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
 
-            // Suspender polling 5s para que Sheets propague antes del próximo refresh.
-            this._pausePolling(5000);
+            this._noteWrites(rowIndex, updates);
 
             App.toast.show(`Traje #${t[COL.num]} llevado al taller <strong>${taller}</strong>`, 'success', 3000);
             this.filter();
@@ -16195,6 +16244,13 @@ App.jose = {
             const updates = [
                 ['TRAJE RECIBIDO',  'RECIBIDO'],
                 ['FECHA RECIBIDO',  fechaRecOld || hoy],
+                // Al recoger del taller, el traje ENTRA en la fase "entregar en
+                // tienda" → estado PENDIENTE (valor del desplegable del sheet)
+                // y fecha vacía. Sin esto, si un traje repite el ciclo (p.ej.
+                // se retrocedió un paso para corregir), los valores antiguos lo
+                // mandaban directo al histórico saltándose la bandeja.
+                ['TRAJE ENTREGADO TIENDA', 'PENDIENTE'],
+                ['FECHA ENTREGADO TIENDA', ''],
                 ['FECHA ULTIMA MOD', hoy],
             ];
             const rangeUpdates = updates
@@ -16209,7 +16265,7 @@ App.jose = {
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
 
-            this._pausePolling(5000);
+            this._noteWrites(rowIndex, updates);
             App.toast.show(`Traje #${t[COL.num]} recibido del taller`, 'success', 3000);
             this.filter();
         } catch (err) {
@@ -16234,16 +16290,17 @@ App.jose = {
     },
 
     /** Marca uno o varios trajes como entregados en la tienda (última fase
-     *  de Jose antes del histórico). Escribe FECHA ENTREGADO TIENDA + FECHA
-     *  ULTIMA MOD en el LISTADO. */
+     *  de Jose antes del histórico). Escribe TRAJE ENTREGADO TIENDA=ENTREGADO
+     *  (la condición) + FECHA ENTREGADO TIENDA (informativa) + FECHA ULTIMA MOD. */
     async _entregarEnTienda(rowIndexes) {
         const COL = App.trajes.COL;
         const sheetId = App.settings.get('listadoId');
         const tab     = App.seasons?.getTab() || '2026';
         const hoy     = App.trajes._toSheetDate(App.trajes._todayISO());
 
-        // Asegurar columna (se crea sola la primera vez) y localizar FECHA ULTIMA MOD
-        const letterTienda = await this._ensureColumn(sheetId, tab, COL.fechaEntregadoTienda);
+        // Asegurar columnas (se crean solas la primera vez) y localizar FECHA ULTIMA MOD
+        const letterEstado = await this._ensureColumn(sheetId, tab, COL.trajeEntregadoTienda);
+        const letterFecha  = await this._ensureColumn(sheetId, tab, COL.fechaEntregadoTienda);
         const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
         const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
         const idxMod = hdr.indexOf(COL.fechaUltimaMod);
@@ -16251,19 +16308,25 @@ App.jose = {
 
         const rangeUpdates = [];
         for (const rowIndex of rowIndexes) {
-            rangeUpdates.push({ range: `${tab}!${letterTienda}${rowIndex}`, values: [[hoy]] });
+            rangeUpdates.push({ range: `${tab}!${letterEstado}${rowIndex}`, values: [['ENTREGADO']] });
+            rangeUpdates.push({ range: `${tab}!${letterFecha}${rowIndex}`,  values: [[hoy]] });
             if (letterMod) rangeUpdates.push({ range: `${tab}!${letterMod}${rowIndex}`, values: [[hoy]] });
         }
         await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
 
         // Actualizar copias en memoria (trajes y clientas comparten filas)
+        const pairs = [
+            [COL.trajeEntregadoTienda, 'ENTREGADO'],
+            [COL.fechaEntregadoTienda, hoy],
+            [COL.fechaUltimaMod, hoy],
+        ];
         for (const rowIndex of rowIndexes) {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
-            if (t) { t[COL.fechaEntregadoTienda] = hoy; t[COL.fechaUltimaMod] = hoy; }
+            if (t) pairs.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) { tc[COL.fechaEntregadoTienda] = hoy; tc[COL.fechaUltimaMod] = hoy; }
+            if (tc) pairs.forEach(([col, val]) => { tc[col] = val; });
+            this._noteWrites(rowIndex, pairs);
         }
-        this._pausePolling(5000);
     },
 
     /** Botón "Entregado en tienda" de una card de la bandeja tienda. */
@@ -16310,6 +16373,7 @@ App.jose = {
         if (stale) {
             try {
                 await App.trajes.load(true);
+                this._applyRecentWrites();
                 this._lastLoadAt = Date.now();
                 t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             } catch (e) {
@@ -16463,7 +16527,7 @@ App.jose = {
             updates.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
-            this._pausePolling(5000);
+            this._noteWrites(rowIndex, updates);
             App.toast.show(
                 nuevoTaller
                     ? `Traje #${t[COL.num]} → taller <strong>${nuevoTaller}</strong>`
