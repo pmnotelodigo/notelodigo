@@ -1848,12 +1848,14 @@
         </div>
         <div class="login-error" id="loginError"></div>
         <div class="login-onboarding" style="background:#FFF8E7; border:1px solid #E0D5C7; border-radius:8px; padding:14px; text-align:left; margin-top:14px; font-size:13px; line-height:1.55;">
-            <strong style="display:block; margin-bottom:8px; color:#C2185B; font-size:14px;">&#x1F44B; &iquest;Primera vez en este dispositivo?</strong>
-            <ol style="margin:0 0 8px; padding-left:20px; color:#5D4037;">
-                <li style="margin-bottom:4px;">Pulsa <strong>Iniciar sesi&oacute;n con Google</strong> arriba.</li>
-                <li>Una vez dentro, selecciona la <strong>temporada activa</strong> en el desplegable de arriba. Nada m&aacute;s &mdash; la carpeta de Drive ya viene configurada.</li>
-            </ol>
-            <div style="font-size:11.5px; color:#999;">Si ya has configurado la app aqu&iacute; antes, ignora estos pasos.</div>
+            <strong style="display:block; margin-bottom:6px; color:#C2185B; font-size:14px;">&#x1F44B; &iquest;Primera vez?</strong>
+            <div style="color:#5D4037;">
+                Solo necesitas tu cuenta de Google &mdash; no hay nada que configurar.
+                La primera vez, Google te pedir&aacute; permiso para que la app acceda a Drive: acepta y listo.
+            </div>
+            <div style="font-size:11.5px; color:#999; margin-top:8px;">
+                Si te aparece &laquo;sin acceso&raquo;, pide a Pilar que d&eacute; de alta tu email.
+            </div>
         </div>
         <div id="localhostWarning" class="login-config-hint" style="display:none; background:#FFF3E0; border-radius:8px; padding:12px; text-align:left; margin-top:14px;">
             <strong>&#x26A0;&#xFE0F; Error de origen (file://)</strong><br>
@@ -3832,6 +3834,31 @@
                     </div>
                 </div>
 
+                <!-- ========= 2.8. MENSAJE A CLIENTAS ========= -->
+                <div class="card">
+                    <div class="card-title">&#x1F4AC; Mensaje a clientas</div>
+                    <div class="settings-section">
+                        <p style="font-size:13px; color:var(--text-light); margin:0 0 14px;">
+                            Al marcar un traje como <strong>entregado</strong>, la app propone enviar a la clienta
+                            un WhatsApp o correo de agradecimiento con petici&oacute;n de rese&ntilde;a de Google.
+                            Pega aqu&iacute; el enlace directo de rese&ntilde;a de la tienda
+                            (en Google Maps: Perfil de empresa &rarr; Pedir rese&ntilde;as; suele empezar por
+                            <code>https://g.page/r/</code>). Este ajuste es global: aplica a todas las cuentas.
+                        </p>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label for="cfgResenaUrl">Enlace de rese&ntilde;a de Google</label>
+                            <div style="display:flex; gap:8px; margin-top:4px;">
+                                <input type="url" class="form-input" id="cfgResenaUrl"
+                                       style="flex:1;" placeholder="https://g.page/r/.../review">
+                                <button class="btn btn-primary btn-sm" onclick="App.settings.saveResenaUrl()">
+                                    Guardar
+                                </button>
+                            </div>
+                            <div class="test-result" id="resenaUrlResult"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ========= 3. MANTENIMIENTO ========= -->
                 <div class="card">
                     <div class="card-title">&#x1F527; Mantenimiento</div>
@@ -4536,7 +4563,7 @@ const App = {
             App.toast.show('Conectado a Google Drive', 'success');
             App.dashboard.load();
             if (!listadoId) {
-                App.toast.show('Configura el LISTADO TRAJES en Ajustes', 'warning', 6000);
+                App.toast.show('No se encontró la temporada activa. Si el problema sigue, revisa Ajustes → Temporadas (admin).', 'warning', 6000);
             }
         },
 
@@ -6203,7 +6230,7 @@ const App = {
         async reloadFromDrive() {
             const folderId = App.settings.getLocal('configsFolderId');
             if (!folderId) {
-                App.toast.show('No hay carpeta de configs enlazada. Ve a Ajustes → Temporadas.', 'warning', 5000);
+                App.toast.show('No se pudo acceder a la carpeta CONFIG de Drive. Comprueba la conexión o pulsa Reconectar.', 'warning', 5000);
                 return;
             }
             const btn = document.getElementById('btnSeasonReload');
@@ -6339,8 +6366,36 @@ const App = {
                 configIdInput.value = this.getLocal('configsFolderId') || '';
             }
 
+            // Enlace de reseña de Google (ajuste global, tab AJUSTES de CATALOGOS)
+            const resenaInput = document.getElementById('cfgResenaUrl');
+            if (resenaInput && App.ajustesGlobales) {
+                App.ajustesGlobales.get('RESENA_URL')
+                    .then(v => { if (!resenaInput.value) resenaInput.value = v || ''; })
+                    .catch(() => {});
+            }
+
             // Auth status + sign-in/out buttons
             App.auth.updateStatusDisplay();
+        },
+
+        /** Guarda el enlace de reseña de Google (global para todas las cuentas). */
+        async saveResenaUrl() {
+            const inp = document.getElementById('cfgResenaUrl');
+            const out = document.getElementById('resenaUrlResult');
+            if (!inp) return;
+            const url = (inp.value || '').trim();
+            if (url && !/^https?:\/\//i.test(url)) {
+                App.toast.show('El enlace debe empezar por https://', 'error');
+                return;
+            }
+            try {
+                await App.ajustesGlobales.set('RESENA_URL', url);
+                App.toast.show(url ? 'Enlace de reseña guardado' : 'Enlace de reseña borrado', 'success');
+                if (out) { out.textContent = ''; }
+            } catch (err) {
+                console.error('[saveResenaUrl]', err);
+                App.toast.show('Error al guardar: ' + err.message, 'error');
+            }
         },
 
 
@@ -8726,9 +8781,111 @@ App.clientas = {
             if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
                 App.trajes._updateBandejaCounts();
             }
+
+            // Ofrecer mensaje de agradecimiento + reseña a la clienta
+            await this._ofrecerMensajeEntrega(c);
         } catch (err) {
             console.error('[clientas.marcarEntregado]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Tras entregar el traje: propone enviar a la clienta un mensaje de
+     *  agradecimiento (WhatsApp y/o correo, según los datos que tenga la
+     *  ficha) con petición de reseña de Google si hay enlace configurado
+     *  (Ajustes → Mensaje a clientas; se guarda en el tab AJUSTES de
+     *  CATALOGOS para que aplique a todas las cuentas). */
+    async _ofrecerMensajeEntrega(c) {
+        try {
+            const nombreFull = (c[this.COL.nombre] || '').trim();
+            const pila = (nombreFull.split(/\s+/)[0] || '').toLowerCase();
+            const nombrePila = pila ? pila.charAt(0).toUpperCase() + pila.slice(1) : '';
+
+            // Teléfono → formato wa.me (solo dígitos, con prefijo país).
+            // Españoles de 9 cifras que empiezan por 6/7 → prefijo 34.
+            let tel = (c[this.COL.telefono] || '').toString().replace(/[^\d]/g, '');
+            if (tel.startsWith('00')) tel = tel.slice(2);
+            if (/^[67]\d{8}$/.test(tel)) tel = '34' + tel;
+            const telOk = tel.length >= 11;   // prefijo país + número
+
+            const correo = (c[this.COL.correo] || '').trim();
+            const correoOk = correo.includes('@');
+
+            const reviewUrl = await App.ajustesGlobales.get('RESENA_URL').catch(() => '');
+
+            const saludo = nombrePila ? `¡Hola ${nombrePila}!` : '¡Hola!';
+            const msg =
+                `${saludo} Esperamos que disfrutes muchísimo tu traje. ` +
+                `Ha sido un placer confeccionarlo para ti.\n\n` +
+                `Detrás de NOTELODIGO hay años de oficio, muchas horas de costura ` +
+                `y el sueño de vivir de lo que amamos, así que gracias de verdad ` +
+                `por confiar en nosotras.\n\n` +
+                `Soy Pilar, y este proyecto es mi vida. Que hayas elegido vestirte ` +
+                `de flamenca con nosotras lo hace un poquito más real cada temporada.\n\n` +
+                (reviewUrl
+                    ? `Si has quedado contenta, nos ayudarías un montón dejándonos ` +
+                      `una reseña en Google: ${reviewUrl}\n\n`
+                    : '') +
+                `¡Gracias por contar con nosotros! 🌸\n\n` +
+                `Pilar\n\n` +
+                `En NOTELODIGO.`;
+
+            if (!telOk && !correoOk) {
+                await App.ui.confirmDialog({
+                    title: '💬 Mensaje a la clienta',
+                    message:
+                        `La ficha de <strong>${nombreFull || 'la clienta'}</strong> no tiene ` +
+                        `teléfono ni correo válidos, así que no puedo preparar el mensaje ` +
+                        `de agradecimiento.<br><br>Añade el dato en su ficha si quieres enviárselo.`,
+                    actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
+                });
+                return;
+            }
+
+            const actions = [];
+            if (telOk)    actions.push({ label: '💬 Enviar WhatsApp', value: 'wa',   style: 'primary' });
+            if (correoOk) actions.push({ label: '✉️ Enviar correo',   value: 'mail', style: telOk ? 'secondary' : 'primary' });
+            actions.push({ label: 'Ahora no', value: null, style: 'secondary' });
+
+            const avisoResena = reviewUrl ? '' :
+                `<div style="font-size:12px; color:#a06000; margin-top:8px;">` +
+                `⚠️ Sin enlace de reseña configurado (Ajustes → Mensaje a clientas): ` +
+                `el mensaje sale sin la petición de reseña.</div>`;
+
+            // El diálogo se puede reabrir tras enviar por un canal para usar el otro.
+            let enviado = { wa: false, mail: false };
+            while (true) {
+                const pendientes = actions.filter(a =>
+                    a.value === null || !enviado[a.value]);
+                const answer = await App.ui.confirmDialog({
+                    title: '💬 Mensaje a la clienta',
+                    message:
+                        `<div style="background:#f6f2fa; border-radius:8px; padding:10px 12px; ` +
+                        `font-size:13px; line-height:1.5; white-space:pre-wrap;">${msg}</div>` +
+                        avisoResena +
+                        `<div style="font-size:12px; color:var(--text-muted); margin-top:8px;">` +
+                        `Podrás retocar el texto antes de enviarlo.</div>`,
+                    actions: pendientes,
+                });
+                if (answer === 'wa') {
+                    window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+                    enviado.wa = true;
+                } else if (answer === 'mail') {
+                    const subject = 'Tu traje de NOTELODIGO 💃';
+                    window.open(`mailto:${encodeURIComponent(correo)}` +
+                        `?subject=${encodeURIComponent(subject)}` +
+                        `&body=${encodeURIComponent(msg)}`, '_blank');
+                    enviado.mail = true;
+                } else {
+                    break;   // "Ahora no" o cierre
+                }
+                // Si ya no queda ningún canal por usar, cerramos
+                if ((!telOk || enviado.wa) && (!correoOk || enviado.mail)) break;
+            }
+        } catch (err) {
+            // El mensaje es un extra: si algo falla aquí, no debe ensombrecer
+            // la entrega (que ya se guardó correctamente).
+            console.warn('[clientas._ofrecerMensajeEntrega]', err);
         }
     },
 
@@ -11677,7 +11834,7 @@ App.trajes = {
         const ordenId  = App.settings.get('ordenId');
         const listadoId = App.settings.get('listadoId');
         if (!ordenId) {
-            App.toast.show('No hay Orden de Corte configurado. Ve a Ajustes → Temporada.', 'error', 6000);
+            App.toast.show('La temporada activa no tiene ORDEN DE CORTE asociado (ORDEN_ID). Un admin puede revisarlo en Ajustes → Temporadas → Editar.', 'error', 6000);
             return;
         }
 
@@ -15212,7 +15369,7 @@ App.modelos = {
 
         const configFolderId = App.settings.getLocal('configsFolderId');
         if (!configFolderId) {
-            throw new Error('No hay carpeta CONFIG enlazada. Ve a Ajustes y enlázala.');
+            throw new Error('No se pudo acceder a la carpeta CONFIG de Drive. Comprueba la conexión o pulsa Reconectar.');
         }
         const folderName = 'FOTOS_MODELOS';
         let folder = await App.sheets.findChildFolder(configFolderId, folderName);
@@ -17297,7 +17454,8 @@ App.permisos = {
         if (!sheetId) {
             cont.innerHTML =
                 '<div class="alert alert-warning">' +
-                'Necesitas configurar la carpeta CONFIG primero (sección Temporadas arriba).' +
+                'No se encontró el sheet CATALOGOS_NOTELODIGO en la carpeta CONFIG de Drive. ' +
+                'Comprueba la conexión (o pulsa Reconectar) y vuelve a entrar en Ajustes.' +
                 '</div>';
             return;
         }
@@ -17400,6 +17558,61 @@ App.permisos = {
         const email = (inp.value || '').trim();
         if (!email) return;
         this.addEmail(rol, email).then(ok => { if (ok) inp.value = ''; });
+    },
+};
+
+/* ==========================================================
+   AJUSTES GLOBALES — configuración compartida entre TODAS las
+   cuentas (a diferencia de localStorage, que es por navegador).
+   Tab `AJUSTES` en CATALOGOS_NOTELODIGO. Headers: CAMPO | VALOR.
+   Se crea solo al guardar el primer valor. Claves actuales:
+   - RESENA_URL: enlace de reseña de Google de la tienda (para el
+     mensaje a la clienta al entregar su traje).
+   ========================================================== */
+App.ajustesGlobales = {
+    TAB: 'AJUSTES',
+    _data: null,   // { CAMPO: VALOR } — null hasta la primera carga
+
+    async load(forceRefresh = false) {
+        if (this._data && !forceRefresh) return this._data;
+        this._data = {};
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) return this._data;
+        try {
+            const rows = await App.sheets.readRange(sheetId, `${this.TAB}!A2:B`);
+            for (const r of rows || []) {
+                const k = (r[0] || '').toString().trim().toUpperCase();
+                if (k) this._data[k] = (r[1] || '').toString().trim();
+            }
+        } catch (_) { /* tab aún no existe → sin valores */ }
+        return this._data;
+    },
+
+    async get(key) {
+        const d = await this.load();
+        return d[(key || '').toUpperCase()] || '';
+    },
+
+    async set(key, value) {
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) throw new Error('Falta CATALOGOS_NOTELODIGO en CONFIG');
+        const K = (key || '').toUpperCase().trim();
+        if (!K) throw new Error('Clave vacía');
+        // Crear el tab si no existe
+        const r1 = await App.sheets.readRange(sheetId, `${this.TAB}!A1:B1`).catch(() => null);
+        if (r1 === null) {
+            await App.sheets.createTempSheet(sheetId, this.TAB);
+            await App.sheets.writeRange(sheetId, `${this.TAB}!A1:B1`, [['CAMPO', 'VALOR']]);
+        }
+        const rows = await App.sheets.readRange(sheetId, `${this.TAB}!A2:B`).catch(() => []);
+        const idx = (rows || []).findIndex(r =>
+            (r[0] || '').toString().trim().toUpperCase() === K);
+        if (idx >= 0) {
+            await App.sheets.writeRange(sheetId, `${this.TAB}!B${idx + 2}`, [[value]]);
+        } else {
+            await App.sheets.appendRows(sheetId, `${this.TAB}!A:B`, [[K, value]]);
+        }
+        if (this._data) this._data[K] = value;
     },
 };
 
