@@ -3225,6 +3225,9 @@
                         <button class="bandeja" data-bandeja="recoger" onclick="App.jose.setBandeja('recoger')">
                             &#x1F4E6; Recoger del taller <span class="bandeja-count" id="joseCountRecoger">0</span>
                         </button>
+                        <button class="bandeja" data-bandeja="tienda" onclick="App.jose.setBandeja('tienda')">
+                            &#x1F3EA; Entregar en tienda <span class="bandeja-count" id="joseCountTienda">0</span>
+                        </button>
                         <button class="bandeja" data-bandeja="historico" onclick="App.jose.setBandeja('historico')">
                             &#x1F4DA; Histórico <span class="bandeja-count" id="joseCountHistorico">0</span>
                         </button>
@@ -9881,6 +9884,10 @@ App.trajes = {
         fechaRecogidoCorte: 'FECHA RECOGIDO CORTE',
         taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
         trajeRecibido: 'TRAJE RECIBIDO', fechaRecibido: 'FECHA RECIBIDO',
+        // Fecha en que Jose dejó el traje en la tienda (fase "Entregar en
+        // tienda" de su sección). La columna se crea sola en el LISTADO la
+        // primera vez que se marca un traje como entregado en tienda.
+        fechaEntregadoTienda: 'FECHA ENTREGADO TIENDA',
         trajeEntregado: 'TRAJE ENTREGADO',
         fechaUltimaMod: 'FECHA ULTIMA MOD',
     },
@@ -15458,20 +15465,22 @@ App.jose = {
         console.log('[NOTE]', tag, data);
     },
 
-    /** Tres listas de trajes según fase. */
+    /** Listas de trajes según fase (bandejas de Jose). */
     _calcLists() {
         const COL = App.trajes.COL;
         const all = App.trajes.data || [];
         const cortador = [];
         const llevar = [];
         const recoger = [];
-        const historico = [];   // trajes ya recogidos del taller (referencia/consulta)
+        const tienda = [];      // recogidos del taller, pendientes de dejar en la tienda
+        const historico = [];   // ya entregados en tienda (referencia/consulta)
         const debugRows = [];
         for (const t of all) {
-            const corte     = (t[COL.corte]              || '').toUpperCase().trim();
-            const fechaEnt  = (t[COL.fechaEntregaTaller] || '').toString().trim();
-            const recibido  = (t[COL.trajeRecibido]      || '').toUpperCase().trim();
-            const entregado = (t[COL.trajeEntregado]     || '').toUpperCase().trim();
+            const corte     = (t[COL.corte]                || '').toUpperCase().trim();
+            const fechaEnt  = (t[COL.fechaEntregaTaller]   || '').toString().trim();
+            const recibido  = (t[COL.trajeRecibido]        || '').toUpperCase().trim();
+            const entregado = (t[COL.trajeEntregado]       || '').toUpperCase().trim();
+            const fTienda   = (t[COL.fechaEntregadoTienda] || '').toString().trim();
             // Solo logueamos los que tienen TALLER (los relevantes para Jose)
             const tallerLog = (t[COL.taller] || '').trim();
             if (tallerLog) {
@@ -15483,10 +15492,14 @@ App.jose = {
                     raw: JSON.stringify(t[COL.fechaEntregaTaller]),
                 });
             }
-            // ─ Histórico: trajes ya recogidos del taller (incluye los entregados a clienta)
-            //   Es la referencia "ya hice lo mío" de Jose.
+            // ─ Recogido del taller: o está pendiente de dejar en la tienda
+            //   (bandeja "Entregar en tienda"), o ya está entregado → histórico.
+            //   Un traje ENTREGADO a clienta implica que pasó por tienda,
+            //   así que también cuenta como histórico (cubre datos antiguos
+            //   de antes de que existiera esta fase).
             if (recibido === 'RECIBIDO') {
-                historico.push(t);
+                if (fTienda || entregado === 'ENTREGADO') historico.push(t);
+                else tienda.push(t);
                 continue;
             }
             // Filtrar trajes ya entregados a clienta (cerrados para Jose y no recibidos = caso raro)
@@ -15509,10 +15522,11 @@ App.jose = {
         }
         // Log diagnóstico — visible en consola con copy(window._noteLog)
         this._log('calcLists', {
-            llevar: llevar.length, recoger: recoger.length, historico: historico.length,
+            llevar: llevar.length, recoger: recoger.length,
+            tienda: tienda.length, historico: historico.length,
             trajesConTaller: debugRows,
         });
-        return { cortador, llevar, recoger, historico };
+        return { cortador, llevar, recoger, tienda, historico };
     },
 
     filter() {
@@ -15528,6 +15542,7 @@ App.jose = {
         setCount('joseCountCortador',  lists.cortador.length);
         setCount('joseCountLlevar',    lists.llevar.length);
         setCount('joseCountRecoger',   lists.recoger.length);
+        setCount('joseCountTienda',    lists.tienda.length);
         setCount('joseCountHistorico', lists.historico.length, false);
 
         // Subtítulo según bandeja activa
@@ -15535,25 +15550,28 @@ App.jose = {
             cortador:  'Trajes en el cortador esperando ser recogidos.',
             llevar:    'Trajes recogidos del cortador, en el coche, pendientes de llevar al taller.',
             recoger:   'Trajes en talleres, pendientes de recoger.',
-            historico: 'Trajes ya recogidos del taller — referencia para consulta (solo lectura).',
+            tienda:    'Trajes recogidos del taller, en el coche, pendientes de dejar en la tienda.',
+            historico: 'Trajes ya entregados en la tienda — referencia para consulta (solo lectura).',
         };
         const subt = document.getElementById('joseSubtitle');
         if (subt) subt.textContent = subtitleMap[this._bandeja] || '';
 
-        // Badge del sidebar: total de trajes pendientes (las 3 bandejas accionables, no histórico)
-        this.refreshBadge(lists.cortador.length + lists.llevar.length + lists.recoger.length);
+        // Badge del sidebar: total de trajes pendientes (las 4 bandejas accionables, no histórico)
+        this.refreshBadge(lists.cortador.length + lists.llevar.length +
+                          lists.recoger.length + lists.tienda.length);
 
         const list = lists[this._bandeja] || [];
         this._render(list);
     },
 
-    /** Cuenta total de trajes que requieren acción de Jose (sumas de las 3 bandejas).
+    /** Cuenta total de trajes que requieren acción de Jose (sumas de las 4 bandejas).
      *  Si se le pasa un número, lo usa; si no, lo recalcula. */
     refreshBadge(count) {
         let n = count;
         if (typeof n !== 'number') {
             const lists = this._calcLists();
-            n = lists.cortador.length + lists.llevar.length + lists.recoger.length;
+            n = lists.cortador.length + lists.llevar.length +
+                lists.recoger.length + lists.tienda.length;
         }
         const el = document.getElementById('joseBadgeSidebar');
         if (!el) return;
@@ -15570,7 +15588,7 @@ App.jose = {
         if (!cont) return;
         if (!list.length) {
             const msg = this._bandeja === 'historico'
-                ? 'Aún no has recogido ningún traje del taller esta temporada.'
+                ? 'Aún no has entregado ningún traje en la tienda esta temporada.'
                 : 'Nada pendiente en esta bandeja.';
             cont.innerHTML = `<div class="empty-state" style="padding:40px;"><p>${msg}</p></div>`;
             return;
@@ -15627,9 +15645,18 @@ App.jose = {
             cont.innerHTML =
                 `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px;">${folderCards}</div>`;
         } else {
-            // Lista plana (cortador, llevar)
+            // Lista plana (cortador, llevar, tienda)
             const cards = list.map(t => this._renderCard(t)).join('');
+            // En "tienda", botón para marcar todo de una vez: Jose suele dejar
+            // todos los trajes del coche en la tienda en un solo viaje.
+            const bulkBar = (this._bandeja === 'tienda' && list.length > 1)
+                ? `<div style="margin-bottom:12px;">` +
+                    `<button class="btn btn-primary btn-sm" onclick="App.jose.marcarTodosEntregadosTienda()">` +
+                    `&#x1F3EA; Marcar TODOS como entregados en tienda (${list.length})</button>` +
+                  `</div>`
+                : '';
             cont.innerHTML =
+                bulkBar +
                 `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>`;
         }
     },
@@ -15655,9 +15682,14 @@ App.jose = {
         } else if (this._bandeja === 'recoger') {
             const d = App.trajes._diasDesde(t[COL.fechaEntregaTaller]);
             if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} en taller`;
+        } else if (this._bandeja === 'tienda') {
+            const d = App.trajes._diasDesde(t[COL.fechaRecibido]);
+            if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} en el coche`;
         } else if (this._bandeja === 'historico') {
+            const fechaTienda = (t[COL.fechaEntregadoTienda] || '').toString().trim();
             const fechaRec = (t[COL.fechaRecibido] || '').toString().trim();
-            if (fechaRec) diasInfo = `Recogido ${fechaRec}`;
+            if (fechaTienda) diasInfo = `Entregado en tienda ${fechaTienda}`;
+            else if (fechaRec) diasInfo = `Recogido ${fechaRec}`;
         }
 
         // Timeline acumulativa de fechas — Jose quiere ver el histórico de
@@ -15668,30 +15700,36 @@ App.jose = {
         // Si una fecha esperada en esta fase está vacía (legacy, edición a
         // mano del sheet, etc.) la mostramos con "(sin fecha)" para que el
         // usuario vea el hueco en lugar de pensar que la línea no aplica.
-        const fEnv = (t[COL.fechaEnviadoCorte]  || '').toString().trim();
-        const fRec = (t[COL.fechaRecogidoCorte] || '').toString().trim();
-        const fEnt = (t[COL.fechaEntregaTaller] || '').toString().trim();
-        const fRcd = (t[COL.fechaRecibido]      || '').toString().trim();
+        const fEnv = (t[COL.fechaEnviadoCorte]     || '').toString().trim();
+        const fRec = (t[COL.fechaRecogidoCorte]    || '').toString().trim();
+        const fEnt = (t[COL.fechaEntregaTaller]    || '').toString().trim();
+        const fRcd = (t[COL.fechaRecibido]         || '').toString().trim();
+        const fTnd = (t[COL.fechaEntregadoTienda]  || '').toString().trim();
         const timelineItems = [];
         const placeholder = '<em style="color:#aaa; font-style:normal;">(sin fecha)</em>';
         const showVal = (v) => v ? `<strong>${v}</strong>` : placeholder;
+        // Orden de fases (cada bandeja muestra su fase y las anteriores)
+        const FASES = ['cortador', 'llevar', 'recoger', 'tienda', 'historico'];
+        const faseIdx = FASES.indexOf(this._bandeja);
         // cortador y posteriores: enviado a corte
-        if (this._bandeja === 'cortador' || this._bandeja === 'llevar' ||
-            this._bandeja === 'recoger'  || this._bandeja === 'historico') {
+        if (faseIdx >= 0) {
             timelineItems.push(`<span title="Fecha en que Pilar mandó la ficha al cortador">&#x1F4E4; Enviado a corte: ${showVal(fEnv)}</span>`);
         }
         // llevar y posteriores: recogido del corte
-        if (this._bandeja === 'llevar' || this._bandeja === 'recoger' ||
-            this._bandeja === 'historico') {
+        if (faseIdx >= 1) {
             timelineItems.push(`<span title="Fecha en que Jose recogió el corte del cortador">&#x1F4E5; Recogido del corte: ${showVal(fRec)}</span>`);
         }
         // recoger y posteriores: llevado al taller
-        if (this._bandeja === 'recoger' || this._bandeja === 'historico') {
+        if (faseIdx >= 2) {
             timelineItems.push(`<span title="Fecha en que Jose llevó el corte al taller">&#x1F3ED; Llevado al taller: ${showVal(fEnt)}</span>`);
         }
-        // histórico: recogido del taller
-        if (this._bandeja === 'historico') {
+        // tienda y posteriores: recogido del taller
+        if (faseIdx >= 3) {
             timelineItems.push(`<span title="Fecha en que Jose recogió el traje terminado del taller">&#x1F4E6; Recogido del taller: ${showVal(fRcd)}</span>`);
+        }
+        // histórico: entregado en tienda
+        if (faseIdx >= 4) {
+            timelineItems.push(`<span title="Fecha en que Jose dejó el traje en la tienda">&#x1F3EA; Entregado en tienda: ${showVal(fTnd)}</span>`);
         }
         const timelineHtml = timelineItems.length
             ? `<div style="font-size:11px; color:#666; margin-bottom:6px; line-height:1.6;">` +
@@ -15732,12 +15770,17 @@ App.jose = {
                 `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
                 `onclick="App.jose.marcarRecibidoTaller(${t._rowIndex})">` +
                 `&#x1F4E6; Marcar recibido</button>`;
+        } else if (this._bandeja === 'tienda') {
+            actions =
+                `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
+                `onclick="App.jose.marcarEntregadoTienda(${t._rowIndex})">` +
+                `&#x1F3EA; Entregado en tienda</button>`;
         } else if (this._bandeja === 'historico') {
             // Solo lectura — mostrar estado final
             const entregado = (t[COL.trajeEntregado] || '').toUpperCase().trim() === 'ENTREGADO';
             actions = entregado
                 ? `<span class="chip" style="background:#c8e6c9; color:#1b5e20; font-size:11px;">&check; Entregado a clienta</span>`
-                : `<span class="chip" style="background:#fff8e1; color:#7c3a00; font-size:11px;">&#x1F4E6; En tienda · pendiente de entregar</span>`;
+                : `<span class="chip" style="background:#fff8e1; color:#7c3a00; font-size:11px;">&#x1F3EA; En tienda · pendiente de entregar a clienta</span>`;
         }
 
         // Chip de taller — prominente, color morado claro. Solo si hay valor.
@@ -16001,6 +16044,83 @@ App.jose = {
             this.filter();
         } catch (err) {
             console.error('[jose.marcarRecibidoTaller]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Devuelve la letra de la columna `name` en el LISTADO; si no existe,
+     *  la CREA en la primera columna libre de la fila de cabeceras. Así la
+     *  fase "Entregar en tienda" funciona sin que nadie toque el sheet. */
+    async _ensureColumn(sheetId, tab, name) {
+        const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
+        const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
+        let idx = hdr.indexOf(name);
+        if (idx === -1) {
+            idx = hdr.length;   // primera columna libre
+            const letter = App.sheets._colLetter(idx);
+            await App.sheets.writeRange(sheetId, `${tab}!${letter}1`, [[name]]);
+        }
+        return App.sheets._colLetter(idx);
+    },
+
+    /** Marca uno o varios trajes como entregados en la tienda (última fase
+     *  de Jose antes del histórico). Escribe FECHA ENTREGADO TIENDA + FECHA
+     *  ULTIMA MOD en el LISTADO. */
+    async _entregarEnTienda(rowIndexes) {
+        const COL = App.trajes.COL;
+        const sheetId = App.settings.get('listadoId');
+        const tab     = App.seasons?.getTab() || '2026';
+        const hoy     = App.trajes._toSheetDate(App.trajes._todayISO());
+
+        // Asegurar columna (se crea sola la primera vez) y localizar FECHA ULTIMA MOD
+        const letterTienda = await this._ensureColumn(sheetId, tab, COL.fechaEntregadoTienda);
+        const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
+        const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
+        const idxMod = hdr.indexOf(COL.fechaUltimaMod);
+        const letterMod = idxMod === -1 ? null : App.sheets._colLetter(idxMod);
+
+        const rangeUpdates = [];
+        for (const rowIndex of rowIndexes) {
+            rangeUpdates.push({ range: `${tab}!${letterTienda}${rowIndex}`, values: [[hoy]] });
+            if (letterMod) rangeUpdates.push({ range: `${tab}!${letterMod}${rowIndex}`, values: [[hoy]] });
+        }
+        await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+
+        // Actualizar copias en memoria (trajes y clientas comparten filas)
+        for (const rowIndex of rowIndexes) {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (t) { t[COL.fechaEntregadoTienda] = hoy; t[COL.fechaUltimaMod] = hoy; }
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) { tc[COL.fechaEntregadoTienda] = hoy; tc[COL.fechaUltimaMod] = hoy; }
+        }
+        this._pausePolling(5000);
+    },
+
+    /** Botón "Entregado en tienda" de una card de la bandeja tienda. */
+    async marcarEntregadoTienda(rowIndex) {
+        try {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (!t) throw new Error('Traje no encontrado.');
+            await this._entregarEnTienda([rowIndex]);
+            App.toast.show(`Traje #${t[App.trajes.COL.num]} entregado en tienda`, 'success', 3000);
+            this.filter();
+        } catch (err) {
+            console.error('[jose.marcarEntregadoTienda]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Botón "Marcar TODOS": entrega en tienda todo lo que hay en la bandeja. */
+    async marcarTodosEntregadosTienda() {
+        try {
+            const list = this._calcLists().tienda || [];
+            if (!list.length) return;
+            if (!confirm(`¿Marcar ${list.length} traje${list.length !== 1 ? 's' : ''} como entregado${list.length !== 1 ? 's' : ''} en tienda?`)) return;
+            await this._entregarEnTienda(list.map(t => t._rowIndex));
+            App.toast.show(`${list.length} traje(s) entregados en tienda`, 'success', 3000);
+            this.filter();
+        } catch (err) {
+            console.error('[jose.marcarTodosEntregadosTienda]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
         }
     },
