@@ -2065,9 +2065,9 @@
                         <div class="summary-card-value" id="statTotalTrajes">—</div>
                         <div class="summary-card-label">Trajes en temporada</div>
                     </div>
-                    <div class="summary-card green" style="cursor:pointer;" onclick="App.dashboard.goToFilter('entregados')" title="Ver trajes entregados">
+                    <div class="summary-card green" style="cursor:pointer;" onclick="App.dashboard.goToFilter('entregados')" title="Ver trajes entregados a la clienta">
                         <div class="summary-card-value" id="statEntregados">—</div>
-                        <div class="summary-card-label">Entregados</div>
+                        <div class="summary-card-label">&#x1F483; Entregados a clienta</div>
                     </div>
                     <div class="summary-card gold" style="cursor:pointer;" onclick="App.dashboard.goToFilter('pendientesTela')" title="Ver pendientes de tela">
                         <div class="summary-card-value" id="statPendientes">—</div>
@@ -2165,12 +2165,12 @@
                          para que la dependienta lo vea de un vistazo. -->
                     <div id="fichaEntregarBanner" style="display:none; margin-bottom:16px; padding:12px 14px; background:#e8f5e9; border:1px solid #81c784; border-left:4px solid #2e7d32; border-radius:6px; display:none; align-items:center; gap:12px;">
                         <div style="flex:1; font-size:13px; color:#1b5e20;">
-                            <strong>📦 Traje listo para entregar</strong><br>
+                            <strong>🏪 Traje en tienda, listo para entregar</strong><br>
                             <span style="font-size:12px;">El traje está en la tienda y aún no se ha entregado a la clienta.</span>
                         </div>
                         <button class="btn btn-primary btn-sm" onclick="App.clientas.marcarEntregado()" id="btnFichaEntregar"
                                 style="background:#2e7d32; color:#fff; white-space:nowrap;">
-                            &check; Marcar como entregado
+                            &#x1F483; Entregar a la clienta
                         </button>
                     </div>
 
@@ -2637,11 +2637,13 @@
                         <div class="bandeja" data-bandeja="enTaller" onclick="App.trajes.setBandeja('enTaller')">
                             &#x1F3ED; En taller <span class="count" id="bdCount-enTaller">&mdash;</span>
                         </div>
-                        <div class="bandeja" data-bandeja="recibidos" onclick="App.trajes.setBandeja('recibidos')">
-                            &#x1F4E6; Recibidos <span class="count" id="bdCount-recibidos">&mdash;</span>
+                        <div class="bandeja" data-bandeja="recibidos" onclick="App.trajes.setBandeja('recibidos')"
+                             title="Trajes ya en la tienda, pendientes de entregar a la clienta">
+                            &#x1F3EA; En tienda <span class="count" id="bdCount-recibidos">&mdash;</span>
                         </div>
-                        <div class="bandeja" data-bandeja="entregados" onclick="App.trajes.setBandeja('entregados')">
-                            &#x1F69A; Entregados <span class="count" id="bdCount-entregados">&mdash;</span>
+                        <div class="bandeja" data-bandeja="entregados" onclick="App.trajes.setBandeja('entregados')"
+                             title="Trajes ya entregados a la clienta">
+                            &#x1F483; Entregados a clienta <span class="count" id="bdCount-entregados">&mdash;</span>
                         </div>
                     </div>
 
@@ -3029,7 +3031,7 @@
                     </div>
                     <div class="bandeja" data-bandeja="entregados" onclick="App.stock.setBandeja('entregados')"
                          title="Trajes ya entregados a la clienta — histórico.">
-                        &#x1F4E6; Entregados <span class="count" id="stockCount-entregados">&mdash;</span>
+                        &#x1F483; Entregados a clienta <span class="count" id="stockCount-entregados">&mdash;</span>
                     </div>
                 </div>
 
@@ -8384,7 +8386,7 @@ App.clientas = {
     // ── Chips de estado (locales — no dependemos de App.trajes para evitar acoplamiento) ──
     _entregadoClientaChip(val) {
         const v = (val || '').toUpperCase();
-        if (v === 'ENTREGADO')  return '<span class="chip chip-correcto">&#x2713; Entregado</span>';
+        if (v === 'ENTREGADO')  return '<span class="chip chip-correcto">&#x1F483; Entregado a clienta</span>';
         if (v === 'ARREGLO')    return '<span class="chip chip-revisar">&#x1F527; Arreglo</span>';
         if (v === 'INCIDENCIA') return '<span class="chip chip-incidencia">&#x2715; Incidencia</span>';
         return '<span class="chip chip-pendiente">Pendiente</span>';
@@ -8443,7 +8445,7 @@ App.clientas = {
             <th class="${fClass('telaRecibida')}"    onclick="App.clientas._openColFilter('telaRecibida', this)">Tela rec. ${fIcon('telaRecibida')}</th>
             <th class="${fClass('corte')}"           onclick="App.clientas._openColFilter('corte', this)">Corte ${fIcon('corte')}</th>
             <th class="${fClass('entregadoTaller')}" onclick="App.clientas._openColFilter('entregadoTaller', this)" style="text-align:center;">Taller ${fIcon('entregadoTaller')}</th>
-            <th class="${fClass('entregado')}"       onclick="App.clientas._openColFilter('entregado', this)" style="text-align:center;">Entregado ${fIcon('entregado')}</th>
+            <th class="${fClass('entregado')}"       onclick="App.clientas._openColFilter('entregado', this)" style="text-align:center;" title="Entregado a la clienta">&#x1F483; Entregado ${fIcon('entregado')}</th>
             <th style="width:40px;"></th>
         </tr>`;
 
@@ -8830,57 +8832,68 @@ App.clientas = {
                 `Pilar\n\n` +
                 `En NOTELODIGO.`;
 
-            if (!telOk && !correoOk) {
-                await App.ui.confirmDialog({
-                    title: '💬 Mensaje a la clienta',
-                    message:
-                        `La ficha de <strong>${nombreFull || 'la clienta'}</strong> no tiene ` +
-                        `teléfono ni correo válidos, así que no puedo preparar el mensaje ` +
-                        `de agradecimiento.<br><br>Añade el dato en su ficha si quieres enviárselo.`,
-                    actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
-                });
-                return;
-            }
-
+            // El diálogo sale SIEMPRE, haya o no datos de contacto: como mínimo
+            // se puede copiar el mensaje y enviarlo por donde sea.
             const actions = [];
             if (telOk)    actions.push({ label: '💬 Enviar WhatsApp', value: 'wa',   style: 'primary' });
             if (correoOk) actions.push({ label: '✉️ Enviar correo',   value: 'mail', style: telOk ? 'secondary' : 'primary' });
-            actions.push({ label: 'Ahora no', value: null, style: 'secondary' });
+            actions.push({ label: '📋 Copiar mensaje', value: 'copy', style: (telOk || correoOk) ? 'secondary' : 'primary' });
+            actions.push({ label: 'Cerrar', value: null, style: 'secondary' });
 
             const avisoResena = reviewUrl ? '' :
                 `<div style="font-size:12px; color:#a06000; margin-top:8px;">` +
                 `⚠️ Sin enlace de reseña configurado (Ajustes → Mensaje a clientas): ` +
                 `el mensaje sale sin la petición de reseña.</div>`;
 
-            // El diálogo se puede reabrir tras enviar por un canal para usar el otro.
-            let enviado = { wa: false, mail: false };
+            const avisoSinContacto = (telOk || correoOk) ? '' :
+                `<div style="font-size:12px; color:#a06000; margin-top:8px;">` +
+                `⚠️ La ficha no tiene teléfono ni correo válidos — copia el mensaje ` +
+                `y envíaselo por donde puedas.</div>`;
+
+            // El diálogo se reabre tras cada acción para poder combinar canales
+            // (p.ej. copiar Y enviar WhatsApp).
+            const usado = { wa: false, mail: false, copy: false };
             while (true) {
-                const pendientes = actions.filter(a =>
-                    a.value === null || !enviado[a.value]);
+                const pendientes = actions.filter(a => a.value === null || !usado[a.value]);
                 const answer = await App.ui.confirmDialog({
                     title: '💬 Mensaje a la clienta',
                     message:
                         `<div style="background:#f6f2fa; border-radius:8px; padding:10px 12px; ` +
                         `font-size:13px; line-height:1.5; white-space:pre-wrap;">${msg}</div>` +
-                        avisoResena +
+                        avisoResena + avisoSinContacto +
                         `<div style="font-size:12px; color:var(--text-muted); margin-top:8px;">` +
                         `Podrás retocar el texto antes de enviarlo.</div>`,
                     actions: pendientes,
                 });
                 if (answer === 'wa') {
                     window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
-                    enviado.wa = true;
+                    usado.wa = true;
                 } else if (answer === 'mail') {
                     const subject = 'Tu traje de NOTELODIGO 💃';
                     window.open(`mailto:${encodeURIComponent(correo)}` +
                         `?subject=${encodeURIComponent(subject)}` +
                         `&body=${encodeURIComponent(msg)}`, '_blank');
-                    enviado.mail = true;
+                    usado.mail = true;
+                } else if (answer === 'copy') {
+                    try {
+                        await navigator.clipboard.writeText(msg);
+                        App.toast.show('Mensaje copiado al portapapeles', 'success', 2500);
+                    } catch (e) {
+                        // Fallback para navegadores sin permiso de clipboard
+                        const ta = document.createElement('textarea');
+                        ta.value = msg;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        try { document.execCommand('copy'); App.toast.show('Mensaje copiado al portapapeles', 'success', 2500); }
+                        catch (_) { App.toast.show('No se pudo copiar automáticamente — selecciona y copia el texto del diálogo', 'warning', 5000); }
+                        document.body.removeChild(ta);
+                    }
+                    usado.copy = true;
                 } else {
-                    break;   // "Ahora no" o cierre
+                    break;   // "Cerrar" o cierre del diálogo
                 }
-                // Si ya no queda ningún canal por usar, cerramos
-                if ((!telOk || enviado.wa) && (!correoOk || enviado.mail)) break;
+                // Si ya no queda ninguna acción disponible, cerramos
+                if ((!telOk || usado.wa) && (!correoOk || usado.mail) && usado.copy) break;
             }
         } catch (err) {
             // El mensaje es un extra: si algo falla aquí, no debe ensombrecer
@@ -11586,7 +11599,7 @@ App.trajes = {
             <th class="${fClass('corte')}" onclick="App.trajes._openColFilter('corte', this)">Corte ${fIcon('corte')}</th>
             <th class="${fClass('taller')}" onclick="App.trajes._openColFilter('taller', this)">Taller ${fIcon('taller')}</th>
             <th class="${fClass('delTaller')}" onclick="App.trajes._openColFilter('delTaller', this)" style="text-align:center;">Del taller ${fIcon('delTaller')}</th>
-            <th class="${fClass('entregado')}" onclick="App.trajes._openColFilter('entregado', this)" style="text-align:center;">Entregado ${fIcon('entregado')}</th>
+            <th class="${fClass('entregado')}" onclick="App.trajes._openColFilter('entregado', this)" style="text-align:center;" title="Entregado a la clienta">&#x1F483; Entregado ${fIcon('entregado')}</th>
             <th style="width:90px;"></th>
         </tr>`;
 
@@ -11724,10 +11737,10 @@ App.trajes = {
      *  Mantenido por compatibilidad con código legacy que aún lo invoca. */
     _entregaChip(t) {
         const e = (t[this.COL.trajeEntregado] || '').toUpperCase();
-        if (e === 'ENTREGADO') return '<span class="chip chip-correcto">&#x2713; Entregado</span>';
+        if (e === 'ENTREGADO') return '<span class="chip chip-correcto">&#x1F483; Entregado a clienta</span>';
         if (e === 'ARREGLO')   return '<span class="chip chip-revisar">&#x1F527; Arreglo</span>';
         const r = (t[this.COL.trajeRecibido] || '').toUpperCase();
-        if (r === 'RECIBIDO')  return '<span class="chip chip-recibida">&#x1F4E6; De taller</span>';
+        if (r === 'RECIBIDO')  return '<span class="chip chip-recibida">&#x1F3EA; En tienda</span>';
         return '<span class="chip chip-empty">&mdash;</span>';
     },
 
@@ -11747,7 +11760,7 @@ App.trajes = {
     /** Chip para "Entregado" — refleja si la clienta ya recogió el traje. */
     _entregadoClientaChip(t) {
         const e = (t[this.COL.trajeEntregado] || '').toUpperCase().trim();
-        if (e === 'ENTREGADO')  return '<span class="chip chip-correcto">&#x2713; Entregado</span>';
+        if (e === 'ENTREGADO')  return '<span class="chip chip-correcto">&#x1F483; Entregado a clienta</span>';
         if (e === 'ARREGLO')    return '<span class="chip chip-revisar">&#x1F527; Arreglo</span>';
         if (e === 'INCIDENCIA') return '<span class="chip chip-incidencia">&#x2715; Incidencia</span>';
         return '<span class="chip chip-pendiente">&#x23F3; Pendiente</span>';
@@ -15936,7 +15949,7 @@ App.jose = {
             // Solo lectura — mostrar estado final
             const entregado = (t[COL.trajeEntregado] || '').toUpperCase().trim() === 'ENTREGADO';
             actions = entregado
-                ? `<span class="chip" style="background:#c8e6c9; color:#1b5e20; font-size:11px;">&check; Entregado a clienta</span>`
+                ? `<span class="chip" style="background:#c8e6c9; color:#1b5e20; font-size:11px;">&#x1F483; Entregado a clienta</span>`
                 : `<span class="chip" style="background:#fff8e1; color:#7c3a00; font-size:11px;">&#x1F3EA; En tienda · pendiente de entregar a clienta</span>`;
         }
 
@@ -18510,7 +18523,7 @@ App.stock = {
     _estadoChip(estado) {
         const e = (estado || 'EN_TALLER').toUpperCase();
         if (e === 'ARREGLADO')  return '<span class="chip" style="background:#c8e6c9; color:#1b5e20; font-weight:600;">&check; ARREGLADO</span>';
-        if (e === 'ENTREGADO')  return '<span class="chip" style="background:#e0e0e0; color:#444;">&#x1F4E6; ENTREGADO</span>';
+        if (e === 'ENTREGADO')  return '<span class="chip" style="background:#e0e0e0; color:#444;">&#x1F483; ENTREGADO A CLIENTA</span>';
         return '<span class="chip" style="background:#fff3e0; color:#e65100; font-weight:600;">&#x1FAA1; EN TALLER</span>';
     },
 
@@ -18654,7 +18667,7 @@ App.stock = {
         } else if (estado === 'ARREGLADO') {
             actions.innerHTML =
                 this._estadoChip(estado) +
-                `<button class="btn btn-primary btn-sm" style="font-size:12px;" onclick="App.stock.cambiarEstado('ENTREGADO')">&#x1F4E6; Marcar como ENTREGADO</button>` +
+                `<button class="btn btn-primary btn-sm" style="font-size:12px;" onclick="App.stock.cambiarEstado('ENTREGADO')">&#x1F483; Entregar a la clienta</button>` +
                 `<button class="btn btn-secondary btn-sm" style="font-size:12px;" onclick="App.stock._abrirAvisoModal()">&#x1F4F2; Avisar a la clienta</button>` +
                 `<button class="btn btn-secondary btn-sm" style="font-size:12px;" onclick="App.stock.cambiarEstado('EN_TALLER')">&#x21A9; Volver a EN TALLER</button>`;
         } else { // ENTREGADO
@@ -18665,7 +18678,7 @@ App.stock = {
         const lines = [];
         if (t[this.COL.fechaCreacion])  lines.push(`&#x1F58A;&#xFE0F; Creada: <strong>${t[this.COL.fechaCreacion]}</strong>`);
         if (t[this.COL.fechaArreglado]) lines.push(`&check; Arreglado: <strong>${t[this.COL.fechaArreglado]}</strong>`);
-        if (t[this.COL.fechaEntregado]) lines.push(`&#x1F4E6; Entregado: <strong>${t[this.COL.fechaEntregado]}</strong>`);
+        if (t[this.COL.fechaEntregado]) lines.push(`&#x1F483; Entregado a clienta: <strong>${t[this.COL.fechaEntregado]}</strong>`);
         tl.innerHTML = lines.join('<br>');
 
         get('stockEditModal').classList.add('active');
