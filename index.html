@@ -16131,6 +16131,7 @@ App.jose = {
                 ['FECHA ENVIADO CORTE',  fechaEnvOld || hoy],
                 ['FECHA ULTIMA MOD',     hoy],
             ];
+            const prev = this._snapshotPrev(t, updates);
             await this._writeUpdates(rowIndex, updates);
 
             // Refresh cache local
@@ -16147,7 +16148,8 @@ App.jose = {
             await App.trajes._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
 
             this._noteWrites(rowIndex, updates);
-            App.toast.show(`Traje #${t[COL.num]} marcado como recogido del cortador`, 'success', 3000);
+            this._registerUndo([{ rowIndex, prev }],
+                `Traje #${t[COL.num]} recogido del cortador.`);
             this.filter();
         } catch (err) {
             console.error('[jose.marcarRecogidoCorte]', err);
@@ -16175,10 +16177,12 @@ App.jose = {
                 }
             }
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
-            await this._writeUpdates(rowIndex, [
+            const updTaller = [
                 [COL.taller,        tallerLimpio],
                 [COL.fechaUltimaMod, hoy],
-            ]);
+            ];
+            const prev = this._snapshotPrev(t, updTaller);
+            await this._writeUpdates(rowIndex, updTaller);
 
             // Sincronizar caches en memoria para que la ficha de la clienta lo refleje
             t[COL.taller] = tallerLimpio;
@@ -16190,12 +16194,10 @@ App.jose = {
             }
             await App.sheets.invalidateListadoCache();
 
-            App.toast.show(
+            this._registerUndo([{ rowIndex, prev }],
                 tallerLimpio
-                    ? `Traje #${t[COL.num]} → taller <strong>${tallerLimpio}</strong> (pendiente de llevar)`
-                    : `Traje #${t[COL.num]}: taller desasignado`,
-                'info', 2500
-            );
+                    ? `Traje #${t[COL.num]} → taller <strong>${tallerLimpio}</strong> (pendiente de llevar).`
+                    : `Traje #${t[COL.num]}: taller desasignado.`);
             this._noteWrites(rowIndex, [[COL.taller, tallerLimpio], [COL.fechaUltimaMod, hoy]]);
             // No llamamos a filter() para no perder el dropdown si Jose lo está usando.
             // Refrescamos los badges (sidebar) y la card del traje en sitio.
@@ -16231,6 +16233,7 @@ App.jose = {
                 rowFechaActual: t[COL.fechaEntregaTaller],
                 proxyMode: !!App.proxyMode,
             });
+            const prev = this._snapshotPrev(t, updates);
             await this._writeUpdates(rowIndex, updates);
 
             updates.forEach(([col, val]) => { t[col] = val; });
@@ -16239,7 +16242,8 @@ App.jose = {
 
             this._noteWrites(rowIndex, updates);
 
-            App.toast.show(`Traje #${t[COL.num]} llevado al taller <strong>${taller}</strong>`, 'success', 3000);
+            this._registerUndo([{ rowIndex, prev }],
+                `Traje #${t[COL.num]} llevado al taller <strong>${taller}</strong>.`);
             this.filter();
         } catch (err) {
             console.error('[jose.asignarTaller]', err);
@@ -16268,6 +16272,7 @@ App.jose = {
                 ['FECHA ENTREGADO TIENDA', ''],
                 ['FECHA ULTIMA MOD', hoy],
             ];
+            const prev = this._snapshotPrev(t, updates);
             await this._writeUpdates(rowIndex, updates);
 
             updates.forEach(([col, val]) => { t[col] = val; });
@@ -16275,11 +16280,58 @@ App.jose = {
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
 
             this._noteWrites(rowIndex, updates);
-            App.toast.show(`Traje #${t[COL.num]} recibido del taller`, 'success', 3000);
+            this._registerUndo([{ rowIndex, prev }],
+                `Traje #${t[COL.num]} recibido del taller.`);
             this.filter();
         } catch (err) {
             console.error('[jose.marcarRecibidoTaller]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    // ── Deshacer (protección anti-clics accidentales) ────────────────────
+    // Cada acción de Jose guarda los valores ANTERIORES de las celdas que
+    // toca y muestra un toast con botón "↩ Deshacer" (8 s). Si Jose pulsa
+    // algo sin querer ("Recogido", "Llevado"…), un clic lo revierte todo.
+    // Solo se recuerda la última acción (suficiente para el misclick).
+    _lastAction: null,   // { items: [{rowIndex, prev: [[col,val],...]}] }
+
+    /** Captura los valores actuales de las columnas que `updates` va a tocar.
+     *  Llamar ANTES de escribir y de sincronizar la memoria. */
+    _snapshotPrev(t, updates) {
+        return updates.map(([col]) => [col, (t && t[col] != null ? t[col] : '').toString()]);
+    },
+
+    /** Guarda la acción como deshacible y muestra el toast con el botón. */
+    _registerUndo(items, label) {
+        this._lastAction = { items };
+        const btn =
+            `<button class="btn btn-secondary btn-sm" ` +
+            `style="margin-left:10px; font-size:12px; padding:3px 12px; white-space:nowrap;" ` +
+            `onclick="App.jose.deshacer(); this.closest('.toast')?.remove();">` +
+            `&#x21A9; Deshacer</button>`;
+        App.toast.show(`${label}${btn}`, 'success', 8000);
+    },
+
+    /** Revierte la última acción de Jose (restaura los valores anteriores). */
+    async deshacer() {
+        const a = this._lastAction;
+        if (!a) { App.toast.show('Nada que deshacer.', 'info', 2000); return; }
+        this._lastAction = null;
+        try {
+            for (const it of a.items) {
+                await this._writeUpdates(it.rowIndex, it.prev);
+                const t = App.trajes.data.find(r => r._rowIndex === it.rowIndex);
+                if (t) it.prev.forEach(([c, v]) => { t[c] = v; });
+                const tc = App.clientas?.data?.find(r => r._rowIndex === it.rowIndex);
+                if (tc) it.prev.forEach(([c, v]) => { tc[c] = v; });
+                this._noteWrites(it.rowIndex, it.prev);
+            }
+            App.toast.show('&#x21A9; Deshecho — el traje vuelve a estar como antes.', 'info', 3000);
+            this.filter();
+        } catch (err) {
+            console.error('[jose.deshacer]', err);
+            App.toast.show('No se pudo deshacer: ' + err.message, 'error', 5000);
         }
     },
 
@@ -16345,6 +16397,12 @@ App.jose = {
             [COL.fechaUltimaMod, hoy],
         ];
 
+        // Snapshot previo de cada fila (para el botón Deshacer)
+        const undoItems = rowIndexes.map(rowIndex => {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            return { rowIndex, prev: this._snapshotPrev(t, pairs) };
+        });
+
         if (App.proxyMode) {
             // Vía proxy: una llamada por traje (el proxy crea las columnas si faltan)
             for (const rowIndex of rowIndexes) {
@@ -16379,6 +16437,7 @@ App.jose = {
             if (tc) pairs.forEach(([col, val]) => { tc[col] = val; });
             this._noteWrites(rowIndex, pairs);
         }
+        return undoItems;
     },
 
     /** Botón "Entregado en tienda" de una card de la bandeja tienda. */
@@ -16386,8 +16445,9 @@ App.jose = {
         try {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
-            await this._entregarEnTienda([rowIndex]);
-            App.toast.show(`Traje #${t[App.trajes.COL.num]} entregado en tienda`, 'success', 3000);
+            const undoItems = await this._entregarEnTienda([rowIndex]);
+            this._registerUndo(undoItems,
+                `Traje #${t[App.trajes.COL.num]} entregado en tienda.`);
             this.filter();
         } catch (err) {
             console.error('[jose.marcarEntregadoTienda]', err);
@@ -16401,8 +16461,9 @@ App.jose = {
             const list = this._calcLists().tienda || [];
             if (!list.length) return;
             if (!confirm(`¿Marcar ${list.length} traje${list.length !== 1 ? 's' : ''} como entregado${list.length !== 1 ? 's' : ''} en tienda?`)) return;
-            await this._entregarEnTienda(list.map(t => t._rowIndex));
-            App.toast.show(`${list.length} traje(s) entregados en tienda`, 'success', 3000);
+            const undoItems = await this._entregarEnTienda(list.map(t => t._rowIndex));
+            this._registerUndo(undoItems,
+                `${list.length} traje(s) entregados en tienda.`);
             this.filter();
         } catch (err) {
             console.error('[jose.marcarTodosEntregadosTienda]', err);
@@ -16561,17 +16622,16 @@ App.jose = {
             // ⚠ NO tocamos FECHA ENTREGA TALLER aquí. La fecha solo se rellena
             // cuando Jose pulsa "Llevado" desde la bandeja "Llevar al taller"
             // (que es el momento en el que el traje físicamente llega al taller).
+            const prev = this._snapshotPrev(t, updates);
             await this._writeUpdates(rowIndex, updates);
             updates.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
             this._noteWrites(rowIndex, updates);
-            App.toast.show(
+            this._registerUndo([{ rowIndex, prev }],
                 nuevoTaller
-                    ? `Traje #${t[COL.num]} → taller <strong>${nuevoTaller}</strong>`
-                    : `Quitado taller de #${t[COL.num]}`,
-                'success', 3000
-            );
+                    ? `Traje #${t[COL.num]} → taller <strong>${nuevoTaller}</strong>.`
+                    : `Quitado taller de #${t[COL.num]}.`);
             this.closeFicha();
             this.filter();
         } catch (err) {
