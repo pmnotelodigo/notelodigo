@@ -4058,10 +4058,16 @@ const App = {
     token: null,      // OAuth2 access token
     user: null,       // {name, email}
     tokenClient: null, // GIS token client
+    // MODO PROXY: true cuando el usuario (rol Jose) no tiene acceso directo a
+    // Drive y la app lee/escribe el LISTADO a través del Apps Script proxy
+    // (que corre como Pilar/Andrés). Se decide en el login (resolveAccessRole).
+    proxyMode: false,
 
     /** True si el email del usuario actual está en la lista Jose.
      *  Lee de App.permisos (tab PERMISOS del Sheet) si está cargado, sino fallback a CONFIG.JOSE_EMAILS. */
     isJose() {
+        // Modo proxy: el rol lo dictó el whoami del proxy (PERMISOS server-side)
+        if (this.proxyMode && (this.user?.proxyRol || '').toUpperCase() === 'JOSE') return true;
         const email = (this.user?.email || '').toLowerCase().trim();
         if (!email) return false;
         const list = App.permisos && typeof App.permisos.joseEmails === 'function'
@@ -4116,8 +4122,21 @@ const App = {
         // Vía de emergencia: admins hardcoded SIEMPRE entran, pase lo que pase.
         const hardAdmins = (CONFIG.ADMIN_EMAILS || []).map(e => e.toLowerCase().trim());
         if (hardAdmins.includes(email)) return 'ADMIN';
-        // Si PERMISOS no se pudo leer, no podemos verificar el rol → bloquear.
-        if (!App.permisos || !App.permisos._loaded) return 'ERROR';
+        // Si PERMISOS no se pudo leer con la cuenta del usuario, aún queda el
+        // PROXY: el whoami del Apps Script (que corre como Pilar/Andrés) lee
+        // PERMISOS y nos dice el rol. Un JOSE sin acceso a Drive entra así en
+        // MODO PROXY: toda su sección lee/escribe a través del proxy.
+        if (!App.permisos || !App.permisos._loaded) {
+            const pr = (this.user?.proxyRol || '').toUpperCase();
+            if (pr === 'JOSE') {
+                App.proxyMode = true;
+                console.log('[login] Sin acceso directo a Drive → MODO PROXY (rol JOSE)');
+                return 'JOSE';
+            }
+            // DEPENDIENTA vía proxy llegará en la fase 2; de momento su cuenta
+            // necesita acceso a Drive (carpeta compartida).
+            return 'ERROR';
+        }
         if (App.permisos.adminEmails().includes(email)) return 'ADMIN';
         if (this.isJose()) return 'JOSE';
         if (this.isDependienta()) return 'DEPENDIENTA';
@@ -4443,6 +4462,13 @@ const App = {
                         App.user.tallerNombre = data.taller;
                         tallerIdentificado = true;
                     }
+                    // Rol según el proxy (lee PERMISOS con la cuenta de Pilar/
+                    // Andrés): permite entrar en modo proxy a cuentas sin
+                    // acceso a Drive. También trae la temporada activa.
+                    if (data.ok) {
+                        App.user.proxyRol    = (data.rol || '').toUpperCase() || null;
+                        App.user.proxySeason = data.season || null;
+                    }
                 } catch (e) {
                     console.warn('[login] proxy whoami falló:', e.message);
                 }
@@ -4508,21 +4534,27 @@ const App = {
             // 7. Temporadas (solo para usuarios ya autorizados). La temporada
             // activa es GLOBAL: la marca ACTIVA=SI en Drive (la fija Pilar
             // desde Ajustes) y aplica a todas las cuentas por igual.
-            App.ui.showLoginLoading('Cargando temporadas…');
-            try {
-                await App.seasons.load();
+            // En MODO PROXY no se puede listar la carpeta CONFIG — la
+            // temporada ya la resolvió el whoami del proxy (ACTIVA=SI).
+            if (!App.proxyMode) {
+                App.ui.showLoginLoading('Cargando temporadas…');
+                try {
+                    await App.seasons.load();
+                    if (!stillCurrent()) return;
+                    App.seasons.renderSelector();
+                } catch (e) {
+                    console.warn('[login] seasons.load:', e);
+                }
                 if (!stillCurrent()) return;
+            } else {
                 App.seasons.renderSelector();
-            } catch (e) {
-                console.warn('[login] seasons.load:', e);
             }
-            if (!stillCurrent()) return;
 
             // ── FASE 2: cargas de datos del dashboard ──
             // Listado de trajes + dashboard. También bloqueamos hasta que
             // termine para que el usuario no vea "Cargando…" al entrar.
             App.ui.showLoginLoading('Cargando trajes…');
-            const listadoId = App.settings.get('listadoId');
+            const listadoId = App.proxyMode ? 'proxy' : App.settings.get('listadoId');
             if (listadoId) {
                 if (App.trajes && typeof App.trajes.load === 'function') {
                     try { await App.trajes.load(); } catch (e) {
@@ -4547,7 +4579,9 @@ const App = {
             // Estas pueden tardar unos segundos más; mientras tanto la app ya
             // es interactiva. Si el usuario cambia de cuenta, las nuevas
             // requests usarán el nuevo token automáticamente.
-            if (!(App.isTaller && App.isTaller())) {
+            // En modo proxy no hay acceso directo a Drive: pedidos/telas/
+            // proveedores/dashboard no aplican (Jose solo ve su sección + Modelos).
+            if (!(App.isTaller && App.isTaller()) && !App.proxyMode) {
                 if (App.pedidos && typeof App.pedidos.load === 'function') {
                     App.pedidos.load().catch(e => console.warn('[bg] pedidos.load:', e.message));
                 }
@@ -4560,10 +4594,12 @@ const App = {
                     App.proveedores.load().catch(e => console.warn('[bg] proveedores.load:', e.message));
                 }
             }
-            App.clientas.loadTallas().catch(() => {});
+            if (!App.proxyMode) {
+                App.clientas.loadTallas().catch(() => {});
+                App.dashboard.load();
+            }
 
             App.toast.show('Conectado a Google Drive', 'success');
-            App.dashboard.load();
             if (!listadoId) {
                 App.toast.show('No se encontró la temporada activa. Si el problema sigue, revisa Ajustes → Temporadas (admin).', 'warning', 6000);
             }
@@ -4876,6 +4912,22 @@ const App = {
          * Returns array of objects with column headers as keys
          */
         async getListadoTrajes(forceRefresh = false) {
+            // MODO PROXY (rol Jose sin acceso a Drive): el LISTADO completo
+            // llega del Apps Script (acción joseListado), ya en el mismo
+            // formato de objetos {COLUMNA: valor, _rowIndex}. Trae también el
+            // catálogo MODELOS (para la ficha y la sección Modelos read-only).
+            // Sin caché: la sección Jose siempre quiere datos frescos.
+            if (App.proxyMode) {
+                const data = await App.auth.fetchTallerProxy('joseListado');
+                if (!data || !data.ok) {
+                    throw new Error((data && data.message) || 'El proxy no pudo cargar el listado.');
+                }
+                const trajes = (data.trajes || []).map(t => Object.assign({ _notes: {} }, t));
+                if (App.modelos && Array.isArray(data.modelos) && data.modelos.length) {
+                    App.modelos._data = data.modelos;
+                }
+                return trajes;
+            }
             const sheetId = App.settings.get('listadoId');
             const tab = App.seasons?.getTab() || '2026';
             // Sufijo "v2" tras ampliar el rango de A:Z a A:AZ — fuerza recarga
@@ -5683,6 +5735,8 @@ const App = {
 
         /** Return the LISTADO_TAB of the current season, or fallback */
         getTab() {
+            // Modo proxy: la temporada activa la resolvió el proxy (ACTIVA=SI)
+            if (App.proxyMode && App.user?.proxySeason) return App.user.proxySeason;
             return (this._current && this._current.LISTADO_TAB) ||
                    localStorage.getItem('pilar_listado_tab_fallback') || '2026';
         },
@@ -6218,6 +6272,13 @@ const App = {
             if (!el) return;
 
             if (!this.isEnabled()) {
+                // Modo proxy: mostrar la temporada que resolvió el proxy
+                if (App.proxyMode && App.user?.proxySeason) {
+                    el.style.display = 'flex';
+                    const lblP = document.getElementById('seasonCurrentLabel');
+                    if (lblP) lblP.textContent = App.user.proxySeason;
+                    return;
+                }
                 el.style.display = 'none';
                 return;
             }
@@ -15096,6 +15157,19 @@ App.modelos = {
     // ── Carga ─────────────────────────────────────────────────────────────
     async load(forceRefresh = false) {
         const contentEl = document.getElementById('modelosContent');
+        // MODO PROXY: los modelos llegan junto al listado (joseListado). Si aún
+        // no están en memoria, forzamos una carga del listado y usamos eso.
+        if (App.proxyMode) {
+            if (!this._data.length) {
+                if (contentEl) contentEl.innerHTML =
+                    '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando modelos…</p></div>';
+                try { await App.trajes.load(true); } catch (e) {
+                    console.warn('[modelos.load proxy]', e.message);
+                }
+            }
+            this.filter();
+            return;
+        }
         if (contentEl) {
             contentEl.innerHTML =
                 '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando modelos…</p></div>';
@@ -15539,7 +15613,7 @@ App.jose = {
             if (App.modelos && !App.modelos._data?.length) {
                 await App.modelos.load().catch(()=>{});
             }
-            if (App.telas && !App.telas._data?.length) {
+            if (!App.proxyMode && App.telas && !App.telas._data?.length) {
                 await App.telas.load().catch(()=>{});
             }
             this.filter();
@@ -16042,15 +16116,6 @@ App.jose = {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
             const COL = App.trajes.COL;
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-            const hdr = (headers[0] || []).map(h => h.trim());
-            const colLetter = (name) => {
-                const idx = hdr.indexOf(name);
-                return idx === -1 ? null : App.sheets._colLetter(idx);
-            };
-
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
             const fechaEnvOld = (t[COL.fechaEnviadoCorte]  || '').toString().trim();
             // Snapshot antes de cambios para _aplicarMovimientosStock
@@ -16066,18 +16131,7 @@ App.jose = {
                 ['FECHA ENVIADO CORTE',  fechaEnvOld || hoy],
                 ['FECHA ULTIMA MOD',     hoy],
             ];
-            const rangeUpdates = updates
-                .map(([col, val]) => {
-                    const letter = colLetter(col);
-                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
-                })
-                .filter(Boolean);
-            const missing = updates.map(([c]) => c).filter(c => !colLetter(c));
-            if (missing.length) {
-                console.warn('[jose.marcarRecogidoCorte] Columnas no encontradas:', missing);
-                App.toast.show(`⚠️ Faltan columnas en LISTADO: ${missing.join(', ')}`, 'warning', 6000);
-            }
-            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+            await this._writeUpdates(rowIndex, updates);
 
             // Refresh cache local
             updates.forEach(([col, val]) => { t[col] = val; });
@@ -16120,24 +16174,11 @@ App.jose = {
                     return;
                 }
             }
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-            const hdr = (headers[0] || []).map(h => h.trim());
-            const idxTaller = hdr.indexOf('TALLER');
-            if (idxTaller < 0) throw new Error('Columna TALLER no encontrada en LISTADO.');
-            const tallerLetter = String.fromCharCode(65 + idxTaller);
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
-
-            const updates = [
-                { range: `${tab}!${tallerLetter}${rowIndex}`, values: [[tallerLimpio]] },
-            ];
-            const idxFmod = hdr.indexOf('FECHA ULTIMA MOD');
-            if (idxFmod >= 0) {
-                const lf = String.fromCharCode(65 + idxFmod);
-                updates.push({ range: `${tab}!${lf}${rowIndex}`, values: [[hoy]] });
-            }
-            await App.sheets.batchWriteRanges(sheetId, updates);
+            await this._writeUpdates(rowIndex, [
+                [COL.taller,        tallerLimpio],
+                [COL.fechaUltimaMod, hoy],
+            ]);
 
             // Sincronizar caches en memoria para que la ficha de la clienta lo refleje
             t[COL.taller] = tallerLimpio;
@@ -16176,15 +16217,6 @@ App.jose = {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
             const COL = App.trajes.COL;
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-            const hdr = (headers[0] || []).map(h => h.trim());
-            const colLetter = (name) => {
-                const idx = hdr.indexOf(name);
-                return idx === -1 ? null : App.sheets._colLetter(idx);
-            };
-
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
             const updates = [
                 ['TALLER',               taller],
@@ -16197,18 +16229,9 @@ App.jose = {
                 taller,
                 fechaEntregaTallerNueva: hoy,
                 rowFechaActual: t[COL.fechaEntregaTaller],
+                proxyMode: !!App.proxyMode,
             });
-            const rangeUpdates = updates
-                .map(([col, val]) => {
-                    const letter = colLetter(col);
-                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
-                })
-                .filter(Boolean);
-            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
-            this._log('asignarTaller.done', {
-                num: String(t[COL.num] || '').trim(),
-                rangeUpdates: rangeUpdates.map(u => ({ range: u.range, value: u.values[0][0] })),
-            });
+            await this._writeUpdates(rowIndex, updates);
 
             updates.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
@@ -16230,14 +16253,6 @@ App.jose = {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
             const COL = App.trajes.COL;
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-            const hdr = (headers[0] || []).map(h => h.trim());
-            const colLetter = (name) => {
-                const idx = hdr.indexOf(name);
-                return idx === -1 ? null : App.sheets._colLetter(idx);
-            };
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
             const fechaRecOld = (t[COL.fechaRecibido] || '').toString().trim();
 
@@ -16253,13 +16268,7 @@ App.jose = {
                 ['FECHA ENTREGADO TIENDA', ''],
                 ['FECHA ULTIMA MOD', hoy],
             ];
-            const rangeUpdates = updates
-                .map(([col, val]) => {
-                    const letter = colLetter(col);
-                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
-                })
-                .filter(Boolean);
-            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+            await this._writeUpdates(rowIndex, updates);
 
             updates.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
@@ -16272,6 +16281,41 @@ App.jose = {
             console.error('[jose.marcarRecibidoTaller]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
         }
+    },
+
+    /** Escribe pares [columna, valor] en una fila del LISTADO.
+     *  - MODO PROXY (rol Jose sin acceso a Drive): manda la escritura al
+     *    Apps Script (acción joseUpdate), que corre como Pilar/Andrés y
+     *    solo acepta las columnas permitidas para Jose.
+     *  - MODO DIRECTO: escribe con la API de Sheets buscando cada columna
+     *    por nombre en la fila de cabeceras (como siempre). */
+    async _writeUpdates(rowIndex, pairs) {
+        if (App.proxyMode) {
+            const data = await App.auth.fetchTallerProxy('joseUpdate', {
+                rowIndex: String(rowIndex),
+                updates: JSON.stringify(Object.fromEntries(pairs)),
+            });
+            if (!data || !data.ok) {
+                throw new Error((data && data.message) || 'El proxy no pudo guardar el cambio.');
+            }
+            if (data.rejected && data.rejected.length) {
+                console.warn('[jose._writeUpdates] columnas rechazadas por el proxy:', data.rejected);
+            }
+            return;
+        }
+        const sheetId = App.settings.get('listadoId');
+        const tab     = App.seasons?.getTab() || '2026';
+        const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
+        const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
+        const rangeUpdates = [];
+        const missing = [];
+        for (const [col, val] of pairs) {
+            const idx = hdr.indexOf(col);
+            if (idx === -1) { missing.push(col); continue; }
+            rangeUpdates.push({ range: `${tab}!${App.sheets._colLetter(idx)}${rowIndex}`, values: [[val]] });
+        }
+        if (missing.length) console.warn('[jose._writeUpdates] Columnas no encontradas:', missing);
+        if (rangeUpdates.length) await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
     },
 
     /** Devuelve la letra de la columna `name` en el LISTADO; si no existe,
@@ -16294,32 +16338,40 @@ App.jose = {
      *  (la condición) + FECHA ENTREGADO TIENDA (informativa) + FECHA ULTIMA MOD. */
     async _entregarEnTienda(rowIndexes) {
         const COL = App.trajes.COL;
-        const sheetId = App.settings.get('listadoId');
-        const tab     = App.seasons?.getTab() || '2026';
-        const hoy     = App.trajes._toSheetDate(App.trajes._todayISO());
-
-        // Asegurar columnas (se crean solas la primera vez) y localizar FECHA ULTIMA MOD
-        const letterEstado = await this._ensureColumn(sheetId, tab, COL.trajeEntregadoTienda);
-        const letterFecha  = await this._ensureColumn(sheetId, tab, COL.fechaEntregadoTienda);
-        const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-        const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
-        const idxMod = hdr.indexOf(COL.fechaUltimaMod);
-        const letterMod = idxMod === -1 ? null : App.sheets._colLetter(idxMod);
-
-        const rangeUpdates = [];
-        for (const rowIndex of rowIndexes) {
-            rangeUpdates.push({ range: `${tab}!${letterEstado}${rowIndex}`, values: [['ENTREGADO']] });
-            rangeUpdates.push({ range: `${tab}!${letterFecha}${rowIndex}`,  values: [[hoy]] });
-            if (letterMod) rangeUpdates.push({ range: `${tab}!${letterMod}${rowIndex}`, values: [[hoy]] });
-        }
-        await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
-
-        // Actualizar copias en memoria (trajes y clientas comparten filas)
+        const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
         const pairs = [
             [COL.trajeEntregadoTienda, 'ENTREGADO'],
             [COL.fechaEntregadoTienda, hoy],
             [COL.fechaUltimaMod, hoy],
         ];
+
+        if (App.proxyMode) {
+            // Vía proxy: una llamada por traje (el proxy crea las columnas si faltan)
+            for (const rowIndex of rowIndexes) {
+                await this._writeUpdates(rowIndex, pairs);
+            }
+        } else {
+            // Directo: batch de todas las filas de una vez
+            const sheetId = App.settings.get('listadoId');
+            const tab     = App.seasons?.getTab() || '2026';
+            // Asegurar columnas (se crean solas la primera vez) y localizar FECHA ULTIMA MOD
+            const letterEstado = await this._ensureColumn(sheetId, tab, COL.trajeEntregadoTienda);
+            const letterFecha  = await this._ensureColumn(sheetId, tab, COL.fechaEntregadoTienda);
+            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
+            const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
+            const idxMod = hdr.indexOf(COL.fechaUltimaMod);
+            const letterMod = idxMod === -1 ? null : App.sheets._colLetter(idxMod);
+
+            const rangeUpdates = [];
+            for (const rowIndex of rowIndexes) {
+                rangeUpdates.push({ range: `${tab}!${letterEstado}${rowIndex}`, values: [['ENTREGADO']] });
+                rangeUpdates.push({ range: `${tab}!${letterFecha}${rowIndex}`,  values: [[hoy]] });
+                if (letterMod) rangeUpdates.push({ range: `${tab}!${letterMod}${rowIndex}`, values: [[hoy]] });
+            }
+            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+        }
+
+        // Actualizar copias en memoria (trajes y clientas comparten filas)
         for (const rowIndex of rowIndexes) {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (t) pairs.forEach(([col, val]) => { t[col] = val; });
@@ -16501,14 +16553,6 @@ App.jose = {
             if (!ok) return;
         }
         try {
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-            const hdr = (headers[0] || []).map(h => h.trim());
-            const colLetter = (name) => {
-                const idx = hdr.indexOf(name);
-                return idx === -1 ? null : App.sheets._colLetter(idx);
-            };
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
             const updates = [
                 ['TALLER',               nuevoTaller],
@@ -16517,13 +16561,7 @@ App.jose = {
             // ⚠ NO tocamos FECHA ENTREGA TALLER aquí. La fecha solo se rellena
             // cuando Jose pulsa "Llevado" desde la bandeja "Llevar al taller"
             // (que es el momento en el que el traje físicamente llega al taller).
-            const rangeUpdates = updates
-                .map(([col, val]) => {
-                    const letter = colLetter(col);
-                    return letter ? { range: `${tab}!${letter}${rowIndex}`, values: [[val]] } : null;
-                })
-                .filter(Boolean);
-            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
+            await this._writeUpdates(rowIndex, updates);
             updates.forEach(([col, val]) => { t[col] = val; });
             const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
             if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
