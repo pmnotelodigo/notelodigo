@@ -1783,6 +1783,27 @@
             }
         }
 
+        /* ── Botones de acción de Jose (anti-misclick) ────────────────────
+           Pequeños y con doble pulsación: el primer toque los "arma"
+           (ámbar + pulso, texto "¿Confirmar?"), el segundo ejecuta.
+           Se desarman solos a los 3,5 s. */
+        .jose-btn-accion {
+            font-size: 12px !important;
+            padding: 4px 12px !important;
+            flex: 0 0 auto !important;
+            white-space: nowrap;
+        }
+        .btn.btn-armed {
+            background: var(--warning, #f59e0b) !important;
+            border-color: var(--warning, #f59e0b) !important;
+            color: #fff !important;
+            animation: armedPulse 0.9s ease-in-out infinite;
+        }
+        @keyframes armedPulse {
+            0%, 100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(245,158,11,0.45); }
+            50%      { transform: scale(1.06); box-shadow: 0 0 0 6px rgba(245,158,11,0); }
+        }
+
         /* ── Modelos en solo lectura (roles Dependienta y Jose) ──────────
            Ocultamos botones de creación, guardado y borrado, y
            deshabilitamos los inputs del modal. La clase la pone
@@ -16031,12 +16052,16 @@ App.jose = {
               `</div>`
             : '';
 
+        // Botones de acción: pequeños, a la derecha y con DOBLE pulsación
+        // (_armOrRun): el primer toque los pone en "¿Confirmar?" y solo el
+        // segundo ejecuta — un toque accidental durante el scroll no hace nada.
+        const btnAccion = (fn, args, texto) =>
+            `<button class="btn btn-primary btn-sm jose-btn-accion" ` +
+            `onclick="App.jose._armOrRun(this, '${fn}', ${args})">${texto}</button>`;
+
         let actions = '';
         if (this._bandeja === 'cortador') {
-            actions =
-                `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
-                `onclick="App.jose.marcarRecogidoCorte(${t._rowIndex})">` +
-                `&#x2713; Marcar recogido</button>`;
+            actions = btnAccion('marcarRecogidoCorte', t._rowIndex, '&#x2713; Recogido');
         } else if (this._bandeja === 'llevar') {
             // Si Pilar ya asignó un taller, lo preseleccionamos para que Jose lo vea de un vistazo.
             // Lee del catálogo TALLERES (activos) + fallback CONFIG; el helper centraliza la lógica.
@@ -16056,19 +16081,11 @@ App.jose = {
                 `<select class="form-input" id="joseLlevarSelect-${t._rowIndex}" ` +
                 `style="font-size:12px; flex:1; min-width:0;" ` +
                 `onchange="App.jose.actualizarTaller(${t._rowIndex}, this.value)">${opts}</select>` +
-                `<button class="btn btn-primary btn-sm" ` +
-                `onclick="App.jose.asignarTaller(${t._rowIndex}, document.getElementById('joseLlevarSelect-${t._rowIndex}').value)">` +
-                `&#x1F69B; Llevado</button>`;
+                btnAccion('asignarTallerDesdeSelect', t._rowIndex, '&#x1F69B; Llevado');
         } else if (this._bandeja === 'recoger') {
-            actions =
-                `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
-                `onclick="App.jose.marcarRecibidoTaller(${t._rowIndex})">` +
-                `&#x1F4E6; Marcar recibido</button>`;
+            actions = btnAccion('marcarRecibidoTaller', t._rowIndex, '&#x1F4E6; Recibido');
         } else if (this._bandeja === 'tienda') {
-            actions =
-                `<button class="btn btn-primary btn-sm" style="flex:1;" ` +
-                `onclick="App.jose.marcarEntregadoTienda(${t._rowIndex})">` +
-                `&#x1F3EA; Entregado en tienda</button>`;
+            actions = btnAccion('marcarEntregadoTienda', t._rowIndex, '&#x1F3EA; Entregado');
         } else if (this._bandeja === 'historico') {
             // Solo lectura — mostrar estado final
             const entregado = (t[COL.trajeEntregado] || '').toUpperCase().trim() === 'ENTREGADO';
@@ -16104,7 +16121,7 @@ App.jose = {
             (feria  ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F4CD; ${feria}</div>` : '') +
             (diasInfo ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">&#x23F1; ${diasInfo}</div>` : '') +
             timelineHtml +
-            `<div style="display:flex; gap:6px; align-items:center; margin-top:8px;" ` +
+            `<div style="display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:8px;" ` +
             `onclick="event.stopPropagation();">${actions}</div>` +
             `</div>`
         );
@@ -16131,26 +16148,18 @@ App.jose = {
                 ['FECHA ENVIADO CORTE',  fechaEnvOld || hoy],
                 ['FECHA ULTIMA MOD',     hoy],
             ];
-            const prev = this._snapshotPrev(t, updates);
-            await this._writeUpdates(rowIndex, updates);
+            // UI al instante + escritura en segundo plano + toast con Deshacer
+            this._ejecutarAccion([{ rowIndex, updates }],
+                `Traje #${t[COL.num]} recogido del cortador.`);
 
-            // Refresh cache local
-            updates.forEach(([col, val]) => { t[col] = val; });
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
-
-            // Disparar consumo de stock (igual que en el modal save)
+            // Disparar consumo de stock (no-op salvo transiciones de TELA RECIBIDA)
             const snapshotDespues = {
                 'TELA RECIBIDA':   t[COL.telaRecibida]   || '',
                 'CORTE':           'RECOGIDO',
                 'TIPO TELA':       t[COL.tipoTela]       || '',
             };
-            await App.trajes._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues);
-
-            this._noteWrites(rowIndex, updates);
-            this._registerUndo([{ rowIndex, prev }],
-                `Traje #${t[COL.num]} recogido del cortador.`);
-            this.filter();
+            App.trajes._aplicarMovimientosStock(rowIndex, snapshotAntes, snapshotDespues)
+                .catch(e => console.warn('[jose stock]', e.message));
         } catch (err) {
             console.error('[jose.marcarRecogidoCorte]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
@@ -16181,25 +16190,12 @@ App.jose = {
                 [COL.taller,        tallerLimpio],
                 [COL.fechaUltimaMod, hoy],
             ];
-            const prev = this._snapshotPrev(t, updTaller);
-            await this._writeUpdates(rowIndex, updTaller);
-
-            // Sincronizar caches en memoria para que la ficha de la clienta lo refleje
-            t[COL.taller] = tallerLimpio;
-            t[COL.fechaUltimaMod] = hoy;
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) {
-                tc[COL.taller] = tallerLimpio;
-                tc[COL.fechaUltimaMod] = hoy;
-            }
-            await App.sheets.invalidateListadoCache();
-
-            this._registerUndo([{ rowIndex, prev }],
+            // Sin refilter: no perder el dropdown si Jose lo está usando.
+            this._ejecutarAccion([{ rowIndex, updates: updTaller }],
                 tallerLimpio
                     ? `Traje #${t[COL.num]} → taller <strong>${tallerLimpio}</strong> (pendiente de llevar).`
-                    : `Traje #${t[COL.num]}: taller desasignado.`);
-            this._noteWrites(rowIndex, [[COL.taller, tallerLimpio], [COL.fechaUltimaMod, hoy]]);
-            // No llamamos a filter() para no perder el dropdown si Jose lo está usando.
+                    : `Traje #${t[COL.num]}: taller desasignado.`,
+                { refilter: false });
             // Refrescamos los badges (sidebar) y la card del traje en sitio.
             if (App.trajes && typeof App.trajes._updateBandejaCounts === 'function') {
                 App.trajes._updateBandejaCounts();
@@ -16208,6 +16204,13 @@ App.jose = {
             console.error('[jose.actualizarTaller]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
         }
+    },
+
+    /** Wrapper para el botón "Llevado": lee el taller del select de la card
+     *  en el momento de la confirmación (segundo toque del botón armado). */
+    asignarTallerDesdeSelect(rowIndex) {
+        const sel = document.getElementById('joseLlevarSelect-' + rowIndex);
+        this.asignarTaller(rowIndex, sel ? sel.value : '');
     },
 
     async asignarTaller(rowIndex, taller) {
@@ -16233,18 +16236,8 @@ App.jose = {
                 rowFechaActual: t[COL.fechaEntregaTaller],
                 proxyMode: !!App.proxyMode,
             });
-            const prev = this._snapshotPrev(t, updates);
-            await this._writeUpdates(rowIndex, updates);
-
-            updates.forEach(([col, val]) => { t[col] = val; });
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
-
-            this._noteWrites(rowIndex, updates);
-
-            this._registerUndo([{ rowIndex, prev }],
+            this._ejecutarAccion([{ rowIndex, updates }],
                 `Traje #${t[COL.num]} llevado al taller <strong>${taller}</strong>.`);
-            this.filter();
         } catch (err) {
             console.error('[jose.asignarTaller]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
@@ -16272,17 +16265,8 @@ App.jose = {
                 ['FECHA ENTREGADO TIENDA', ''],
                 ['FECHA ULTIMA MOD', hoy],
             ];
-            const prev = this._snapshotPrev(t, updates);
-            await this._writeUpdates(rowIndex, updates);
-
-            updates.forEach(([col, val]) => { t[col] = val; });
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
-
-            this._noteWrites(rowIndex, updates);
-            this._registerUndo([{ rowIndex, prev }],
+            this._ejecutarAccion([{ rowIndex, updates }],
                 `Traje #${t[COL.num]} recibido del taller.`);
-            this.filter();
         } catch (err) {
             console.error('[jose.marcarRecibidoTaller]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
@@ -16313,35 +16297,115 @@ App.jose = {
         App.toast.show(`${label}${btn}`, 'success', 8000);
     },
 
-    /** Revierte la última acción de Jose (restaura los valores anteriores). */
-    async deshacer() {
+    /** Revierte la última acción de Jose. OPTIMISTA: la pantalla vuelve al
+     *  estado anterior AL INSTANTE; la escritura en el sheet va detrás por
+     *  la cola (así nunca adelanta a la escritura de la propia acción). */
+    deshacer() {
         const a = this._lastAction;
         if (!a) { App.toast.show('Nada que deshacer.', 'info', 2000); return; }
         this._lastAction = null;
-        try {
-            for (const it of a.items) {
-                await this._writeUpdates(it.rowIndex, it.prev);
-                const t = App.trajes.data.find(r => r._rowIndex === it.rowIndex);
-                if (t) it.prev.forEach(([c, v]) => { t[c] = v; });
-                const tc = App.clientas?.data?.find(r => r._rowIndex === it.rowIndex);
-                if (tc) it.prev.forEach(([c, v]) => { tc[c] = v; });
-                this._noteWrites(it.rowIndex, it.prev);
-            }
-            App.toast.show('&#x21A9; Deshecho — el traje vuelve a estar como antes.', 'info', 3000);
-            this.filter();
-        } catch (err) {
-            console.error('[jose.deshacer]', err);
-            App.toast.show('No se pudo deshacer: ' + err.message, 'error', 5000);
+        // 1) Revertir memoria + UI ya
+        for (const it of a.items) {
+            const t = App.trajes.data.find(r => r._rowIndex === it.rowIndex);
+            if (t) it.prev.forEach(([c, v]) => { t[c] = v; });
+            const tc = App.clientas?.data?.find(r => r._rowIndex === it.rowIndex);
+            if (tc) it.prev.forEach(([c, v]) => { tc[c] = v; });
+            this._noteWrites(it.rowIndex, it.prev);
         }
+        this.filter();
+        App.toast.show('&#x21A9; Deshecho — el traje vuelve a estar como antes.', 'info', 3000);
+        // 2) Persistir en el sheet en segundo plano (cola ordenada)
+        this._enqueueWrites(async () => {
+            for (const it of a.items) {
+                await this._writeUpdatesRemote(it.rowIndex, it.prev);
+            }
+        }, 'deshacer');
     },
 
-    /** Escribe pares [columna, valor] en una fila del LISTADO.
+    // ── Cola de escrituras ───────────────────────────────────────────────
+    // Serializa TODAS las escrituras de Jose (acciones y deshacer) para que
+    // lleguen al sheet en el mismo orden en que se pulsaron los botones,
+    // aunque la UI ya se haya actualizado de forma optimista. Si una
+    // escritura falla, se avisa y se recarga desde el sheet para resincronizar.
+    _writeQueue: Promise.resolve(),
+    _enqueueWrites(fn, label) {
+        this._writeQueue = this._writeQueue
+            .then(fn)
+            .catch(async (err) => {
+                console.error(`[jose.${label || 'write'}]`, err);
+                this._lastAction = null;
+                App.toast.show('⚠️ No se pudo guardar en el sheet: ' + err.message +
+                    '. Recargando datos…', 'error', 6000);
+                try { await this.load(true); } catch (_) {}
+            });
+        return this._writeQueue;
+    },
+
+    /** Ejecuta una acción de Jose de forma OPTIMISTA:
+     *   1. Captura los valores previos (para Deshacer).
+     *   2. Actualiza memoria + overlay + UI AL INSTANTE.
+     *   3. Muestra el toast con "↩ Deshacer".
+     *   4. Encola la escritura real al sheet (proxy o directo) en segundo plano.
+     *  items: [{rowIndex, updates: [[col, val], ...]}]
+     *  opts.refilter: repintar las bandejas (true por defecto). */
+    _ejecutarAccion(items, label, opts = {}) {
+        const refilter = opts.refilter !== false;
+        // 1) Snapshot previo
+        const undoItems = items.map(it => {
+            const t = App.trajes.data.find(r => r._rowIndex === it.rowIndex);
+            return { rowIndex: it.rowIndex, prev: this._snapshotPrev(t, it.updates) };
+        });
+        // 2) Memoria + overlay
+        for (const it of items) {
+            const t = App.trajes.data.find(r => r._rowIndex === it.rowIndex);
+            if (t) it.updates.forEach(([c, v]) => { t[c] = v; });
+            const tc = App.clientas?.data?.find(r => r._rowIndex === it.rowIndex);
+            if (tc) it.updates.forEach(([c, v]) => { tc[c] = v; });
+            this._noteWrites(it.rowIndex, it.updates);
+        }
+        // 3) UI inmediata + toast con Deshacer
+        this._registerUndo(undoItems, label);
+        if (refilter) this.filter();
+        // 4) Escritura real en cola
+        this._enqueueWrites(async () => {
+            for (const it of items) {
+                await this._writeUpdatesRemote(it.rowIndex, it.updates);
+            }
+        }, 'accion');
+        return undoItems;
+    },
+
+    /** Doble pulsación anti-scroll para los botones de acción de las cards.
+     *  El primer toque "arma" el botón (cambia a "¿Confirmar?" en ámbar y se
+     *  desarma solo a los 3,5 s); solo el segundo toque ejecuta la acción.
+     *  Un toque accidental durante el scroll nunca dispara nada. */
+    _armOrRun(btn, fnName, ...args) {
+        if (!btn) return;
+        if (btn.dataset.armed === '1') {
+            clearTimeout(btn._disarmTimer);
+            btn.dataset.armed = '';
+            this[fnName](...args);
+            return;
+        }
+        btn.dataset.armed = '1';
+        btn.dataset.origHtml = btn.innerHTML;
+        btn.classList.add('btn-armed');
+        btn.innerHTML = '&#x2713; ¿Confirmar?';
+        btn._disarmTimer = setTimeout(() => {
+            btn.dataset.armed = '';
+            btn.classList.remove('btn-armed');
+            btn.innerHTML = btn.dataset.origHtml || btn.innerHTML;
+        }, 3500);
+    },
+
+    /** Escritura REAL de pares [columna, valor] en una fila del LISTADO.
+     *  (No tocar la UI aquí — eso lo hace _ejecutarAccion/deshacer.)
      *  - MODO PROXY (rol Jose sin acceso a Drive): manda la escritura al
      *    Apps Script (acción joseUpdate), que corre como Pilar/Andrés y
      *    solo acepta las columnas permitidas para Jose.
      *  - MODO DIRECTO: escribe con la API de Sheets buscando cada columna
      *    por nombre en la fila de cabeceras (como siempre). */
-    async _writeUpdates(rowIndex, pairs) {
+    async _writeUpdatesRemote(rowIndex, pairs) {
         if (App.proxyMode) {
             const data = await App.auth.fetchTallerProxy('joseUpdate', {
                 rowIndex: String(rowIndex),
@@ -16360,95 +16424,38 @@ App.jose = {
         const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
         const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
         const rangeUpdates = [];
-        const missing = [];
         for (const [col, val] of pairs) {
-            const idx = hdr.indexOf(col);
-            if (idx === -1) { missing.push(col); continue; }
+            let idx = hdr.indexOf(col);
+            if (idx === -1) {
+                // Columna que aún no existe (p.ej. TRAJE/FECHA ENTREGADO TIENDA
+                // recién estrenadas): crearla en la primera columna libre.
+                idx = hdr.length;
+                await App.sheets.writeRange(sheetId, `${tab}!${App.sheets._colLetter(idx)}1`, [[col]]);
+                hdr.push(col);
+            }
             rangeUpdates.push({ range: `${tab}!${App.sheets._colLetter(idx)}${rowIndex}`, values: [[val]] });
         }
-        if (missing.length) console.warn('[jose._writeUpdates] Columnas no encontradas:', missing);
         if (rangeUpdates.length) await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
     },
 
-    /** Devuelve la letra de la columna `name` en el LISTADO; si no existe,
-     *  la CREA en la primera columna libre de la fila de cabeceras. Así la
-     *  fase "Entregar en tienda" funciona sin que nadie toque el sheet. */
-    async _ensureColumn(sheetId, tab, name) {
-        const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-        const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
-        let idx = hdr.indexOf(name);
-        if (idx === -1) {
-            idx = hdr.length;   // primera columna libre
-            const letter = App.sheets._colLetter(idx);
-            await App.sheets.writeRange(sheetId, `${tab}!${letter}1`, [[name]]);
-        }
-        return App.sheets._colLetter(idx);
-    },
-
-    /** Marca uno o varios trajes como entregados en la tienda (última fase
-     *  de Jose antes del histórico). Escribe TRAJE ENTREGADO TIENDA=ENTREGADO
-     *  (la condición) + FECHA ENTREGADO TIENDA (informativa) + FECHA ULTIMA MOD. */
-    async _entregarEnTienda(rowIndexes) {
+    /** Pares [col, val] de la fase "entregado en tienda" (condición + fecha). */
+    _pairsEntregaTienda() {
         const COL = App.trajes.COL;
         const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
-        const pairs = [
+        return [
             [COL.trajeEntregadoTienda, 'ENTREGADO'],
             [COL.fechaEntregadoTienda, hoy],
             [COL.fechaUltimaMod, hoy],
         ];
-
-        // Snapshot previo de cada fila (para el botón Deshacer)
-        const undoItems = rowIndexes.map(rowIndex => {
-            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
-            return { rowIndex, prev: this._snapshotPrev(t, pairs) };
-        });
-
-        if (App.proxyMode) {
-            // Vía proxy: una llamada por traje (el proxy crea las columnas si faltan)
-            for (const rowIndex of rowIndexes) {
-                await this._writeUpdates(rowIndex, pairs);
-            }
-        } else {
-            // Directo: batch de todas las filas de una vez
-            const sheetId = App.settings.get('listadoId');
-            const tab     = App.seasons?.getTab() || '2026';
-            // Asegurar columnas (se crean solas la primera vez) y localizar FECHA ULTIMA MOD
-            const letterEstado = await this._ensureColumn(sheetId, tab, COL.trajeEntregadoTienda);
-            const letterFecha  = await this._ensureColumn(sheetId, tab, COL.fechaEntregadoTienda);
-            const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-            const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
-            const idxMod = hdr.indexOf(COL.fechaUltimaMod);
-            const letterMod = idxMod === -1 ? null : App.sheets._colLetter(idxMod);
-
-            const rangeUpdates = [];
-            for (const rowIndex of rowIndexes) {
-                rangeUpdates.push({ range: `${tab}!${letterEstado}${rowIndex}`, values: [['ENTREGADO']] });
-                rangeUpdates.push({ range: `${tab}!${letterFecha}${rowIndex}`,  values: [[hoy]] });
-                if (letterMod) rangeUpdates.push({ range: `${tab}!${letterMod}${rowIndex}`, values: [[hoy]] });
-            }
-            await App.sheets.batchWriteRanges(sheetId, rangeUpdates);
-        }
-
-        // Actualizar copias en memoria (trajes y clientas comparten filas)
-        for (const rowIndex of rowIndexes) {
-            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
-            if (t) pairs.forEach(([col, val]) => { t[col] = val; });
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) pairs.forEach(([col, val]) => { tc[col] = val; });
-            this._noteWrites(rowIndex, pairs);
-        }
-        return undoItems;
     },
 
     /** Botón "Entregado en tienda" de una card de la bandeja tienda. */
-    async marcarEntregadoTienda(rowIndex) {
+    marcarEntregadoTienda(rowIndex) {
         try {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
-            const undoItems = await this._entregarEnTienda([rowIndex]);
-            this._registerUndo(undoItems,
+            this._ejecutarAccion([{ rowIndex, updates: this._pairsEntregaTienda() }],
                 `Traje #${t[App.trajes.COL.num]} entregado en tienda.`);
-            this.filter();
         } catch (err) {
             console.error('[jose.marcarEntregadoTienda]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
@@ -16456,15 +16463,15 @@ App.jose = {
     },
 
     /** Botón "Marcar TODOS": entrega en tienda todo lo que hay en la bandeja. */
-    async marcarTodosEntregadosTienda() {
+    marcarTodosEntregadosTienda() {
         try {
             const list = this._calcLists().tienda || [];
             if (!list.length) return;
             if (!confirm(`¿Marcar ${list.length} traje${list.length !== 1 ? 's' : ''} como entregado${list.length !== 1 ? 's' : ''} en tienda?`)) return;
-            const undoItems = await this._entregarEnTienda(list.map(t => t._rowIndex));
-            this._registerUndo(undoItems,
+            const pairs = this._pairsEntregaTienda();
+            this._ejecutarAccion(
+                list.map(t => ({ rowIndex: t._rowIndex, updates: pairs })),
                 `${list.length} traje(s) entregados en tienda.`);
-            this.filter();
         } catch (err) {
             console.error('[jose.marcarTodosEntregadosTienda]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
@@ -16622,16 +16629,11 @@ App.jose = {
             // ⚠ NO tocamos FECHA ENTREGA TALLER aquí. La fecha solo se rellena
             // cuando Jose pulsa "Llevado" desde la bandeja "Llevar al taller"
             // (que es el momento en el que el traje físicamente llega al taller).
-            const prev = this._snapshotPrev(t, updates);
-            await this._writeUpdates(rowIndex, updates);
-            updates.forEach(([col, val]) => { t[col] = val; });
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) updates.forEach(([col, val]) => { tc[col] = val; });
-            this._noteWrites(rowIndex, updates);
-            this._registerUndo([{ rowIndex, prev }],
+            this._ejecutarAccion([{ rowIndex, updates }],
                 nuevoTaller
                     ? `Traje #${t[COL.num]} → taller <strong>${nuevoTaller}</strong>.`
-                    : `Quitado taller de #${t[COL.num]}.`);
+                    : `Quitado taller de #${t[COL.num]}.`,
+                { refilter: false });
             this.closeFicha();
             this.filter();
         } catch (err) {
