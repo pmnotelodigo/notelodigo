@@ -4952,7 +4952,14 @@ const App = {
                 }
                 const trajes = (data.trajes || []).map(t => Object.assign({ _notes: {} }, t));
                 if (App.modelos && Array.isArray(data.modelos) && data.modelos.length) {
-                    App.modelos._data = data.modelos;
+                    // El proxy entrega los escandallos que el Sheet guardó como fecha en
+                    // forma de texto largo ("Wed Jul 08 2026…"). Reconstruimos aquí el
+                    // número (8-jul → 8.7) para que la vista de Jose muestre los metros.
+                    App.modelos._data = data.modelos.map(m => (
+                        (m && typeof App.modelos._normEscandallo === 'function')
+                            ? Object.assign({}, m, { TELA_PPAL_M: App.modelos._normEscandallo(m.TELA_PPAL_M) })
+                            : m
+                    ));
                 }
                 return trajes;
             }
@@ -15248,12 +15255,38 @@ App.modelos = {
         return isNaN(n) ? (v || '') : n;
     },
 
+    /** Normaliza un escandallo que pudo llegar convertido en fecha (p. ej. "8.7" que
+     *  el Sheet guardó como 8-jul). Cubre las tres formas en que puede llegar:
+     *   • número normal (metros)            → se deja igual
+     *   • nº de serie de fecha (>366)        → se reconstruye día.mes (46211 → 8.7)
+     *   • texto de fecha "Wed Jul 08 2026…"  → se reconstruye día.mes (lo emite el proxy)
+     *  Reconstruye desde texto SOLO si trae nombre de mes en inglés (formato Date.toString),
+     *  para no malinterpretar fechas cortas ambiguas tipo "8/7/2026". */
+    _normEscandallo(v) {
+        if (v == null || v === '') return '';
+        if (typeof v === 'number') {
+            if (v > 366 && typeof this._serialToDayMonth === 'function') {
+                const r = this._serialToDayMonth(v);
+                return r.day + '.' + r.month;
+            }
+            return String(v);
+        }
+        const s = v.toString().trim();
+        if (!s) return '';
+        if (!isNaN(parseFloat(this._normNum(s)))) return this._normNum(s);  // ya numérico
+        if (/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(s)) {
+            const d = new Date(s.replace(/\s*\([^)]*\)\s*$/, ''));          // quita "(Hora de…)"
+            if (!isNaN(d.getTime())) return d.getDate() + '.' + (d.getMonth() + 1);
+        }
+        return s;
+    },
+
     _parseRow(r, rowIndex) {
         const cell = i => (r[i] || '').toString().trim();
         return {
             NOMBRE:             cell(0),
             TIPO_CONSTRUCCION:  cell(1),
-            TELA_PPAL_M:        this._normNum(cell(2)),
+            TELA_PPAL_M:        this._normEscandallo(cell(2)),
             ADORNOS:            cell(3),
             PRECIO_EUR:         this._normNum(cell(4)),
             TALLERES_ASIGNADOS: cell(5),
@@ -15310,16 +15343,31 @@ App.modelos = {
         return !['FALSE','NO','0','INACTIVO'].includes(v);
     },
 
+    /** Convierte un número de serie de fecha de Google Sheets a {day, month}.
+     *  Serie 0 = 1899-12-30; parte entera = fecha, decimal = hora (se ignora).
+     *  Se usa UTC para no depender del huso ni del horario de verano. */
+    _serialToDayMonth(serial) {
+        const utcDays = Math.floor(serial);
+        const ms = Date.UTC(1899, 11, 30) + utcDays * 86400000;
+        const d = new Date(ms);
+        return { day: d.getUTCDate(), month: d.getUTCMonth() + 1 };
+    },
+
     /** Repara escandallos (TELA_PPAL_M, columna C) que el Sheet convirtió en fecha por
-     *  el locale español (p. ej. "8.7" → 8 de julio). Reconstruye el número original
-     *  como día.mes (8-jul → 8.7) y lo reescribe como Number. Lee la pestaña MODELOS
-     *  directamente para funcionar también en modo proxy. */
+     *  el locale español (p. ej. "8.7" → 8 de julio). Lee el valor CRUDO (número de serie
+     *  de la fecha, inequívoco) y reconstruye el número original como día.mes (8-jul → 8.7),
+     *  reescribiéndolo como Number. También cubre el caso de que llegue como texto de fecha. */
     async repararEscandallosFecha() {
         const sheetId = App.settings.get('catalogosId');
         if (!sheetId) { App.toast.show('Falta CATALOGOS_NOTELODIGO en CONFIG.', 'error'); return; }
         let rows;
         try {
-            rows = await App.sheets.readRange(sheetId, `${this.TAB}!A2:I`) || [];
+            // Lectura CRUDA (UNFORMATTED): las celdas fecha vuelven como nº de serie (~46000),
+            // no como texto localizado — así la reconstrucción no depende del idioma.
+            const resp = await App.sheets._fetch(
+                `${CONFIG.SHEETS_API}/${sheetId}/values/` +
+                `${encodeURIComponent(this.TAB + '!A2:I')}?valueRenderOption=UNFORMATTED_VALUE`);
+            rows = resp.values || [];
         } catch (e) {
             App.toast.show('No pude leer la pestaña MODELOS: ' + e.message, 'error', 5000);
             return;
@@ -15327,16 +15375,25 @@ App.modelos = {
         const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
         const candidatos = [];
         rows.forEach((r, i) => {
-            const raw = (r[2] || '').toString().trim();          // columna C = TELA_PPAL_M
-            if (!raw) return;
-            if (!isNaN(parseFloat(this._normNum(raw)))) return;  // ya es número → correcto
-            const d = new Date(raw);
-            if (isNaN(d.getTime())) return;                      // no parsea como fecha → ignorar
+            const v = r[2];                                      // columna C = TELA_PPAL_M
+            if (v === '' || v == null) return;
+            let day, month;
+            if (typeof v === 'number') {
+                // Un escandallo real son metros (< ~200). Un nº de serie de fecha es ~46000.
+                if (v <= 366) return;                            // número normal → correcto
+                ({ day, month } = this._serialToDayMonth(v));    // nº de serie → fecha
+            } else {
+                const s = v.toString().trim();
+                if (!s || !isNaN(parseFloat(this._normNum(s)))) return;  // ya numérico → correcto
+                const d = new Date(s);
+                if (isNaN(d.getTime())) return;                  // no es fecha → ignorar
+                day = d.getDate(); month = d.getMonth() + 1;
+            }
             candidatos.push({
                 nombre:   (r[0] || '').toString().trim(),
                 rowIndex: i + 2,
-                escandallo: d.getDate() + '.' + (d.getMonth() + 1),
-                _desde: `${d.getDate()}-${meses[d.getMonth()]}`,
+                escandallo: day + '.' + month,
+                _desde: `${day}-${meses[month - 1]}`,
             });
         });
         if (!candidatos.length) {
