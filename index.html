@@ -18365,6 +18365,11 @@ App.telas = {
         const unidad = this._unidadNum(tela);
         const stock = this._stockNum(tela);
         if (!unidad || stock <= 0) return 0;
+        // Un retal solo existe como SOBRANTE por encima de al menos un rollo entero.
+        // Si el stock es menor que una unidad de pedido, esos metros son material
+        // usable (no un retal): NO se deben proponer para descartar, o se vaciaría
+        // el stock legítimo (p. ej. 6 m con unidad de 10 m → 6 % 10 = 6 = todo el stock).
+        if (stock < unidad) return 0;
         const sobrante = stock % unidad;
         const umbral = CONFIG.RETAL_UMBRAL_M || 6;
         return (sobrante > 0 && sobrante <= umbral) ? sobrante : 0;
