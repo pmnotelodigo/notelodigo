@@ -3360,6 +3360,10 @@
                             <option value="inactivos">Solo inactivos</option>
                         </select>
                         <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.modelos.repararEscandallosFecha()"
+                                    title="Repara escandallos que el Sheet convirtió en fecha (p. ej. 8.7 → 8 de julio)">
+                                &#x1F527; Reparar fechas
+                            </button>
                             <button class="btn btn-secondary btn-sm" onclick="App.modelos.load(true)"
                                     title="Recargar datos desde Google Sheets">
                                 &#x21BB; Actualizar
@@ -3412,7 +3416,7 @@
                         <div class="form-group" style="margin:0; grid-column:1/3;">
                             <label>Foto del modelo</label>
                             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
-                                <input type="file" id="modeloFotoFile" accept="image/*" capture="environment"
+                                <input type="file" id="modeloFotoFile" accept="image/*"
                                        style="display:none;"
                                        onchange="App.modelos.uploadFoto(this)">
                                 <button type="button" class="btn btn-secondary btn-sm" id="btnModeloFotoUpload"
@@ -15220,14 +15224,38 @@ App.modelos = {
         }
     },
 
+    /** Normaliza un número de Sheets (coma decimal española) a punto. Ver App.telas._normNum. */
+    _normNum(v) {
+        let s = (v == null ? '' : v).toString().trim();
+        if (!s) return '';
+        const hasDot = s.includes('.'), hasComma = s.includes(',');
+        if (hasDot && hasComma) {
+            s = (s.lastIndexOf(',') > s.lastIndexOf('.'))
+                ? s.replace(/\./g, '').replace(',', '.')
+                : s.replace(/,/g, '');
+        } else if (hasComma) {
+            s = s.replace(',', '.');
+        }
+        return s;
+    },
+
+    /** Valor numérico para ESCRITURA segura frente al locale: si es número, lo manda
+     *  como Number (JSON) para que Sheets NO interprete "8.7" como la fecha 8-jul. */
+    _cellNum(v) {
+        const s = this._normNum(v);
+        if (s === '') return '';
+        const n = Number(s);
+        return isNaN(n) ? (v || '') : n;
+    },
+
     _parseRow(r, rowIndex) {
         const cell = i => (r[i] || '').toString().trim();
         return {
             NOMBRE:             cell(0),
             TIPO_CONSTRUCCION:  cell(1),
-            TELA_PPAL_M:        cell(2),
+            TELA_PPAL_M:        this._normNum(cell(2)),
             ADORNOS:            cell(3),
-            PRECIO_EUR:         cell(4),
+            PRECIO_EUR:         this._normNum(cell(4)),
             TALLERES_ASIGNADOS: cell(5),
             FOTO_URL:           cell(6),
             ACTIVO:             cell(7),
@@ -15240,9 +15268,9 @@ App.modelos = {
         return [
             m.NOMBRE || '',
             m.TIPO_CONSTRUCCION || '',
-            m.TELA_PPAL_M || '',
+            this._cellNum(m.TELA_PPAL_M),   // Number → evita que "8.7" se guarde como fecha 8-jul
             m.ADORNOS || '',
-            m.PRECIO_EUR || '',
+            this._cellNum(m.PRECIO_EUR),
             m.TALLERES_ASIGNADOS || '',
             m.FOTO_URL || '',
             m.ACTIVO || '',
@@ -15280,6 +15308,53 @@ App.modelos = {
         const v = (m.ACTIVO || '').toString().toUpperCase().trim();
         // Por defecto activo si está vacío. Solo FALSE/NO/0 lo marca como inactivo.
         return !['FALSE','NO','0','INACTIVO'].includes(v);
+    },
+
+    /** Repara escandallos (TELA_PPAL_M, columna C) que el Sheet convirtió en fecha por
+     *  el locale español (p. ej. "8.7" → 8 de julio). Reconstruye el número original
+     *  como día.mes (8-jul → 8.7) y lo reescribe como Number. Lee la pestaña MODELOS
+     *  directamente para funcionar también en modo proxy. */
+    async repararEscandallosFecha() {
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) { App.toast.show('Falta CATALOGOS_NOTELODIGO en CONFIG.', 'error'); return; }
+        let rows;
+        try {
+            rows = await App.sheets.readRange(sheetId, `${this.TAB}!A2:I`) || [];
+        } catch (e) {
+            App.toast.show('No pude leer la pestaña MODELOS: ' + e.message, 'error', 5000);
+            return;
+        }
+        const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+        const candidatos = [];
+        rows.forEach((r, i) => {
+            const raw = (r[2] || '').toString().trim();          // columna C = TELA_PPAL_M
+            if (!raw) return;
+            if (!isNaN(parseFloat(this._normNum(raw)))) return;  // ya es número → correcto
+            const d = new Date(raw);
+            if (isNaN(d.getTime())) return;                      // no parsea como fecha → ignorar
+            candidatos.push({
+                nombre:   (r[0] || '').toString().trim(),
+                rowIndex: i + 2,
+                escandallo: d.getDate() + '.' + (d.getMonth() + 1),
+                _desde: `${d.getDate()}-${meses[d.getMonth()]}`,
+            });
+        });
+        if (!candidatos.length) {
+            App.toast.show('No hay escandallos convertidos en fecha. Todo correcto. ✅', 'success', 4000);
+            return;
+        }
+        const lista = candidatos.map(c => `• ${c.nombre}:  ${c._desde}  →  ${c.escandallo} m`).join('\n');
+        if (!confirm(`Voy a reparar ${candidatos.length} escandallo(s) que el Sheet guardó como fecha:\n\n${lista}\n\n¿Aplicar los cambios?`)) return;
+        let ok = 0;
+        for (const c of candidatos) {
+            try {
+                await App.sheets.writeRange(sheetId, `${this.TAB}!C${c.rowIndex}`, [[this._cellNum(c.escandallo)]]);
+                ok++;
+            } catch (e) { console.error('[repararEscandallosFecha]', c.nombre, e); }
+        }
+        await this.load(true);
+        App.toast.show(`Reparados ${ok}/${candidatos.length} escandallos.`,
+            ok === candidatos.length ? 'success' : 'warning', 5000);
     },
 
     // ── Filtrado ──────────────────────────────────────────────────────────
