@@ -1999,7 +1999,7 @@
             <div class="nav-item" data-section="telas" onclick="App.ui.navigateTo('telas')">
                 <span class="nav-icon" style="position:relative;">
                     &#x1F9F5;
-                    <span id="telasBadgeSidebar" class="nav-badge" style="display:none; box-shadow:0 0 0 2px var(--primary, #c2185b);" title="Telas con retal pendiente de descartar">0</span>
+                    <span id="telasBadgeSidebar" class="nav-badge" style="display:none; box-shadow:0 0 0 2px var(--primary, #c2185b);" title="Telas con retal pendiente de guardar">0</span>
                 </span>
                 <span class="nav-label">Telas</span>
             </div>
@@ -3523,9 +3523,9 @@
 
                         <p style="margin:8px 0 4px;"><strong>Detección automática de retales:</strong></p>
                         <ul style="margin:4px 0 8px 18px; padding:0;">
-                            <li>Tras cada movimiento de stock, la app comprueba si <code>stock % unidad</code> es un valor pequeño (≤ 6 m). Si lo es, ese sobrante es un <strong>retal candidato a descartar</strong>.</li>
-                            <li>Aparece un modal preguntando "¿Descartar retal?" con default <strong>Sí</strong>.</li>
-                            <li>Si por lo que sea se cuela algún retal sin descartar, aparece un <strong>banner amarillo</strong> arriba de la tabla con la lista de telas pendientes y un botón rápido para limpiarlas.</li>
+                            <li>Tras un movimiento de stock, si lo que queda <strong>ya no llega a un rollo entero</strong> y es un resto pequeño (≤ 5 m), la app lo detecta como <strong>retal</strong>. Si aún queda un rollo completo o más, no se toca.</li>
+                            <li>Aparece un modal "¿Guardar como retal?": al aceptar, esos metros <strong>salen del stock de rollos y pasan a la lista de Retales</strong> (no se tiran) para trajes de niña.</li>
+                            <li>Los retales se ven en el apartado <strong>&#x1F9F6; Retales</strong> arriba de la tabla, donde Pilar puede editar sus metros o borrarlos cuando los use.</li>
                         </ul>
 
                         <strong>Cuándo TIENES que tocar el stock a mano:</strong>
@@ -3536,6 +3536,9 @@
                         </ul>
                     </div>
                 </details>
+
+                <!-- Panel de Retales (trocitos de tela por debajo de un rollo) -->
+                <div id="retalesPanel"></div>
 
                 <!-- Tabla agrupada por TIPO -->
                 <div id="telasContent">
@@ -3994,9 +3997,9 @@ const CONFIG = {
     CACHE_TTL: 5 * 60 * 1000, // 5 min default
     // Días sin modificar tras los cuales un traje (no entregado) entra en bandeja "Revisar" como estancado.
     STAGNATION_DAYS: 10,
-    // Umbral de retal: si después de un movimiento de stock,
-    // (stock % UNIDAD_PEDIDO_M) cae en (0, RETAL_UMBRAL_M], se ofrece descartar el retal.
-    RETAL_UMBRAL_M: 6,
+    // Umbral de retal: si tras un movimiento de stock lo que queda no llega a un
+    // rollo entero y es ≤ RETAL_UMBRAL_M, se ofrece guardarlo como retal.
+    RETAL_UMBRAL_M: 5,
     // Emails Google (lowercase) que SIEMPRE son admin, aunque el tab PERMISOS
     // no se pueda leer o alguien los borre de la lista por error. Es la vía de
     // emergencia anti-bloqueo: los admins "normales" (Pilar) se gestionan
@@ -17801,6 +17804,11 @@ App.ajustesGlobales = {
 App.telas = {
     HEADERS: ['TIPO','VARIANTE','PROVEEDOR','STOCK_M','UMBRAL_ALERTA','UBICACION','ACTIVA','NOTAS','UNIDAD_PEDIDO_M'],
     TAB: 'TELAS',
+    // Retales: trocitos de tela por debajo de un rollo que Pilar guarda para
+    // trajes de niña. Viven en su propia pestaña dentro del Sheet de catálogos.
+    RETAL_TAB: 'RETALES',
+    RETAL_HEADERS: ['TIPO','VARIANTE','METROS','FECHA','ORIGEN','NOTAS'],
+    _retales: [],
     _data: [],
     _filtered: [],
     _collapsed: new Set(),  // Tipos colapsados en la vista
@@ -17826,6 +17834,7 @@ App.telas = {
             const rows = await App.sheets.readRange(sheetId, range);
             this._data = rows.map((r, i) => this._parseRow(r, i + 2));
             this._populateFilters();
+            await this.loadRetales();
             this.filter();
         } catch (err) {
             console.error('[telas.load]', err);
@@ -17975,6 +17984,8 @@ App.telas = {
         const countEl = document.getElementById('telasCount');
         // Badge del sidebar siempre se actualiza con el render
         this.refreshBadge();
+        // Panel de Retales (independiente de los filtros de la tabla)
+        this._renderRetalesPanel();
         if (!container) return;
         if (countEl) {
             const bajas = this._filtered.filter(t => this._isLowStock(t)).length;
@@ -18146,22 +18157,22 @@ App.telas = {
                 `<span style="background:#fff8e1; padding:1px 6px; border-radius:3px; font-size:11px;">retal ${fmt(metros)} m</span></span>` +
                 `<button class="btn btn-primary btn-sm" ` +
                 `onclick="App.telas._descartarRetalUI('${escTipo}', '${escVar}')">` +
-                `Descartar ${fmt(metros)} m</button>` +
+                `Guardar retal ${fmt(metros)} m</button>` +
                 `</div>`
             );
         }).join('');
         return (
             `<div class="card" style="margin-bottom:14px; padding:12px 14px; background:#fff8e1; border-left:4px solid #f9a825;">` +
             `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">` +
-            `<strong style="color:#7a5d00;">&#x1F9F6; ${retales.length} tela${retales.length !== 1 ? 's' : ''} con retal pendiente</strong>` +
-            `<span style="font-size:11px; color:#7a5d00;">retales no aprovechables (≤ ${CONFIG.RETAL_UMBRAL_M || 6} m)</span>` +
+            `<strong style="color:#7a5d00;">&#x1F9F6; ${retales.length} tela${retales.length !== 1 ? 's' : ''} con retal por guardar</strong>` +
+            `<span style="font-size:11px; color:#7a5d00;">restos por debajo de un rollo (≤ ${CONFIG.RETAL_UMBRAL_M || 5} m)</span>` +
             `</div>` +
             items +
             `</div>`
         );
     },
 
-    /** UI handler: pregunta confirmación y descarta el retal de una tela concreta. */
+    /** UI handler: pregunta confirmación y guarda el retal de una tela concreta. */
     async _descartarRetalUI(tipo, variante) {
         const tela = this._data.find(t => t.TIPO === tipo && t.VARIANTE === variante);
         if (!tela) return;
@@ -18399,12 +18410,13 @@ App.telas = {
         const unidad = this._unidadNum(tela);
         const stock = this._stockNum(tela);
         if (!unidad || stock <= 0) return 0;
-        // Un retal solo existe como SOBRANTE por encima de al menos un rollo entero.
-        // Si el stock es menor que una unidad de pedido, esos metros son material
-        // usable (no un retal): NO se deben proponer para descartar, o se vaciaría
-        // el stock legítimo (p. ej. 6 m con unidad de 10 m → 6 % 10 = 6 = todo el stock).
-        if (stock < unidad) return 0;
-        const sobrante = stock % unidad;
+        // Regla de Pilar: un resto solo es "retal a descartar" cuando lo que queda
+        // YA NO llega a un rollo/unidad entero (no da para otro traje). Si todavía
+        // hay al menos un rollo completo, se conserva TODO — el sobrante por encima
+        // del rollo (p. ej. 12 = 10 + 2) NO se descarta.
+        if (stock >= unidad) return 0;
+        // Aquí stock < unidad: lo que queda es un resto por debajo de un rollo.
+        const sobrante = stock % unidad;   // == stock, porque stock < unidad
         const umbral = CONFIG.RETAL_UMBRAL_M || 6;
         return (sobrante > 0 && sobrante <= umbral) ? sobrante : 0;
     },
@@ -18431,7 +18443,7 @@ App.telas = {
     },
 
     /** Tras un movimiento de stock, si la tela queda con un retal candidato,
-     *  abre un modal preguntando a Pilar si lo descarta. Default = "Sí, descartar".
+     *  abre un modal preguntando a Pilar si lo guarda como retal. Default = "Sí".
      *  contexto: string corto que se muestra en el modal (ej. "corte traje 12"). */
     async _gestionarRetalCandidato(tipo, variante, contexto) {
         // Recargar la tela desde cache para tener el stock actualizado
@@ -18440,40 +18452,41 @@ App.telas = {
         const sobrante = this.retalCandidato(tela);
         if (!sobrante) return false;
 
-        const unidad = this._unidadNum(tela);
         const stock  = this._stockNum(tela);
-        const rollos = Math.floor(stock / unidad);
         const fmt = n => Number(Number(n).toFixed(2)).toString();
 
-        const desglose = rollos > 0
-            ? `${rollos} rollo${rollos !== 1 ? 's' : ''} entero${rollos !== 1 ? 's' : ''} (${fmt(rollos * unidad)} m) + retal de <strong>${fmt(sobrante)} m</strong>`
-            : `Retal de <strong>${fmt(sobrante)} m</strong> (sin rollo entero detrás)`;
-
         const answer = await App.ui.confirmDialog({
-            title: '🧶 ¿Descartar retal?',
+            title: '🧶 ¿Guardar como retal?',
             message:
-                `Tras ${contexto}, el stock de <strong>${tipo} / ${variante}</strong> es <strong>${fmt(stock)} m</strong>:<br>` +
-                `<span style="display:inline-block; background:#fff8e1; padding:6px 10px; border-radius:4px; margin:8px 0;">${desglose}</span><br>` +
-                `Los retales pequeños no se reaprovechan para trajes (van a trajes de niña por otro circuito).<br><br>` +
-                `¿Descartar los <strong>${fmt(sobrante)} m</strong> de retal?`,
+                `Tras ${contexto}, de <strong>${tipo} / ${variante}</strong> queda un resto de ` +
+                `<strong>${fmt(sobrante)} m</strong>, que ya no llega a un rollo entero.<br>` +
+                `<span style="display:inline-block; background:#fff8e1; padding:6px 10px; border-radius:4px; margin:8px 0;">` +
+                `Si lo guardas como <strong>retal</strong>, sale del stock de rollos y pasa a la lista de Retales ` +
+                `(cachos para trajes de niña). Así Pilar sabe qué trozos tiene.</span><br>` +
+                `¿Guardar los <strong>${fmt(sobrante)} m</strong> como retal?`,
             actions: [
-                { label: `✅ Sí, descartar ${fmt(sobrante)} m`, value: 'discard', style: 'primary'   },
-                { label: 'No, mantener',                       value: 'keep',    style: 'secondary' },
+                { label: `✅ Sí, guardar retal (${fmt(sobrante)} m)`, value: 'save', style: 'primary'   },
+                { label: 'No, dejar en stock',                       value: 'keep', style: 'secondary' },
             ],
         });
-        if (answer !== 'discard') {
-            console.info(`[retal] Pilar mantiene ${sobrante} m de ${tipo}/${variante}.`);
+        if (answer !== 'save') {
+            console.info(`[retal] Pilar deja ${sobrante} m en stock de ${tipo}/${variante}.`);
             return false;
         }
-        return await this.descartarRetal(tela, sobrante, contexto);
+        return await this.guardarRetal(tela, sobrante, contexto);
     },
 
-    /** Descarta `metros` m de retal de una tela: resta del stock y registra AJUSTE [RETAL]. */
-    async descartarRetal(tela, metros, contexto = 'ajuste manual') {
+    /** Mueve `metros` m de una tela desde el stock de rollos a la lista de Retales:
+     *  resta del stock, registra el trocito en la pestaña RETALES y deja rastro en
+     *  MOVIMIENTOS. Antes esto "descartaba" (tiraba) los metros; ahora se conservan. */
+    async guardarRetal(tela, metros, contexto = 'ajuste manual') {
         const fmt = n => Number(Number(n).toFixed(2)).toString();
         const tipo = tela.TIPO, variante = tela.VARIANTE;
         const nuevoStock = await this.updateStock(tipo, variante, -Number(metros));
         if (nuevoStock === null) return false;
+        // Guardar el trocito en la lista de Retales.
+        await this._appendRetal({ tipo, variante, metros: Number(metros), origen: contexto });
+        // Rastro en el histórico de movimientos (auditoría).
         await App.movimientos.append({
             TIPO:           App.movimientos.TIPOS.AJUSTE,
             TELA_TIPO:      tipo,
@@ -18481,15 +18494,140 @@ App.telas = {
             METROS:         -Number(metros),
             TRAJE_NUM:      '',
             PROVEEDOR:      tela.PROVEEDOR || '',
-            NOTAS:          `[RETAL] descartados ${metros} m de retal (${contexto}) · nuevo stock: ${nuevoStock} m`,
+            NOTAS:          `[RETAL] ${metros} m guardados como retal (${contexto}) · nuevo stock: ${nuevoStock} m`,
         });
         App.toast.show(
-            `<strong>Retal descartado</strong><br>−${fmt(metros)} m de <strong>${tipo}/${variante}</strong><br>Nuevo stock: <strong>${fmt(nuevoStock)} m</strong>`,
+            `<strong>Retal guardado</strong><br>${fmt(metros)} m de <strong>${tipo}/${variante}</strong> a la lista de Retales<br>Stock de rollos: <strong>${fmt(nuevoStock)} m</strong>`,
             'info', 0
         );
         // Refrescar la vista de telas si está visible
         if (this._filtered) this.filter();
         return true;
+    },
+
+    // ── Retales: almacenamiento (pestaña RETALES del Sheet de catálogos) ──────
+
+    _parseRetal(r, rowIndex) {
+        const cell = i => (r[i] || '').toString().trim();
+        return {
+            TIPO:      cell(0),
+            VARIANTE:  cell(1),
+            METROS:    this._normNum(cell(2)),
+            FECHA:     cell(3),
+            ORIGEN:    cell(4),
+            NOTAS:     cell(5),
+            _rowIndex: rowIndex,
+        };
+    },
+
+    /** Carga la lista de retales desde la pestaña RETALES (la crea si no existe). */
+    async loadRetales() {
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) { this._retales = []; return; }
+        try {
+            await App.sheets.ensureSheet(sheetId, this.RETAL_TAB, this.RETAL_HEADERS);
+            const rows = await App.sheets.readRange(sheetId, `${this.RETAL_TAB}!A2:F`).catch(() => []);
+            this._retales = (rows || [])
+                .map((r, i) => this._parseRetal(r, i + 2))
+                .filter(x => x.TIPO || x.VARIANTE || x.METROS);
+        } catch (err) {
+            console.warn('[telas.loadRetales]', err.message);
+            this._retales = [];
+        }
+    },
+
+    /** Añade una fila de retal a la pestaña RETALES. */
+    async _appendRetal({ tipo, variante, metros, origen }) {
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) return false;
+        await App.sheets.ensureSheet(sheetId, this.RETAL_TAB, this.RETAL_HEADERS);
+        const fecha = new Date().toISOString().slice(0, 10);
+        await App.sheets.appendRows(sheetId, `${this.RETAL_TAB}!A:F`,
+            [[tipo || '', variante || '', this._cellNum(metros), fecha, origen || '', '']]);
+        await this.loadRetales();
+        return true;
+    },
+
+    /** Edita los metros de un retal (columna C). rowIndex = fila absoluta en el Sheet. */
+    async editarRetalMetros(rowIndex) {
+        const retal = this._retales.find(r => r._rowIndex === rowIndex);
+        if (!retal) return;
+        const actual = this._normNum(retal.METROS);
+        const entrada = prompt(`Metros del retal de ${retal.TIPO} / ${retal.VARIANTE}:`, actual);
+        if (entrada === null) return;                       // cancelado
+        const metros = Number(this._normNum(entrada));
+        if (isNaN(metros) || metros < 0) { App.toast.show('Valor no válido.', 'error'); return; }
+        const sheetId = App.settings.get('catalogosId');
+        if (metros === 0) { return this.borrarRetal(rowIndex, true); }  // 0 m = borrar
+        await App.sheets.writeRange(sheetId, `${this.RETAL_TAB}!C${rowIndex}`, [[this._cellNum(metros)]]);
+        await this.loadRetales();
+        this.filter();
+        App.toast.show('Retal actualizado.', 'success', 2000);
+    },
+
+    /** Borra un retal (elimina su fila del Sheet). */
+    async borrarRetal(rowIndex, silent = false) {
+        const retal = this._retales.find(r => r._rowIndex === rowIndex);
+        if (!retal) return;
+        if (!silent && !confirm(`¿Borrar el retal de ${retal.TIPO} / ${retal.VARIANTE} (${this._normNum(retal.METROS)} m)?`)) return;
+        const sheetId = App.settings.get('catalogosId');
+        try {
+            const meta = await App.sheets._fetch(
+                `${CONFIG.SHEETS_API}/${sheetId}?fields=sheets(properties(sheetId,title))`);
+            const tab = meta.sheets.find(s => s.properties.title === this.RETAL_TAB);
+            if (!tab) throw new Error('Pestaña RETALES no encontrada');
+            await App.sheets._fetch(`${CONFIG.SHEETS_API}/${sheetId}:batchUpdate`, {
+                method: 'POST',
+                body: JSON.stringify({ requests: [{ deleteDimension: {
+                    range: { sheetId: tab.properties.sheetId, dimension: 'ROWS',
+                             startIndex: rowIndex - 1, endIndex: rowIndex },
+                }}]}),
+            });
+            await this.loadRetales();
+            this.filter();
+            App.toast.show('Retal borrado.', 'success', 2000);
+        } catch (err) {
+            console.error('[telas.borrarRetal]', err);
+            App.toast.show('Error al borrar el retal: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Panel de Retales (encima del catálogo de Telas). */
+    _renderRetalesPanel() {
+        const el = document.getElementById('retalesPanel');
+        if (!el) return;
+        const fmt = n => Number(Number(this._normNum(n)) || 0).toFixed(2).replace(/\.00$/, '');
+        const retales = (this._retales || []).filter(r => r.TIPO || r.VARIANTE);
+        if (!retales.length) { el.innerHTML = ''; return; }
+        const totalM = retales.reduce((s, r) => s + (Number(this._normNum(r.METROS)) || 0), 0);
+        const filas = retales.map(r => {
+            const esc = s => (s || '').toString().replace(/</g, '&lt;');
+            return `<tr>
+                <td style="padding:6px 8px;"><strong>${esc(r.TIPO)}</strong> · ${esc(r.VARIANTE)}</td>
+                <td style="padding:6px 8px; text-align:right; white-space:nowrap;">${fmt(r.METROS)} m</td>
+                <td style="padding:6px 8px; color:#888; font-size:11px;">${esc(r.FECHA)}</td>
+                <td style="padding:6px 8px; text-align:right; white-space:nowrap;">
+                    <button class="btn btn-sm btn-secondary" style="padding:2px 8px; font-size:11px;"
+                            onclick="App.telas.editarRetalMetros(${r._rowIndex})" title="Editar metros">&#x270F;&#xFE0F;</button>
+                    <button class="btn btn-sm btn-secondary" style="padding:2px 8px; font-size:11px;"
+                            onclick="App.telas.borrarRetal(${r._rowIndex})" title="Borrar retal">&#x1F5D1;&#xFE0F;</button>
+                </td></tr>`;
+        }).join('');
+        el.innerHTML =
+            `<details style="margin-bottom:14px; background:#fff; border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                <summary style="cursor:pointer; padding:10px 14px; background:#f3e8ee; font-weight:600; color:#7a3d63;">
+                    &#x1F9F6; Retales (${retales.length}) · ${fmt(totalM)} m en trocitos
+                </summary>
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead><tr style="background:#fafafa; color:#666; font-size:11px; text-transform:uppercase;">
+                        <th style="padding:6px 8px; text-align:left;">Tela</th>
+                        <th style="padding:6px 8px; text-align:right;">Metros</th>
+                        <th style="padding:6px 8px; text-align:left;">Fecha</th>
+                        <th style="padding:6px 8px;"></th>
+                    </tr></thead>
+                    <tbody>${filas}</tbody>
+                </table>
+            </details>`;
     },
 
     /** API: aplica un delta al STOCK_M de una tela. Útil para automatizaciones
