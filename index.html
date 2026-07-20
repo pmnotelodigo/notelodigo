@@ -17834,18 +17834,50 @@ App.telas = {
         }
     },
 
+    /** Normaliza un número tal como lo devuelve Sheets con FORMATTED_VALUE.
+     *  En locale español la coma es el separador decimal y el punto el de miles,
+     *  así que "19,96" llega como texto con coma y rompe los <input type="number">
+     *  (que solo aceptan punto) y parseFloat (que corta en la coma).
+     *  Devuelve el número en formato canónico con punto: "19,96"→"19.96",
+     *  "1.234,5"→"1234.5", "30"→"30", ""→"". */
+    _normNum(v) {
+        let s = (v == null ? '' : v).toString().trim();
+        if (!s) return '';
+        const hasDot = s.includes('.'), hasComma = s.includes(',');
+        if (hasDot && hasComma) {
+            // El separador que aparece más a la derecha es el decimal real.
+            s = (s.lastIndexOf(',') > s.lastIndexOf('.'))
+                ? s.replace(/\./g, '').replace(',', '.')   // 1.234,56 → 1234.56
+                : s.replace(/,/g, '');                      // 1,234.56 → 1234.56
+        } else if (hasComma) {
+            s = s.replace(',', '.');                        // 19,96 → 19.96
+        }
+        return s;
+    },
+
+    /** Prepara un valor numérico para ESCRITURA en Sheets de forma segura frente
+     *  al locale. Si es numérico, lo manda como Number (JSON number) para que la
+     *  API lo guarde tal cual sin reinterpretar el punto como separador de miles;
+     *  si no, lo deja como texto. */
+    _cellNum(v) {
+        const s = this._normNum(v);
+        if (s === '') return '';
+        const n = Number(s);
+        return isNaN(n) ? (v || '') : n;
+    },
+
     _parseRow(r, rowIndex) {
         const cell = i => (r[i] || '').toString().trim();
         return {
             TIPO:             cell(0),
             VARIANTE:         cell(1),
             PROVEEDOR:        cell(2),
-            STOCK_M:          cell(3),
-            UMBRAL_ALERTA:    cell(4),
+            STOCK_M:          this._normNum(cell(3)),
+            UMBRAL_ALERTA:    this._normNum(cell(4)),
             UBICACION:        cell(5),
             ACTIVA:           cell(6),
             NOTAS:            cell(7),
-            UNIDAD_PEDIDO_M:  cell(8),  // Tamaño del rollo/pedido típico — usado para detectar retales
+            UNIDAD_PEDIDO_M:  this._normNum(cell(8)),  // Tamaño del rollo/pedido típico — usado para detectar retales
             _rowIndex:        rowIndex,
         };
     },
@@ -17853,9 +17885,9 @@ App.telas = {
     _serializeRow(t) {
         return [
             t.TIPO || '', t.VARIANTE || '', t.PROVEEDOR || '',
-            t.STOCK_M || '', t.UMBRAL_ALERTA || '',
+            this._cellNum(t.STOCK_M), this._cellNum(t.UMBRAL_ALERTA),
             t.UBICACION || '', t.ACTIVA || '', t.NOTAS || '',
-            t.UNIDAD_PEDIDO_M || '',
+            this._cellNum(t.UNIDAD_PEDIDO_M),
         ];
     },
 
@@ -18198,9 +18230,11 @@ App.telas = {
         try {
             const sheetId = App.settings.get('catalogosId');
             if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
-            t.STOCK_M = newVal;
+            t.STOCK_M = this._normNum(newVal);
             const range = `${this.TAB}!D${t._rowIndex}`;
-            await App.sheets.writeRange(sheetId, range, [[newVal]]);
+            // Escribimos el número como Number (no texto) para que Sheets no
+            // reinterprete el punto decimal como separador de miles en locale español.
+            await App.sheets.writeRange(sheetId, range, [[this._cellNum(newVal)]]);
             input.classList.remove('saving');
             input.classList.add('saved');
             App.toast.show(`Stock ${tipo} ${variante}: ${newVal} m`, 'success', 2000);
