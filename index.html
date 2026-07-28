@@ -15738,6 +15738,9 @@ App.jose = {
     _bandeja: 'cortador',     // cortador | llevar | recoger | historico
     _selectedTaller: null,    // null = vista de carpetas; "BRENES" = trajes de BRENES.
                               // Solo aplica a las bandejas "recoger" e "historico".
+    _cortadorFilter: '',      // texto del buscador de la bandeja "cortador" (modelo/tela/nombre).
+                              // Permite a Jose organizar los adornos por taller antes de recoger
+                              // el corte: escribe "Bambula" y ve solo esos trajes.
     _lastLoadAt: 0,           // timestamp ms de la última recarga real desde el sheet
     _pollingId: null,         // setInterval id del auto-refresh
     _POLL_MS: 30000,          // cada 30 segundos refresca si la sección Jose está activa
@@ -16094,8 +16097,39 @@ App.jose = {
             }).join('');
             cont.innerHTML =
                 `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px;">${folderCards}</div>`;
+        } else if (this._bandeja === 'cortador') {
+            // Bandeja "Recoger del cortador" con BUSCADOR por modelo/tela/nombre.
+            // Uso real: Jose organiza los adornos por taller ANTES de recoger el
+            // corte. Cada taller hace unos modelos concretos, así que escribe
+            // p.ej. "Bambula" y ve solo esos trajes para preparar sus adornos.
+            //
+            // Si el usuario ya está escribiendo en el input (foco), un refresco
+            // por polling no debe reconstruir la barra (perdería el foco); en ese
+            // caso solo refrescamos las cards.
+            const inpActivo = document.getElementById('joseCortadorFiltro');
+            if (inpActivo && document.activeElement === inpActivo) {
+                this._renderCortadorCards();
+                return;
+            }
+            const escFiltro = (this._cortadorFilter || '').replace(/"/g, '&quot;');
+            const filterBar =
+                `<div class="card" style="padding:8px 12px; margin-bottom:12px; display:flex; ` +
+                        `gap:8px; align-items:center; flex-wrap:wrap;">` +
+                    `<span style="font-size:13px; color:var(--text-muted); white-space:nowrap;">&#x1F50D; Filtrar por modelo o tela:</span>` +
+                    `<input type="text" class="form-input" id="joseCortadorFiltro" ` +
+                        `placeholder="ej: Bambula, Alison…" value="${escFiltro}" ` +
+                        `oninput="App.jose.setCortadorFilter(this.value)" ` +
+                        `style="flex:1; min-width:140px; font-size:13px;">` +
+                    `<button class="btn btn-secondary btn-sm" title="Limpiar filtro" ` +
+                        `onclick="var i=document.getElementById('joseCortadorFiltro'); if(i)i.value=''; App.jose.setCortadorFilter('');">` +
+                        `&#x2715;</button>` +
+                    `<span id="joseCortadorCount" style="font-size:12px; color:var(--text-muted); white-space:nowrap;"></span>` +
+                `</div>`;
+            cont.innerHTML = filterBar + `<div id="joseCortadorCards"></div>`;
+            this._renderCortadorCards();
+            return;
         } else {
-            // Lista plana (cortador, llevar, tienda)
+            // Lista plana (llevar, tienda)
             const cards = list.map(t => this._renderCard(t)).join('');
             // En "tienda", botón para marcar todo de una vez: Jose suele dejar
             // todos los trajes del coche en la tienda en un solo viaje.
@@ -16109,6 +16143,50 @@ App.jose = {
                 bulkBar +
                 `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>`;
         }
+    },
+
+    /** Actualiza el texto del buscador de la bandeja cortador y repinta SOLO
+     *  las cards (no la barra), para no perder el foco mientras Jose escribe. */
+    setCortadorFilter(v) {
+        this._cortadorFilter = v || '';
+        this._renderCortadorCards();
+    },
+
+    /** Pinta las cards de la bandeja "cortador" aplicando el filtro actual por
+     *  modelo, tela o nombre. Recalcula la lista fresca (por si un refresh
+     *  cambió los datos) y solo escribe dentro de #joseCortadorCards. */
+    _renderCortadorCards() {
+        const box = document.getElementById('joseCortadorCards');
+        if (!box) return;
+        const COL  = App.trajes.COL;
+        const full = this._calcLists().cortador || [];
+        const term = (this._cortadorFilter || '').toLowerCase().trim();
+        const filtered = term
+            ? full.filter(t => {
+                const modelo = (t[COL.modelo]   || '').toLowerCase();
+                const tela   = (t[COL.tipoTela] || '').toLowerCase();
+                const nombre = (t[COL.nombre]   || '').toLowerCase();
+                return modelo.includes(term) || tela.includes(term) || nombre.includes(term);
+              })
+            : full;
+
+        const countEl = document.getElementById('joseCortadorCount');
+        if (countEl) {
+            countEl.textContent = term
+                ? `${filtered.length} de ${full.length}`
+                : `${full.length} traje${full.length !== 1 ? 's' : ''}`;
+        }
+
+        if (!filtered.length) {
+            const msg = term
+                ? `Ningún traje en el cortador coincide con &laquo;${this._cortadorFilter}&raquo;.`
+                : 'Nada pendiente en esta bandeja.';
+            box.innerHTML = `<div class="empty-state" style="padding:30px;"><p>${msg}</p></div>`;
+            return;
+        }
+        const cards = filtered.map(t => this._renderCard(t)).join('');
+        box.innerHTML =
+            `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">${cards}</div>`;
     },
 
     _renderCard(t) {
