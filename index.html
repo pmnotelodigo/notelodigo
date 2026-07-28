@@ -16337,8 +16337,9 @@ App.jose = {
                 `<strong style="font-size:14px;">#${num} · ${nombre || '—'}</strong>` +
                 tallerChip +
             `</div>` +
-            `<div style="font-size:13px; color:#444; margin-bottom:4px;">${modelo}` +
-            (tipoTela ? ` · <span style="color:#666;">${tipoTela}</span>` : '') + `</div>` +
+            `<div style="font-size:17px; font-weight:700; color:var(--primary); ` +
+                `line-height:1.2; margin-bottom:2px; letter-spacing:0.2px;">${modelo}</div>` +
+            (tipoTela ? `<div style="font-size:12px; color:#666; margin-bottom:4px;">${tipoTela}</div>` : '') +
             tallaLine +
             (feria  ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F4CD; ${feria}</div>` : '') +
             (diasInfo ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">&#x23F1; ${diasInfo}</div>` : '') +
