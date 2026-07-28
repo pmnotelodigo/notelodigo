@@ -19438,6 +19438,137 @@ window.addEventListener('load', () => {
     // Initialize cache DB
     App.cache._getDb().catch(err => console.warn('IndexedDB error:', err));
 });
+
+/* ==========================================================
+   BOTÓN "ATRÁS" DEL MÓVIL — atrapar la navegación del navegador
+   ----------------------------------------------------------
+   La app es una sola página (SPA): abrir una ficha o cambiar de
+   sección no es "cambiar de página" para el móvil. Sin esto, el
+   botón/gesto "atrás" del teléfono sale de la app entera (a
+   WhatsApp o de vuelta al login) en lugar de cerrar lo que hay
+   abierto.
+
+   Solución (History API): mantenemos entradas "trampa" en el
+   historial cuando el usuario entra "más adentro" (abre un modal,
+   abre el menú lateral, o navega a una sección que no es el inicio).
+   Al pulsar "atrás":
+     1) si el menú lateral está abierto → se cierra
+     2) si hay una ficha/modal abierto → se cierra el de arriba
+     3) si estás en una sección que no es el inicio → vuelves al inicio
+     4) sólo en el inicio y sin nada abierto → sale de la app (normal)
+
+   Nunca llamamos a history.back() nosotros mismos, así que no hay
+   riesgo de bucles. Es un añadido aislado: no toca ninguna función
+   existente (detecta los modales con un MutationObserver).
+   ========================================================== */
+(function backButtonTrap() {
+    'use strict';
+
+    function loggedIn() {
+        var c = document.getElementById('appContainer');
+        return !!(c && c.classList.contains('active'));
+    }
+
+    function homeSection() {
+        try {
+            if (window.App && App.isJose && App.isJose()) return 'jose';
+            if (window.App && App.isDependienta && App.isDependienta()) return 'clientas';
+        } catch (e) {}
+        return 'dashboard';
+    }
+
+    function openModals() {
+        return document.querySelectorAll('.modal-overlay.active');
+    }
+
+    function sidebarOpen() {
+        return !!document.querySelector('.sidebar.open');
+    }
+
+    function currentSection() {
+        var s = document.querySelector('.section.active');
+        return s ? s.id.replace(/^sec-/, '') : null;
+    }
+
+    function pushTrap() {
+        try { history.pushState({ nlodTrap: true }, ''); } catch (e) {}
+    }
+
+    // Sembrar una entrada base para tener margen antes de salir.
+    pushTrap();
+
+    // Empujar una trampa cada vez que se ABRE un modal (gana .active) o el
+    // menú lateral (gana .open). Usamos un MutationObserver para no tener que
+    // modificar cada función open/close de la app.
+    try {
+        var mo = new MutationObserver(function (muts) {
+            for (var i = 0; i < muts.length; i++) {
+                var el = muts[i].target;
+                if (!el || !el.classList) continue;
+                if (el.classList.contains('modal-overlay') && el.classList.contains('active')) {
+                    pushTrap();
+                } else if (el.classList.contains('sidebar') && el.classList.contains('open')) {
+                    pushTrap();
+                }
+            }
+        });
+        document.querySelectorAll('.modal-overlay, .sidebar').forEach(function (el) {
+            mo.observe(el, { attributes: true, attributeFilter: ['class'] });
+        });
+    } catch (e) { /* MutationObserver no disponible: seguimos con el resto */ }
+
+    // Al entrar en una sección que NO es el inicio (desde el inicio), empujar
+    // una trampa para que "atrás" te devuelva al inicio antes de salir.
+    try {
+        if (window.App && App.ui && typeof App.ui.navigateTo === 'function') {
+            var _navigateTo = App.ui.navigateTo.bind(App.ui);
+            App.ui.navigateTo = function (sectionId) {
+                var prev = currentSection();
+                var r = _navigateTo(sectionId);
+                try {
+                    var now = currentSection();
+                    var home = homeSection();
+                    if (loggedIn() && now && now !== home && (prev === home || prev === null)) {
+                        pushTrap();
+                    }
+                } catch (e2) {}
+                return r;
+            };
+        }
+    } catch (e) {}
+
+    window.addEventListener('popstate', function () {
+        // Fuera de la sesión (pantalla de login): comportamiento normal.
+        if (!loggedIn()) return;
+
+        // 1) Menú lateral abierto → cerrarlo.
+        if (sidebarOpen()) {
+            try { App.ui.closeSidebar(); } catch (e) {}
+            pushTrap();
+            return;
+        }
+
+        // 2) Ficha/modal abierto → cerrar el de más arriba.
+        var mods = openModals();
+        if (mods.length) {
+            mods[mods.length - 1].classList.remove('active');
+            pushTrap();
+            return;
+        }
+
+        // 3) En una sección que no es el inicio → volver al inicio.
+        var sec = currentSection();
+        var home = homeSection();
+        if (sec && sec !== home) {
+            try { App.ui.navigateTo(home); } catch (e) {}
+            pushTrap();
+            return;
+        }
+
+        // 4) En el inicio y sin nada abierto → no re-armamos: el siguiente
+        //    "atrás" sale de la app con normalidad.
+    });
+})();
 </script>
 
 </body>
