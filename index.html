@@ -1845,6 +1845,95 @@
             text-transform: uppercase;
         }
     </style>
+    <!-- Estilos de la sección Informes. Van en su propio bloque con id para
+         que App.informes.imprimir() pueda clonarlos en la ventana de impresión. -->
+    <style id="informesEstilos">
+        .inf-cabecera { display:flex; justify-content:space-between; align-items:flex-end;
+                        gap:12px; flex-wrap:wrap; margin-bottom:14px; padding-bottom:10px;
+                        border-bottom:2px solid var(--primary, #C2185B); }
+        .inf-titulo   { font-size:20px; font-weight:700; color:var(--primary, #C2185B); }
+        .inf-sub      { font-size:12px; color:var(--text-muted, #777); margin-top:2px; }
+        .inf-sello    { font-size:11px; color:var(--text-muted, #999); text-align:right; }
+        .inf-bloque   { margin-bottom:14px; }
+        .inf-sub2     { font-size:12px; font-weight:700; color:var(--text-light, #666);
+                        text-transform:uppercase; letter-spacing:.4px; margin-bottom:8px; }
+        .inf-vacio    { font-size:12px; color:var(--text-muted, #888); font-style:italic; margin:6px 0; }
+        .inf-nota     { font-size:11px; color:var(--text-muted, #888); margin:10px 0 0; }
+
+        .inf-aviso    { background:#fff8e6; border:1px solid #f0d9a8; }
+        .inf-kpis     { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; }
+        .inf-kpi      { background:#fff; border:1px solid #eee; border-top:3px solid #ccc;
+                        border-radius:8px; padding:10px 12px; }
+        .inf-kpi-val  { font-size:26px; font-weight:700; line-height:1.1; }
+        .inf-kpi-label{ font-size:12px; font-weight:600; margin-top:2px; }
+        .inf-kpi-hint { font-size:10px; color:var(--text-muted, #888); margin-top:3px; }
+        .inf-delta    { font-weight:700; margin-left:2px; }
+        .inf-delta-up { color:#2e7d32; }
+        .inf-delta-down{ color:#c62828; }
+        .inf-delta-flat{ color:#999; }
+
+        .inf-facturacion { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+                           gap:10px; margin-top:14px; padding-top:12px; border-top:1px dashed #e3dade; }
+        .inf-fact-label  { font-size:11px; color:var(--text-muted, #888); }
+        .inf-fact-val    { font-size:22px; font-weight:700; color:#8e0e45; }
+        .inf-fact-hint   { font-size:10px; color:var(--text-muted, #999); margin-top:2px; line-height:1.35; }
+
+        .inf-plazos      { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+                           gap:10px; text-align:center; }
+        .inf-plazo-val   { font-size:30px; font-weight:700; color:var(--primary, #C2185B); }
+        .inf-plazo-u     { font-size:12px; color:var(--text-muted, #888); margin-left:3px; }
+        .inf-plazo-l     { font-size:12px; font-weight:600; margin-top:2px; line-height:1.4; }
+        .inf-plazo-l small { font-weight:400; color:var(--text-muted, #999); font-size:10px; }
+
+        .inf-embudo      { display:grid; grid-template-columns:repeat(auto-fit, minmax(110px, 1fr)); gap:8px; }
+        .inf-emb-item    { background:#faf6f8; border-radius:8px; padding:10px 8px; text-align:center; }
+        .inf-emb-item b  { display:block; font-size:22px; font-weight:700; }
+        .inf-emb-item span { font-size:11px; color:var(--text-light, #666); }
+        .inf-emb-ok      { background:#eef7ee; }
+        .inf-alertas     { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
+
+        .inf-barras      { display:flex; flex-direction:column; gap:5px; }
+        .inf-barra-row   { display:grid; grid-template-columns:minmax(70px,110px) 1fr auto;
+                           gap:8px; align-items:center; font-size:12px; }
+        .inf-barra-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+        .inf-barra-track { background:#f0eaed; border-radius:20px; height:12px; overflow:hidden; }
+        .inf-barra-fill  { height:100%; border-radius:20px; }
+        .inf-barra-val   { font-weight:700; white-space:nowrap; font-size:12px; }
+        .inf-barra-extra { font-weight:400; color:var(--text-muted, #999); font-size:10px; margin-left:5px; }
+
+        .inf-cols        { display:flex; align-items:flex-end; gap:5px; height:150px;
+                           padding-top:6px; overflow-x:auto; }
+        .inf-col         { flex:1; min-width:34px; display:flex; flex-direction:column;
+                           align-items:center; justify-content:flex-end; height:100%; }
+        .inf-col-bars    { display:flex; align-items:flex-end; gap:2px; height:100%; width:100%;
+                           justify-content:center; }
+        .inf-col-bar     { width:30%; min-height:2px; border-radius:3px 3px 0 0; }
+        .inf-col-enc     { background:#26A69A; }
+        .inf-col-rec     { background:#C2185B; }
+        .inf-col-ent     { background:#43A047; }
+        .inf-col-n       { font-size:10px; font-weight:700; margin-top:3px; }
+        .inf-col-label   { font-size:9px; color:var(--text-muted, #999); text-align:center;
+                           line-height:1.15; margin-top:1px; }
+        .inf-col-actual .inf-col-label { color:var(--primary, #C2185B); font-weight:700; }
+        .inf-leyenda     { display:flex; gap:14px; font-size:11px; color:var(--text-muted, #777);
+                           margin-top:8px; }
+        .inf-leyenda i   { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; }
+
+        .inf-2col        { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:18px; }
+
+        .inf-tabla       { width:100%; border-collapse:collapse; font-size:12px; }
+        .inf-tabla th    { text-align:left; padding:6px 8px; border-bottom:2px solid #eee;
+                           font-size:11px; color:var(--text-light, #666); font-weight:700; }
+        .inf-tabla th small { font-weight:400; color:var(--text-muted, #999); font-size:9px; }
+        .inf-tabla td    { padding:6px 8px; border-bottom:1px solid #f3eff1; }
+        .inf-tabla tbody tr:last-child td { border-bottom:none; }
+
+        @media (max-width: 640px) {
+            .inf-titulo { font-size:17px; }
+            .inf-kpi-val { font-size:22px; }
+            .inf-plazo-val { font-size:24px; }
+        }
+    </style>
 </head>
 <body>
 
@@ -1989,6 +2078,11 @@
                     <span id="joseBadgeSidebar" class="nav-badge" style="display:none;" title="Trajes pendientes de mover (cortador / taller)">0</span>
                 </span>
                 <span class="nav-label">Jose</span>
+            </div>
+
+            <div class="nav-item nav-item-primary" data-section="informes" onclick="App.ui.navigateTo('informes')">
+                <span class="nav-icon">&#x1F4C8;</span>
+                <span class="nav-label">Informes</span>
             </div>
 
             <div class="nav-group-label">Herramientas</div>
@@ -3338,6 +3432,52 @@
                         <button class="btn btn-primary" onclick="App.pedidos.registrarRecepcion()" id="btnPedidoRecepcionSave">
                             &check; Confirmar recepción
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Informes (reporting periódico — solo lectura) -->
+            <div class="section" id="sec-informes">
+
+                <!-- Toolbar: periodo + navegación + acciones -->
+                <div class="card" style="margin-bottom:16px; padding:12px 16px;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <select class="form-input" id="informesPeriodo"
+                                style="max-width:180px; margin:0; font-size:12px;"
+                                onchange="App.informes.setPeriodo(this.value)">
+                            <option value="semana">Cada semana</option>
+                            <option value="quincena">Cada 15 días</option>
+                            <option value="mes" selected>Cada mes</option>
+                            <option value="trimestre">Cada trimestre</option>
+                            <option value="anio">Cada año</option>
+                            <option value="temporada">Temporada completa</option>
+                        </select>
+                        <div style="display:flex; gap:5px; align-items:center;">
+                            <button class="btn btn-secondary btn-sm" id="informesPrev"
+                                    onclick="App.informes.mover(-1)" title="Periodo anterior">&#x25C0;</button>
+                            <span id="informesRango"
+                                  style="font-size:13px; font-weight:700; min-width:180px; text-align:center;">&mdash;</span>
+                            <button class="btn btn-secondary btn-sm" id="informesNext"
+                                    onclick="App.informes.mover(1)" title="Periodo siguiente">&#x25B6;</button>
+                        </div>
+                        <div style="margin-left:auto; display:flex; gap:8px;">
+                            <button class="btn btn-secondary btn-sm" onclick="App.informes.load(true)"
+                                    title="Recargar datos desde Google Sheets">
+                                &#x21BB; Actualizar
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="App.informes.imprimir()"
+                                    title="Abre el informe en una ventana limpia y lanza la impresión (guardar como PDF)">
+                                &#x1F5A8;&#xFE0F; Imprimir / PDF
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="informesContent">
+                    <div class="empty-state">
+                        <div class="empty-icon">&#x1F4CA;</div>
+                        <h3>Informe de la temporada</h3>
+                        <p>Elige el periodo y pulsa Actualizar para calcularlo.</p>
                     </div>
                 </div>
             </div>
@@ -7742,6 +7882,7 @@ const App = {
             corte:      { title: 'Corte',             subtitle: 'Orden de corte por modelo' },
             pedidos:    { title: 'Pedidos',           subtitle: 'Pedidos a proveedor — recepción y stock' },
             jose:       { title: 'Jose',              subtitle: 'Logística entre cortador y talleres' },
+            informes:   { title: 'Informes',          subtitle: 'Reporting por semana, mes o temporada' },
             modelos:           { title: 'Modelos',           subtitle: 'Catálogo y escandallos' },
             telas:             { title: 'Telas',             subtitle: 'Catálogo y stock' },
             proveedores:       { title: 'Proveedores',       subtitle: 'Catálogo de proveedores y mínimos de pedido' },
@@ -8838,7 +8979,19 @@ App.clientas = {
             const sheetId = App.settings.get('listadoId');
             const tab     = App.seasons?.getTab() || '2026';
             const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
-            const hdr = (headers[0] || []).map(h => (h || '').trim());
+            let hdr = (headers[0] || []).map(h => (h || '').trim());
+            // FECHA ENTREGADO: sello de la entrega a la clienta. Es la fecha que
+            // permite contar entregas por semana / mes / año en la seccion
+            // Informes (antes solo existia el estado, sin cuando). La columna se
+            // crea sola la primera vez, igual que ADORNOS.
+            if (hdr.indexOf('FECHA ENTREGADO') === -1) {
+                try {
+                    const resFE = await App.sheets.ensureColumn(sheetId, tab, 'FECHA ENTREGADO');
+                    hdr = resFE.hdr || hdr;
+                } catch (e) {
+                    console.warn('[entregarTraje.ensureColumn FECHA ENTREGADO]', e);
+                }
+            }
             const colLetter = (name) => {
                 const idx = hdr.indexOf(name);
                 return idx === -1 ? null : App.sheets._colLetter(idx);
@@ -8851,6 +9004,7 @@ App.clientas = {
 
             const updates = [
                 ['TRAJE ENTREGADO',  'ENTREGADO'],
+                ['FECHA ENTREGADO',  hoy],
                 ['FECHA ULTIMA MOD', hoy],
             ];
             const rangeUpdates = updates
@@ -10056,6 +10210,20 @@ App.clientas = {
                     console.warn('[crearFicha.ensureColumn ADORNOS]', e);
                 }
             }
+            // FECHA ENCARGO: el dia en que la clienta encarga el traje. Se sella
+            // aqui, al crear la ficha, porque es justo el momento en que entra el
+            // encargo. Es la fecha de entrada del embudo: sin ella no se puede
+            // medir ni cuantos encargos entran por semana ni cuanto tarda un
+            // traje desde que se pide hasta que se entrega (seccion Informes).
+            // FECHA ULTIMA MOD no sirve para esto: se pisa en cada edicion.
+            if (hdr.indexOf('FECHA ENCARGO') === -1) {
+                try {
+                    const resEnc = await App.sheets.ensureColumn(sheetId, tab, 'FECHA ENCARGO');
+                    hdr = resEnc.hdr || hdr;
+                } catch (e) {
+                    console.warn('[crearFicha.ensureColumn FECHA ENCARGO]', e);
+                }
+            }
 
             // Determinar estado: INCIDENCIA si la talla es "INCIDENCIA" o si hay caso especial
             const esIncidencia = talla === 'INCIDENCIA';
@@ -10084,6 +10252,8 @@ App.clientas = {
                 // TELA RECIBIDA arranca en PENDIENTE: el traje entra en "Pedir tela"
                 // hasta que Pilar lo cambie a PEDIDA / RECIBIDA en el modal de editar.
                 'TELA RECIBIDA':     'PENDIENTE',
+                // Entrada del encargo (no se vuelve a tocar nunca)
+                'FECHA ENCARGO':     hoyDDMMYYYY,
                 // Marca de creación, para detectar trajes estancados en bandeja "Revisar"
                 'FECHA ULTIMA MOD':  hoyDDMMYYYY,
             };
@@ -13189,6 +13359,26 @@ App.trajes = {
                 updates.splice(updates.length - 1, 0, ['ADORNOS', adornosVal]);
             }
 
+            // FECHA ENTREGADO: se sella la primera vez que el traje pasa a
+            // ENTREGADO. Sin esta fecha no se puede contar cuantas entregas
+            // hubo en una semana o en un anio (seccion Informes).
+            const entregadoNuevo = (document.getElementById('editTrajeTrajeEntregado')?.value || '')
+                                    .trim().toUpperCase();
+            const entregadoPrev  = ((tPrev && tPrev[this.COL.trajeEntregado]) || '')
+                                    .toString().trim().toUpperCase();
+            if (entregadoNuevo === 'ENTREGADO' && entregadoPrev !== 'ENTREGADO') {
+                if (hdr.indexOf('FECHA ENTREGADO') === -1) {
+                    try {
+                        const resFE = await App.sheets.ensureColumn(sheetId, tab, 'FECHA ENTREGADO');
+                        hdr = resFE.hdr || hdr;
+                    } catch (e) {
+                        console.warn('[guardarEdicion.ensureColumn FECHA ENTREGADO]', e);
+                    }
+                }
+                updates.splice(updates.length - 1, 0,
+                               ['FECHA ENTREGADO', this._toSheetDate(this._todayISO())]);
+            }
+
             // ── 1 llamada API: todos los valores en batch ─────────────────────
             const rangeUpdates = updates
                 .map(([col, value]) => {
@@ -16147,9 +16337,13 @@ App.jose = {
             const cards = list.map(t => this._renderCard(t)).join('');
             // En "tienda", botón para marcar todo de una vez: Jose suele dejar
             // todos los trajes del coche en la tienda en un solo viaje.
+            // Doble pulsación anti-misclick (_armOrRun): el primer toque lo
+            // "arma" (ámbar + "¿Confirmar?") y solo el segundo ejecuta — es una
+            // acción masiva, así que interesa especialmente evitar el disparo
+            // accidental durante el scroll.
             const bulkBar = (this._bandeja === 'tienda' && list.length > 1)
                 ? `<div style="margin-bottom:12px;">` +
-                    `<button class="btn btn-primary btn-sm" onclick="App.jose.marcarTodosEntregadosTienda()">` +
+                    `<button class="btn btn-primary btn-sm" onclick="App.jose._armOrRun(this, 'marcarTodosEntregadosTienda')">` +
                     `&#x1F3EA; Marcar TODOS como entregados en tienda (${list.length})</button>` +
                   `</div>`
                 : '';
@@ -19449,6 +19643,976 @@ App.talleres = {
 };
 
 // ── Navegación — cargar datos al entrar en cada sección ─────────────────────
+
+/* ==========================================================
+   INFORMES — reporting periódico para Pilar (solo lectura)
+   Lee lo que ya hay en Drive y lo agrega por periodo:
+     · LISTADO      → las 4 fechas del recorrido del traje
+     · MODELOS      → PRECIO_EUR (facturación estimada)
+     · TELAS        → stock actual y umbrales
+     · MOVIMIENTOS  → consumo / recepción / pedido de tela con fecha
+   Periodos: semana (lun-dom), quincena (1-15 / 16-fin), mes, trimestre,
+   año y temporada completa. Cada informe se compara con el periodo
+   anterior equivalente. Nunca escribe: es una vista de lectura.
+   ========================================================== */
+App.informes = {
+    _periodo: 'mes',
+    _offset: 0,          // 0 = periodo actual, -1 = el anterior, ...
+    _trajes: [],
+    _movs: [],
+    _loaded: false,
+    _loading: false,
+
+    ATASCO_DIAS: 15,
+
+    COL: {
+        num: 'Nº', nombre: 'NOMBRE', feria: 'FERIA', modelo: 'MODELO',
+        fechaEncargo: 'FECHA ENCARGO',
+        tipoTela: 'TIPO TELA', estado: 'ESTADO', medidas: 'MEDIDAS',
+        telaRecibida: 'TELA RECIBIDA', corte: 'CORTE',
+        fechaEnviadoCorte: 'FECHA ENVIADO CORTE',
+        fechaRecogidoCorte: 'FECHA RECOGIDO CORTE',
+        taller: 'TALLER', fechaEntregaTaller: 'FECHA ENTREGA TALLER',
+        trajeRecibido: 'TRAJE RECIBIDO', fechaRecibido: 'FECHA RECIBIDO',
+        trajeEntregado: 'TRAJE ENTREGADO', fechaEntregado: 'FECHA ENTREGADO',
+        trajeEntregadoTienda: 'TRAJE ENTREGADO TIENDA',
+        fechaEntregadoTienda: 'FECHA ENTREGADO TIENDA',
+    },
+
+    LABELS: {
+        semana: 'Semana', quincena: 'Quincena', mes: 'Mes',
+        trimestre: 'Trimestre', anio: 'Año', temporada: 'Temporada completa',
+    },
+
+    MESES: ['enero','febrero','marzo','abril','mayo','junio','julio',
+            'agosto','septiembre','octubre','noviembre','diciembre'],
+    MESES_C: ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'],
+
+    /* ── Fechas ───────────────────────────────────────────────────────── */
+
+    /** Lee una fecha de una celda del LISTADO. Tiene que ser tolerante a
+     *  proposito: el sheet se lee con FORMATTED_VALUE, o sea que llega lo que
+     *  la celda MUESTRA, y eso depende del formato que tenga puesto. La misma
+     *  fecha puede llegar como "31/08/2026", "31/8/26", "2026-08-31",
+     *  "31 ago 2026", "31 de agosto de 2026", con hora detras, o como numero
+     *  de serie (46265) si alguien formateo la columna como numero.
+     *  Devuelve Date a medianoche local, o null si de verdad no se puede leer.
+     *  Ojo: en formato numerico dia/mes SIEMPRE se interpreta a la espanola
+     *  (31/08 = 31 de agosto), nunca a la americana. */
+    _parse(val) {
+        if (val == null) return null;
+        if (val instanceof Date) {
+            return isNaN(val.getTime())
+                ? null : this._mkDate(val.getFullYear(), val.getMonth(), val.getDate());
+        }
+        let s = String(val).trim();
+        if (!s) return null;
+
+        // Numero de serie de Sheets: dias desde el 30/12/1899.
+        if (/^\d+([.,]\d+)?$/.test(s)) {
+            const n = parseFloat(s.replace(',', '.'));
+            if (n > 20000 && n < 80000) {          // ~1954 a ~2119: rango sensato
+                const ms = Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000;
+                const d = new Date(ms);
+                return this._mkDate(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+            }
+            return null;                            // un numero suelto no es una fecha
+        }
+
+        s = s.replace(/[,;]/g, ' ')
+             .replace(/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[ap]\.?m\.?)?$/i, '')  // quita la hora
+             .trim();
+
+        // DD/MM/YYYY, DD-MM-YY, DD.MM.YYYY
+        let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/);
+        if (m) return this._mkDate(this._anio(m[3]), +m[2] - 1, +m[1]);
+
+        // YYYY-MM-DD (ISO)
+        m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+        if (m) return this._mkDate(+m[1], +m[2] - 1, +m[3]);
+
+        // "31 ago 2026" / "31 de agosto de 2026" / "31-ago-26"
+        const low = s.toLowerCase()
+                     .replace(/\bde\b/g, ' ')
+                     .replace(/[\-\/.]/g, ' ')
+                     .replace(/\s+/g, ' ')
+                     .trim();
+        m = low.match(/^(\d{1,2}) ([a-zA-Zaeiounzà-ÿ]{3,}) (\d{2,4})$/);
+        if (m) {
+            const mi = this._mesIndex(m[2]);
+            if (mi >= 0) return this._mkDate(this._anio(m[3]), mi, +m[1]);
+        }
+
+        // "Wed Aug 31 2026 00:00:00 GMT+0200" — lo que emite Apps Script al
+        // serializar una fecha (el proxy de Jose lo hace). Se leen los trozos a
+        // mano: pasarlo por new Date() haria que el resultado dependiese de la
+        // zona horaria del navegador y podria restar un dia.
+        m = s.match(/^(?:[A-Za-z]{3},?\s+)?([A-Za-z]{3,})\s+(\d{1,2})\s+(\d{4})\b/);
+        if (m) {
+            const mi = this._mesIndexEn(m[1]);
+            if (mi >= 0) return this._mkDate(+m[3], mi, +m[2]);
+        }
+
+        // Ultimo recurso: lo que sepa parsear el navegador.
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return null;
+        return this._mkDate(d.getFullYear(), d.getMonth(), d.getDate());
+    },
+
+    /** Date local a medianoche, validando que no se desborde (31/02 -> null). */
+    _mkDate(y, mo, day) {
+        if (!(y >= 1900 && y <= 2200) || !(mo >= 0 && mo <= 11) || !(day >= 1 && day <= 31)) return null;
+        const d = new Date(y, mo, day);
+        return (d.getFullYear() === y && d.getMonth() === mo && d.getDate() === day) ? d : null;
+    },
+
+    /** Anio de 2 o 4 digitos. "26" -> 2026. */
+    _anio(v) {
+        const n = +v;
+        return n < 100 ? 2000 + n : n;
+    },
+
+    /** Indice de mes por nombre ingles (Date.toString de Apps Script). */
+    MESES_EN: ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'],
+    _mesIndexEn(nombre) {
+        return this.MESES_EN.indexOf(String(nombre).toLowerCase().slice(0, 3));
+    },
+
+    /** Indice de mes por nombre o abreviatura en espanol (con o sin tilde). */
+    _mesIndex(nombre) {
+        const n = String(nombre).toLowerCase()
+            .replace(/[áà]/g, 'a').replace(/[éè]/g, 'e')
+            .replace(/[íì]/g, 'i').replace(/[óò]/g, 'o')
+            .replace(/[úùü]/g, 'u');
+        for (let i = 0; i < this.MESES.length; i++) {
+            if (n === this.MESES[i] || n.slice(0, 3) === this.MESES_C[i]) return i;
+        }
+        return -1;
+    },
+
+    _hoy() {
+        const d = new Date();
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    },
+
+    _fmt(d) {
+        if (!d) return '—';
+        return String(d.getDate()).padStart(2,'0') + '/' +
+               String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+    },
+
+    _fmtCorto(d) {
+        if (!d) return '—';
+        return d.getDate() + ' ' + this.MESES_C[d.getMonth()];
+    },
+
+    _dias(a, b) {
+        if (!a || !b) return null;
+        const n = Math.round((b.getTime() - a.getTime()) / 86400000);
+        return n < 0 ? null : n;
+    },
+
+    /** Rango {desde, hasta} del periodo `p` desplazado `off` unidades. */
+    _rangoFor(p, off) {
+        const hoy = this._hoy();
+        const Y = hoy.getFullYear(), M = hoy.getMonth(), D = hoy.getDate();
+        if (p === 'semana') {
+            const dow = (hoy.getDay() + 6) % 7;               // 0 = lunes
+            const desde = new Date(Y, M, D - dow + off * 7);
+            const hasta = new Date(desde.getFullYear(), desde.getMonth(), desde.getDate() + 6);
+            return { desde: desde, hasta: hasta };
+        }
+        if (p === 'quincena') {
+            const idx = Y * 24 + M * 2 + (D > 15 ? 1 : 0) + off;
+            const y = Math.floor(idx / 24), r = idx - y * 24;
+            const mo = Math.floor(r / 2), h = r % 2;
+            return {
+                desde: new Date(y, mo, h ? 16 : 1),
+                hasta: h ? new Date(y, mo + 1, 0) : new Date(y, mo, 15),
+            };
+        }
+        if (p === 'mes') {
+            return { desde: new Date(Y, M + off, 1), hasta: new Date(Y, M + off + 1, 0) };
+        }
+        if (p === 'trimestre') {
+            const q = Math.floor(M / 3) + off;
+            return { desde: new Date(Y, q * 3, 1), hasta: new Date(Y, q * 3 + 3, 0) };
+        }
+        if (p === 'anio') {
+            return { desde: new Date(Y + off, 0, 1), hasta: new Date(Y + off, 11, 31) };
+        }
+        return { desde: new Date(1970, 0, 1), hasta: new Date(Y + 5, 11, 31), todo: true };
+    },
+
+    _rango()     { return this._rangoFor(this._periodo, this._offset); },
+    _rangoPrev() { return this._rangoFor(this._periodo, this._offset - 1); },
+
+    /** Título legible del rango ("Septiembre 2026", "Semana del 1 al 7 sep"...). */
+    _titulo(r, p) {
+        if (p === 'temporada') return 'Temporada completa';
+        const d = r.desde, h = r.hasta;
+        if (p === 'anio')      return 'Año ' + d.getFullYear();
+        if (p === 'trimestre') return (Math.floor(d.getMonth()/3)+1) + 'º trimestre ' + d.getFullYear();
+        if (p === 'mes') {
+            const n = this.MESES[d.getMonth()];
+            return n.charAt(0).toUpperCase() + n.slice(1) + ' ' + d.getFullYear();
+        }
+        if (p === 'quincena') {
+            return (d.getDate() === 1 ? '1ª' : '2ª') + ' quincena de ' +
+                   this.MESES[d.getMonth()] + ' ' + d.getFullYear();
+        }
+        return 'Semana del ' + this._fmtCorto(d) + ' al ' + this._fmtCorto(h);
+    },
+
+    /** Etiqueta corta para el eje de la gráfica de evolución. */
+    _tituloCorto(r, p) {
+        const d = r.desde;
+        if (p === 'anio')      return String(d.getFullYear());
+        if (p === 'trimestre') return 'T' + (Math.floor(d.getMonth()/3)+1) + ' ' + String(d.getFullYear()).slice(2);
+        if (p === 'mes')       return this.MESES_C[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2);
+        if (p === 'quincena')  return (d.getDate()===1?'1ª ':'2ª ') + this.MESES_C[d.getMonth()];
+        return this._fmtCorto(d);
+    },
+
+    _enRango(val, r) {
+        const d = this._parse(val);
+        if (!d) return false;
+        if (r.todo) return true;
+        return d >= r.desde && d <= r.hasta;
+    },
+
+    /* ── Carga ────────────────────────────────────────────────────────── */
+
+    async load(forceRefresh = false) {
+        if (this._loading) return;
+        this._loading = true;
+        const el = document.getElementById('informesContent');
+        if (el && (forceRefresh || !this._loaded)) {
+            el.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div>' +
+                           '<p>Calculando el informe&hellip;</p></div>';
+        }
+        try {
+            this._trajes = await App.sheets.getListadoTrajes(forceRefresh || !this._loaded);
+
+            if (App.modelos && (forceRefresh || !App.modelos._data?.length)) {
+                await App.modelos.load(forceRefresh).catch(e => console.warn('[informes.modelos]', e.message));
+            }
+            if (App.telas && (forceRefresh || !App.telas._data?.length)) {
+                await App.telas.load(forceRefresh).catch(e => console.warn('[informes.telas]', e.message));
+            }
+            try {
+                this._movs = App.movimientos ? (await App.movimientos.loadAll()) : [];
+            } catch (e) {
+                console.warn('[informes.movimientos]', e.message);
+                this._movs = [];
+            }
+
+            this._loaded = true;
+            this.render();
+        } catch (err) {
+            console.error('[informes.load]', err);
+            if (el) {
+                el.innerHTML =
+                    '<div class="empty-state"><div class="empty-icon">&#x26A0;&#xFE0F;</div>' +
+                    '<h3>No se pudo montar el informe</h3><p>' + this._esc(err.message) + '</p>' +
+                    '<button class="btn btn-primary" onclick="App.informes.load(true)">&#x21BB; Reintentar</button></div>';
+            }
+        } finally {
+            this._loading = false;
+        }
+    },
+
+    setPeriodo(p) {
+        this._periodo = p;
+        this._offset = 0;
+        this.render();
+    },
+
+    mover(delta) {
+        if (this._periodo === 'temporada') return;
+        if (this._offset + delta > 0) return;   // no vamos al futuro
+        this._offset += delta;
+        this.render();
+    },
+
+    /* ── Cálculo ──────────────────────────────────────────────────────── */
+
+    _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
+    },
+
+    _modeloPrincipal(val) {
+        if (!val) return '';
+        return val.toString().toUpperCase().split(/\/|-|\|/)[0].trim();
+    },
+
+    /** Mapa NOMBRE(lower) → ficha de modelo, para precio y escandallo. */
+    _mapaModelos() {
+        const m = new Map();
+        for (const x of (App.modelos?._data || [])) {
+            if (x && x.NOMBRE) m.set(x.NOMBRE.toString().toLowerCase().trim(), x);
+        }
+        return m;
+    },
+
+    /** Precio del modelo de un traje (0 si el modelo no está en el catálogo). */
+    _precio(t, mapa) {
+        const raw = (t[this.COL.modelo] || '').toString().trim();
+        if (!raw) return 0;
+        let m = mapa.get(raw.toLowerCase());
+        if (!m) m = mapa.get(this._modeloPrincipal(raw).toLowerCase());
+        if (!m) return 0;
+        return this._precioNum(m.PRECIO_EUR);
+    },
+
+    /** Precio en euros tolerante al locale espanol. Un precio es un entero de
+     *  euros, asi que "1.200" son mil doscientos (separador de miles) y no 1,2.
+     *  Ojo: esta regla NO vale para metros de tela -- ahi 8.5 son 8,5 m. */
+    _precioNum(v) {
+        let s = (v == null ? '' : v).toString().trim();
+        if (!s) return 0;
+        s = s.replace(/[^\d.,-]/g, '');
+        if (!s) return 0;
+        const hasDot = s.indexOf('.') >= 0, hasComma = s.indexOf(',') >= 0;
+        if (hasDot && hasComma) {
+            s = (s.lastIndexOf(',') > s.lastIndexOf('.'))
+                ? s.replace(/\./g, '').replace(',', '.')
+                : s.replace(/,/g, '');
+        } else if (hasComma) {
+            s = s.replace(',', '.');
+        } else if (hasDot && /^-?\d{1,3}(\.\d{3})+$/.test(s)) {
+            s = s.replace(/\./g, '');
+        }
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    },
+
+    /** Metros de tela: coma decimal espanola a punto (misma regla que
+     *  App.telas._normNum, para no discrepar del resto de la app). */
+    _metrosNum(v) {
+        let s = (v == null ? '' : v).toString().trim();
+        if (!s) return 0;
+        const hasDot = s.indexOf('.') >= 0, hasComma = s.indexOf(',') >= 0;
+        if (hasDot && hasComma) {
+            s = (s.lastIndexOf(',') > s.lastIndexOf('.'))
+                ? s.replace(/\./g, '').replace(',', '.')
+                : s.replace(/,/g, '');
+        } else if (hasComma) {
+            s = s.replace(',', '.');
+        }
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    },
+
+    _eur(n) {
+        return (Math.round(n) || 0).toLocaleString('es-ES') + ' €';
+    },
+
+    _num(n, dec) {
+        if (dec == null) dec = 1;
+        if (n == null || isNaN(n)) return '—';
+        return Number(n).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    },
+
+    _media(arr) {
+        const v = arr.filter(x => x != null && !isNaN(x));
+        if (!v.length) return null;
+        return v.reduce((a, b) => a + b, 0) / v.length;
+    },
+
+    /** Métricas de producción del rango + facturación estimada. */
+    _metricas(r) {
+        const C = this.COL, mapa = this._mapaModelos();
+        const m = {
+            encargos: 0, cortados: 0, recogidos: 0, aTaller: 0, recibidos: 0,
+            aTienda: 0, entregados: 0,
+            importeEncargos: 0, importeRecibidos: 0, importeEntregados: 0, sinPrecio: 0,
+            diasCorte: [], diasTaller: [], diasTotal: [], diasEncargo: [],
+        };
+        for (const t of this._trajes) {
+            if (this._enRango(t[C.fechaEncargo], r)) {
+                m.encargos++;
+                m.importeEncargos += this._precio(t, mapa);
+            }
+            if (this._enRango(t[C.fechaEnviadoCorte], r))  m.cortados++;
+            if (this._enRango(t[C.fechaRecogidoCorte], r)) m.recogidos++;
+            if (this._enRango(t[C.fechaEntregaTaller], r)) m.aTaller++;
+            if (this._enRango(t[C.fechaRecibido], r)) {
+                m.recibidos++;
+                const p = this._precio(t, mapa);
+                if (p > 0) m.importeRecibidos += p; else m.sinPrecio++;
+                const fEnv = this._parse(t[C.fechaEnviadoCorte]);
+                const fRec = this._parse(t[C.fechaRecogidoCorte]);
+                const fTal = this._parse(t[C.fechaEntregaTaller]);
+                const fRcd = this._parse(t[C.fechaRecibido]);
+                m.diasCorte.push(this._dias(fEnv, fRec));
+                m.diasTaller.push(this._dias(fTal, fRcd));
+                m.diasTotal.push(this._dias(fEnv, fRcd));
+            }
+            if (this._enRango(t[C.fechaEntregadoTienda], r)) m.aTienda++;
+            if (this._enRango(t[C.fechaEntregado], r)) {
+                m.entregados++;
+                m.importeEntregados += this._precio(t, mapa);
+                // Plazo que percibe la clienta: del dia que encarga al dia que se lleva el traje.
+                m.diasEncargo.push(this._dias(this._parse(t[C.fechaEncargo]),
+                                              this._parse(t[C.fechaEntregado])));
+            }
+        }
+        m.mediaCorte   = this._media(m.diasCorte);
+        m.mediaTaller  = this._media(m.diasTaller);
+        m.mediaTotal   = this._media(m.diasTotal);
+        m.mediaEncargo = this._media(m.diasEncargo);
+        return m;
+    },
+
+    /** Celdas de fecha con contenido que _parse no ha sabido leer. Un fallo aqui
+     *  no da error: simplemente el traje deja de contar y el informe sale corto,
+     *  que es peor que un error visible. Por eso se avisa arriba del todo. */
+    _auditoriaFechas() {
+        const C = this.COL;
+        const cols = [
+            ['FECHA ENCARGO', C.fechaEncargo], ['FECHA ENVIADO CORTE', C.fechaEnviadoCorte],
+            ['FECHA RECOGIDO CORTE', C.fechaRecogidoCorte], ['FECHA ENTREGA TALLER', C.fechaEntregaTaller],
+            ['FECHA RECIBIDO', C.fechaRecibido], ['FECHA ENTREGADO TIENDA', C.fechaEntregadoTienda],
+            ['FECHA ENTREGADO', C.fechaEntregado],
+        ];
+        const malas = new Map();
+        let total = 0;
+        for (const t of this._trajes) {
+            for (const [etiqueta, col] of cols) {
+                const raw = t[col];
+                if (raw == null || String(raw).trim() === '') continue;
+                if (this._parse(raw) !== null) continue;
+                total++;
+                if (!malas.has(etiqueta)) malas.set(etiqueta, { col: etiqueta, n: 0, ejemplo: String(raw).trim() });
+                malas.get(etiqueta).n++;
+            }
+        }
+        return { total: total, porColumna: [...malas.values()] };
+    },
+
+    /** Foto de hoy: en qué fase está cada traje vivo de la temporada. */
+    _embudo() {
+        const C = this.COL, mapa = this._mapaModelos(), hoy = this._hoy();
+        const f = { total: 0, sinTela: 0, enCorte: 0, cortado: 0, enTaller: 0,
+                    delTaller: 0, enTienda: 0, entregados: 0, incidencias: 0,
+                    atascados: 0, carteraPendiente: 0 };
+        for (const t of this._trajes) {
+            if (!String(t[C.num] || '').trim() && !String(t[C.nombre] || '').trim()) continue;
+            f.total++;
+            const entregado = (t[C.trajeEntregado] || '').toUpperCase().trim() === 'ENTREGADO';
+            const recibido  = (t[C.trajeRecibido]  || '').toUpperCase().trim() === 'RECIBIDO';
+            const corte     = (t[C.corte] || '').toUpperCase().trim();
+            const tela      = (t[C.telaRecibida] || '').toUpperCase().trim();
+            const estado    = (t[C.estado] || '').toUpperCase().trim();
+            if (estado === 'REVISAR' || corte === 'INCIDENCIA' || tela === 'INCIDENCIA') f.incidencias++;
+            if (entregado) { f.entregados++; continue; }
+            f.carteraPendiente += this._precio(t, mapa);
+            // El traje pasa por la tienda antes de que la clienta se lo lleve:
+            // TRAJE RECIBIDO = viene del taller; ENTREGADO TIENDA = ya esta en
+            // el mostrador esperando a la clienta. Son dos paradas distintas.
+            const enTienda = (t[C.trajeEntregadoTienda] || '').toUpperCase().trim() === 'ENTREGADO'
+                             || !!this._parse(t[C.fechaEntregadoTienda]);
+            if (enTienda) {
+                f.enTienda++;
+            } else if (recibido) {
+                f.delTaller++;
+            } else if (t[C.taller] && this._parse(t[C.fechaEntregaTaller])) {
+                f.enTaller++;
+                const d = this._dias(this._parse(t[C.fechaEntregaTaller]), hoy);
+                if (d != null && d > this.ATASCO_DIAS) f.atascados++;
+            } else if (corte === 'RECOGIDO') {
+                f.cortado++;
+            } else if (corte === 'ENVIADO') {
+                f.enCorte++;
+            } else if (tela !== 'RECIBIDA') {
+                f.sinTela++;
+            } else {
+                f.cortado++;
+            }
+        }
+        return f;
+    },
+
+    /** Tabla por taller dentro del rango + estado actual. */
+    _talleres(r) {
+        const C = this.COL, hoy = this._hoy(), map = new Map();
+        const get = (n) => {
+            if (!map.has(n)) map.set(n, { taller: n, enviados: 0, recibidos: 0, dias: [], enCurso: 0, atascados: 0 });
+            return map.get(n);
+        };
+        for (const t of this._trajes) {
+            const taller = (t[C.taller] || '').toString().trim().toUpperCase();
+            if (!taller) continue;
+            const row = get(taller);
+            if (this._enRango(t[C.fechaEntregaTaller], r)) row.enviados++;
+            if (this._enRango(t[C.fechaRecibido], r)) {
+                row.recibidos++;
+                row.dias.push(this._dias(this._parse(t[C.fechaEntregaTaller]), this._parse(t[C.fechaRecibido])));
+            }
+            const recibido = (t[C.trajeRecibido] || '').toUpperCase().trim() === 'RECIBIDO';
+            const fTal = this._parse(t[C.fechaEntregaTaller]);
+            if (!recibido && fTal) {
+                row.enCurso++;
+                const d = this._dias(fTal, hoy);
+                if (d != null && d > this.ATASCO_DIAS) row.atascados++;
+            }
+        }
+        const out = [...map.values()].map(x => Object.assign({}, x, { media: this._media(x.dias) }));
+        out.sort((a, b) => (b.recibidos - a.recibidos) || (b.enCurso - a.enCurso));
+        return out;
+    },
+
+    /** Modelos: unidades e importe, en el periodo y en toda la temporada. */
+    _modelos(r) {
+        const C = this.COL, mapa = this._mapaModelos(), map = new Map();
+        const get = (n) => {
+            if (!map.has(n)) map.set(n, { modelo: n, periodo: 0, temporada: 0, importePeriodo: 0, importeTemporada: 0 });
+            return map.get(n);
+        };
+        for (const t of this._trajes) {
+            const raw = (t[C.modelo] || '').toString().trim();
+            if (!raw) continue;
+            const row = get(raw.toUpperCase());
+            const p = this._precio(t, mapa);
+            row.temporada++;
+            row.importeTemporada += p;
+            if (this._enRango(t[C.fechaRecibido], r)) { row.periodo++; row.importePeriodo += p; }
+        }
+        const out = [...map.values()];
+        out.sort((a, b) => (b.temporada - a.temporada) || (b.importeTemporada - a.importeTemporada));
+        return out;
+    },
+
+    /** Distribución de tallas de toda la temporada (campo MEDIDAS: "T.38"). */
+    _tallas() {
+        const C = this.COL, map = new Map();
+        for (const t of this._trajes) {
+            const raw = (t[C.medidas] || '').toString().trim().toUpperCase();
+            const m = raw.match(/(\d{2})/);
+            if (!m) continue;
+            map.set(m[1], (map.get(m[1]) || 0) + 1);
+        }
+        return [...map.entries()]
+            .map(([k, v]) => ({ label: 'T.' + k, value: v, _n: +k }))
+            .sort((a, b) => a._n - b._n);
+    },
+
+    /** Trajes y facturación por feria (toda la temporada). */
+    _ferias() {
+        const C = this.COL, mapa = this._mapaModelos(), map = new Map();
+        for (const t of this._trajes) {
+            if (!String(t[C.num] || '').trim() && !String(t[C.nombre] || '').trim()) continue;
+            const f = (t[C.feria] || '').toString().trim().toUpperCase() || 'SIN FERIA';
+            if (!map.has(f)) map.set(f, { feria: f, total: 0, entregados: 0, importe: 0 });
+            const row = map.get(f);
+            row.total++;
+            row.importe += this._precio(t, mapa);
+            if ((t[C.trajeEntregado] || '').toUpperCase().trim() === 'ENTREGADO') row.entregados++;
+        }
+        return [...map.values()].sort((a, b) => b.total - a.total);
+    },
+
+    /** Movimientos de tela dentro del rango + foto del stock actual. */
+    _telas(r) {
+        const TIPOS = (App.movimientos && App.movimientos.TIPOS) || {};
+        const res = {
+            consumo: 0, recepcion: 0, pedido: 0,
+            porTela: new Map(), porProveedor: new Map(),
+            bajoUmbral: [], sinStock: [], retales: 0, metrosRetales: 0,
+            hayMovs: this._movs.length > 0,
+        };
+        for (const mv of this._movs) {
+            if (!this._enRango(mv.FECHA, r)) continue;
+            const metros = this._metrosNum(mv.METROS);
+            const tela = [mv.TELA_TIPO, mv.TELA_VARIANTE].filter(Boolean).join(' · ') || '—';
+            if (mv.TIPO === (TIPOS.CONSUMO || 'CONSUMO_TRAJE')) {
+                res.consumo += metros;
+                res.porTela.set(tela, (res.porTela.get(tela) || 0) + metros);
+            } else if (mv.TIPO === (TIPOS.RECEPCION || 'RECEPCION')) {
+                res.recepcion += metros;
+                const prov = (mv.PROVEEDOR || '').trim() || 'Sin proveedor';
+                res.porProveedor.set(prov, (res.porProveedor.get(prov) || 0) + metros);
+            } else if (mv.TIPO === (TIPOS.PEDIDO || 'PEDIDO_PROVEEDOR')) {
+                res.pedido += metros;
+            }
+        }
+        const n = (v) => this._metrosNum(v);
+        for (const t of (App.telas?._data || [])) {
+            const activa = String(t.ACTIVA == null ? '' : t.ACTIVA).toUpperCase();
+            if (activa === 'NO' || activa === 'FALSE') continue;
+            const stock = n(t.STOCK_M), umbral = n(t.UMBRAL_ALERTA);
+            const nombre = [t.TIPO, t.VARIANTE].filter(Boolean).join(' · ');
+            if (stock <= 0) res.sinStock.push({ nombre: nombre, stock: stock, umbral: umbral });
+            else if (umbral > 0 && stock < umbral) res.bajoUmbral.push({ nombre: nombre, stock: stock, umbral: umbral });
+        }
+        res.bajoUmbral.sort((a, b) => a.stock - b.stock);
+        for (const rt of (App.telas?._retales || [])) {
+            res.retales++;
+            res.metrosRetales += n(rt.METROS);
+        }
+        return res;
+    },
+
+    /** Serie de los últimos `n` periodos para la gráfica de evolución. */
+    _serie(n) {
+        const esTemporada = this._periodo === 'temporada';
+        const p = esTemporada ? 'mes' : this._periodo;
+        const base = esTemporada ? 0 : this._offset;
+        const out = [];
+        for (let i = n - 1; i >= 0; i--) {
+            const off = base - i;
+            const rr = this._rangoFor(p, off);
+            const m = this._metricas(rr);
+            out.push({
+                label: this._tituloCorto(rr, p),
+                encargos: m.encargos,
+                recibidos: m.recibidos,
+                entregados: m.entregados,
+                actual: off === base,
+            });
+        }
+        return out;
+    },
+
+    /* ── Render ───────────────────────────────────────────────────────── */
+
+    _delta(actual, previo) {
+        if (previo == null) return '';
+        const d = actual - previo;
+        if (d === 0) return '<span class="inf-delta inf-delta-flat">= igual</span>';
+        const sign = d > 0 ? '&#x25B2;' : '&#x25BC;';
+        const cls  = d > 0 ? 'inf-delta-up' : 'inf-delta-down';
+        return '<span class="inf-delta ' + cls + '">' + sign + ' ' + Math.abs(d) + '</span>';
+    },
+
+    _kpi(valor, label, hint, delta, color) {
+        return '<div class="inf-kpi" style="border-top-color:' + color + ';">' +
+               '<div class="inf-kpi-val">' + valor + '</div>' +
+               '<div class="inf-kpi-label">' + label + '</div>' +
+               '<div class="inf-kpi-hint">' + (hint || '') + ' ' + (delta || '') + '</div></div>';
+    },
+
+    _barras(items, opts) {
+        opts = opts || {};
+        const fmt = opts.fmt || (v => this._num(v, 0));
+        const color = opts.color || '#C2185B';
+        if (!items.length) return '<p class="inf-vacio">Sin datos en este periodo.</p>';
+        const max = Math.max(1, ...items.map(i => i.value));
+        return '<div class="inf-barras">' + items.map(i =>
+            '<div class="inf-barra-row">' +
+              '<div class="inf-barra-label" title="' + this._esc(i.label) + '">' + this._esc(i.label) + '</div>' +
+              '<div class="inf-barra-track"><div class="inf-barra-fill" style="width:' +
+                 Math.max(2, i.value / max * 100) + '%; background:' + color + ';"></div></div>' +
+              '<div class="inf-barra-val">' + fmt(i.value) +
+                 (i.extra ? '<span class="inf-barra-extra">' + this._esc(i.extra) + '</span>' : '') +
+              '</div>' +
+            '</div>').join('') + '</div>';
+    },
+
+    _columnas(serie) {
+        const max = Math.max(1, ...serie.map(s =>
+            Math.max(s.encargos || 0, s.recibidos, s.entregados)));
+        const barra = (cls, val, txt) =>
+            '<div class="inf-col-bar ' + cls + '" style="height:' + (val / max * 100) +
+            '%;" title="' + val + ' ' + txt + '"></div>';
+        return '<div class="inf-cols">' + serie.map(s =>
+            '<div class="inf-col' + (s.actual ? ' inf-col-actual' : '') + '">' +
+              '<div class="inf-col-bars">' +
+                barra('inf-col-enc', s.encargos || 0, 'encargos nuevos') +
+                barra('inf-col-rec', s.recibidos,     'recibidos del taller') +
+                barra('inf-col-ent', s.entregados,    'entregados a clienta') +
+              '</div>' +
+              '<div class="inf-col-n">' + s.recibidos + '</div>' +
+              '<div class="inf-col-label">' + this._esc(s.label) + '</div>' +
+            '</div>').join('') + '</div>' +
+            '<div class="inf-leyenda">' +
+              '<span><i style="background:#26A69A"></i> Encargos nuevos</span>' +
+              '<span><i style="background:#C2185B"></i> Recibidos del taller</span>' +
+              '<span><i style="background:#43A047"></i> Entregados a clienta</span>' +
+            '</div>';
+    },
+
+    render() {
+        const el = document.getElementById('informesContent');
+        if (!el) return;
+        if (!this._loaded) { this.load(); return; }
+
+        const p     = this._periodo;
+        const r     = this._rango();
+        const rPrev = this._rangoPrev();
+        const m     = this._metricas(r);
+        const mPrev = (p === 'temporada') ? null : this._metricas(rPrev);
+        const emb   = this._embudo();
+
+        // Cabecera del selector (fuera del contenido imprimible)
+        const rangoEl = document.getElementById('informesRango');
+        if (rangoEl) rangoEl.textContent = this._titulo(r, p);
+        const prevBtn = document.getElementById('informesPrev');
+        const nextBtn = document.getElementById('informesNext');
+        if (prevBtn) prevBtn.disabled = (p === 'temporada');
+        if (nextBtn) nextBtn.disabled = (p === 'temporada' || this._offset >= 0);
+
+        const sub = (p === 'temporada')
+            ? 'Todos los trajes con fecha registrada en la hoja'
+            : 'Del ' + this._fmt(r.desde) + ' al ' + this._fmt(r.hasta) +
+              ' · comparado con ' + this._titulo(rPrev, p).toLowerCase();
+
+        let html =
+            '<div class="inf-cabecera">' +
+              '<div><div class="inf-titulo">' + this._esc(this._titulo(r, p)) + '</div>' +
+              '<div class="inf-sub">' + this._esc(sub) + '</div></div>' +
+              '<div class="inf-sello">Notelodigo &middot; informe generado el ' + this._fmt(this._hoy()) + '</div>' +
+            '</div>';
+
+        html += this._blkAvisoFechas(this._auditoriaFechas());
+        html += this._blkProduccion(m, mPrev, emb);
+        html += this._blkEvolucion(p);
+        html += this._blkPlazos(m);
+        html += this._blkEmbudo(emb);
+        html += this._blkTalleres(this._talleres(r));
+        html += this._blkModelos(this._modelos(r));
+        html += this._blkTallasFerias(this._tallas(), this._ferias());
+        html += this._blkTelas(this._telas(r));
+
+        el.innerHTML = html;
+    },
+
+    _blkAvisoFechas(aud) {
+        if (!aud.total) return '';
+        const detalle = aud.porColumna
+            .map(x => this._esc(x.col) + ' (' + x.n + ', p.ej. "' + this._esc(x.ejemplo) + '")')
+            .join(' · ');
+        return '<div class="card inf-bloque inf-aviso">' +
+            '<div class="card-title" style="color:#8a5300;">&#x26A0;&#xFE0F; ' + aud.total +
+            ' fecha' + (aud.total === 1 ? '' : 's') + ' que no se ' +
+            (aud.total === 1 ? 'ha' : 'han') + ' podido leer</div>' +
+            '<p style="font-size:12px; margin:0 0 6px;">Esos trajes no cuentan en las cifras de abajo, ' +
+            'asi que el informe sale corto. Suele ser una celda con el formato cambiado: ' +
+            'seleccion&aacute; la columna en el Sheet y ponle <b>Formato &rarr; N&uacute;mero &rarr; Fecha</b>, ' +
+            'o reescribe la celda como <b>DD/MM/AAAA</b>.</p>' +
+            '<p style="font-size:11px; color:var(--text-muted,#888); margin:0;">' + detalle + '</p></div>';
+    },
+
+    _blkProduccion(m, mPrev, emb) {
+        const dl = (a, b) => mPrev ? this._delta(a, b) : '';
+        const plural = (n, s, pl) => n === 1 ? s : (pl || s + 's');
+        return '<div class="card inf-bloque">' +
+            '<div class="card-title">&#x1F4C8; Producción del periodo</div>' +
+            '<div class="inf-kpis">' +
+                this._kpi(m.encargos,   'Encargos nuevos',      'fichas creadas',     dl(m.encargos,   mPrev && mPrev.encargos),   '#26A69A') +
+                this._kpi(m.cortados,   'Enviados a corte',     'al cortador',        dl(m.cortados,   mPrev && mPrev.cortados),   '#42A5F5') +
+                this._kpi(m.recogidos,  'Recogidos del corte',  'ya cortados',        dl(m.recogidos,  mPrev && mPrev.recogidos),  '#7E57C2') +
+                this._kpi(m.aTaller,    'Entregados a taller',  'a coser',            dl(m.aTaller,    mPrev && mPrev.aTaller),    '#FFA726') +
+                this._kpi(m.recibidos,  'Recibidos del taller', 'trajes terminados',  dl(m.recibidos,  mPrev && mPrev.recibidos),  '#C2185B') +
+                this._kpi(m.aTienda,    'Llevados a la tienda', 'listos para recoger', dl(m.aTienda,    mPrev && mPrev.aTienda),    '#8D6E63') +
+                this._kpi(m.entregados, 'Entregados a clienta', 'se la lleva la clienta', dl(m.entregados, mPrev && mPrev.entregados), '#43A047') +
+            '</div>' +
+            '<div class="inf-facturacion">' +
+                '<div><div class="inf-fact-label">Facturación estimada — encargos entrados</div>' +
+                '<div class="inf-fact-val">' + this._eur(m.importeEncargos) + '</div>' +
+                '<div class="inf-fact-hint">' + m.encargos + ' ' + plural(m.encargos, 'encargo') +
+                    ' nuevo' + (m.encargos === 1 ? '' : 's') + ' &times; precio del modelo</div></div>' +
+                '<div><div class="inf-fact-label">Facturación estimada — producción terminada</div>' +
+                '<div class="inf-fact-val">' + this._eur(m.importeRecibidos) + '</div>' +
+                '<div class="inf-fact-hint">' + m.recibidos + ' ' + plural(m.recibidos, 'traje') +
+                    ' recibido' + (m.recibidos === 1 ? '' : 's') + ' del taller &times; precio del modelo' +
+                    (m.sinPrecio ? ' · ' + m.sinPrecio + ' sin precio en el catálogo' : '') + '</div></div>' +
+                '<div><div class="inf-fact-label">Facturación estimada — entregado a clienta</div>' +
+                '<div class="inf-fact-val">' + this._eur(m.importeEntregados) + '</div>' +
+                '<div class="inf-fact-hint">' + m.entregados + ' ' + plural(m.entregados, 'entrega') +
+                    ' con fecha registrada</div></div>' +
+                '<div><div class="inf-fact-label">Cartera pendiente (temporada)</div>' +
+                '<div class="inf-fact-val">' + this._eur(emb.carteraPendiente) + '</div>' +
+                '<div class="inf-fact-hint">' + (emb.total - emb.entregados) + ' trajes vivos sin entregar</div></div>' +
+            '</div></div>';
+    },
+
+    _blkEvolucion(p) {
+        const n = (p === 'anio') ? 6 : 12;
+        const etiqueta = (p === 'temporada') ? 'meses' : 'periodos';
+        return '<div class="card inf-bloque">' +
+            '<div class="card-title">&#x1F4C9; Evolución — últimos ' + n + ' ' + etiqueta + '</div>' +
+            this._columnas(this._serie(n)) + '</div>';
+    },
+
+    _blkPlazos(m) {
+        const box = (val, label, sub) =>
+            '<div><span class="inf-plazo-val">' + val + '</span><span class="inf-plazo-u">días</span>' +
+            '<div class="inf-plazo-l">' + label + '<br><small>' + sub + '</small></div></div>';
+        return '<div class="card inf-bloque">' +
+            '<div class="card-title">&#x23F1;&#xFE0F; Plazos medios</div>' +
+            '<div class="inf-plazos">' +
+                box(this._num(m.mediaCorte),  'En el cortador',      'enviado &rarr; recogido') +
+                box(this._num(m.mediaTaller), 'En el taller',        'entregado &rarr; recibido') +
+                box(this._num(m.mediaTotal),  'Total de producción', 'corte &rarr; traje terminado') +
+                box(this._num(m.mediaEncargo),'Lo que espera la clienta', 'encargo &rarr; entrega') +
+            '</div>' +
+            '<p class="inf-nota">Los tres primeros salen de los ' + m.recibidos + ' traje' +
+            (m.recibidos === 1 ? '' : 's') + ' recibido' + (m.recibidos === 1 ? '' : 's') +
+            ' del taller en este periodo; el último, de los ' + m.entregados + ' entregado' +
+            (m.entregados === 1 ? '' : 's') + ' a su clienta.</p></div>';
+    },
+
+    _blkEmbudo(e) {
+        const item = (n, txt, cls) =>
+            '<div class="inf-emb-item' + (cls ? ' ' + cls : '') + '"><b>' + n + '</b><span>' + txt + '</span></div>';
+        return '<div class="card inf-bloque">' +
+            '<div class="card-title">&#x1F4CD; Dónde está cada traje ahora mismo</div>' +
+            '<div class="inf-embudo">' +
+                item(e.sinTela,   'Esperando tela') +
+                item(e.enCorte,   'En el cortador') +
+                item(e.cortado,   'Cortado, sin taller') +
+                item(e.enTaller,  'En el taller') +
+                item(e.delTaller, 'Recogido del taller') +
+                item(e.enTienda,  'En tienda, esperando') +
+                item(e.entregados,'Entregados', 'inf-emb-ok') +
+            '</div>' +
+            '<div class="inf-alertas">' +
+                '<span class="badge ' + (e.incidencias ? 'badge-danger' : 'badge-neutral') + '">' +
+                    e.incidencias + ' incidencia' + (e.incidencias === 1 ? '' : 's') + ' abierta' + (e.incidencias === 1 ? '' : 's') + '</span>' +
+                '<span class="badge ' + (e.atascados ? 'badge-warning' : 'badge-neutral') + '">' +
+                    e.atascados + ' atascado' + (e.atascados === 1 ? '' : 's') + ' en taller (+' + this.ATASCO_DIAS + ' días)</span>' +
+                '<span class="badge badge-info">' + e.total + ' trajes en la temporada</span>' +
+            '</div></div>';
+    },
+
+    _blkTalleres(tall) {
+        if (!tall.length) {
+            return '<div class="card inf-bloque"><div class="card-title">&#x1F9F5; Talleres</div>' +
+                   '<p class="inf-vacio">Ningún traje tiene taller asignado todavía.</p></div>';
+        }
+        const filas = tall.map(t =>
+            '<tr><td><b>' + this._esc(t.taller) + '</b></td>' +
+            '<td>' + t.enviados + '</td><td>' + t.recibidos + '</td>' +
+            '<td>' + (t.media == null ? '—' : this._num(t.media)) + '</td>' +
+            '<td>' + t.enCurso + '</td>' +
+            '<td>' + (t.atascados ? '<span class="badge badge-warning">' + t.atascados + '</span>' : '0') + '</td></tr>'
+        ).join('');
+        return '<div class="card inf-bloque"><div class="card-title">&#x1F9F5; Talleres</div>' +
+            '<div class="table-container"><table class="inf-tabla"><thead><tr>' +
+            '<th>Taller</th><th>Enviados<br><small>en el periodo</small></th>' +
+            '<th>Recibidos<br><small>en el periodo</small></th>' +
+            '<th>Días medios<br><small>en el taller</small></th>' +
+            '<th>En curso<br><small>ahora</small></th><th>Atascados</th>' +
+            '</tr></thead><tbody>' + filas + '</tbody></table></div></div>';
+    },
+
+    _blkModelos(mods) {
+        const enPeriodo = mods.filter(x => x.periodo > 0).slice(0, 10)
+            .map(x => ({ label: x.modelo, value: x.periodo, extra: this._eur(x.importePeriodo) }));
+        const temporada = mods.slice(0, 10)
+            .map(x => ({ label: x.modelo, value: x.temporada, extra: this._eur(x.importeTemporada) }));
+        return '<div class="card inf-bloque"><div class="card-title">&#x1F457; Modelos</div>' +
+            '<div class="inf-2col">' +
+              '<div><div class="inf-sub2">Terminados en el periodo</div>' +
+                this._barras(enPeriodo, { fmt: v => v }) + '</div>' +
+              '<div><div class="inf-sub2">Ranking de la temporada</div>' +
+                this._barras(temporada, { fmt: v => v, color: '#7E57C2' }) + '</div>' +
+            '</div></div>';
+    },
+
+    _blkTallasFerias(tallas, fer) {
+        const tablaFerias = fer.length
+            ? '<div class="table-container"><table class="inf-tabla"><thead><tr>' +
+              '<th>Feria</th><th>Trajes</th><th>Entregados</th><th>Importe estimado</th></tr></thead><tbody>' +
+              fer.map(f => '<tr><td><b>' + this._esc(f.feria) + '</b></td><td>' + f.total + '</td>' +
+                           '<td>' + f.entregados + '</td><td>' + this._eur(f.importe) + '</td></tr>').join('') +
+              '</tbody></table></div>'
+            : '<p class="inf-vacio">Sin ferias registradas.</p>';
+        return '<div class="card inf-bloque">' +
+            '<div class="card-title">&#x1F4CF; Tallas y ferias ' +
+            '<small style="font-weight:400; color:var(--text-muted);">— temporada completa</small></div>' +
+            '<div class="inf-2col">' +
+              '<div><div class="inf-sub2">Tallas más pedidas</div>' +
+                this._barras(tallas, { fmt: v => v, color: '#42A5F5' }) + '</div>' +
+              '<div><div class="inf-sub2">Por feria</div>' + tablaFerias + '</div>' +
+            '</div></div>';
+    },
+
+    _blkTelas(t) {
+        const top = (mapa, color) => this._barras(
+            [...mapa.entries()].map(([k, v]) => ({ label: k, value: v }))
+                .sort((a, b) => b.value - a.value).slice(0, 10),
+            { fmt: v => this._num(v, 1) + ' m', color: color });
+
+        let cuerpo;
+        if (t.hayMovs) {
+            cuerpo = '<div class="inf-kpis">' +
+                this._kpi(this._num(t.consumo, 1) + ' m',   'Tela consumida', 'cortes del periodo', '', '#C2185B') +
+                this._kpi(this._num(t.recepcion, 1) + ' m', 'Tela recibida',  'de proveedores',     '', '#43A047') +
+                this._kpi(this._num(t.pedido, 1) + ' m',    'Tela pedida',    'pedidos cursados',   '', '#FFA726') +
+                '</div>' +
+                '<div class="inf-2col" style="margin-top:14px;">' +
+                  '<div><div class="inf-sub2">Consumo por tela</div>' + top(t.porTela, '#C2185B') + '</div>' +
+                  '<div><div class="inf-sub2">Recibido por proveedor</div>' + top(t.porProveedor, '#43A047') + '</div>' +
+                '</div>';
+        } else {
+            cuerpo = '<p class="inf-vacio">Todavía no hay movimientos de tela registrados ' +
+                     'en la pestaña MOVIMIENTOS.</p>';
+        }
+
+        const tablaBajo = t.bajoUmbral.length
+            ? '<div class="table-container" style="margin-top:10px;"><table class="inf-tabla"><thead><tr>' +
+              '<th>Tela bajo umbral</th><th>Stock</th><th>Umbral</th></tr></thead><tbody>' +
+              t.bajoUmbral.slice(0, 12).map(x =>
+                '<tr><td>' + this._esc(x.nombre) + '</td><td><b>' + this._num(x.stock, 1) + ' m</b></td>' +
+                '<td>' + this._num(x.umbral, 1) + ' m</td></tr>').join('') +
+              '</tbody></table></div>'
+            : '';
+
+        return '<div class="card inf-bloque"><div class="card-title">&#x1F9F6; Telas</div>' + cuerpo +
+            '<div class="inf-alertas" style="margin-top:14px;">' +
+              '<span class="badge ' + (t.sinStock.length ? 'badge-danger' : 'badge-neutral') + '">' +
+                t.sinStock.length + ' tela' + (t.sinStock.length === 1 ? '' : 's') + ' sin stock</span>' +
+              '<span class="badge ' + (t.bajoUmbral.length ? 'badge-warning' : 'badge-neutral') + '">' +
+                t.bajoUmbral.length + ' bajo umbral</span>' +
+              '<span class="badge badge-info">' + t.retales + ' retales · ' +
+                this._num(t.metrosRetales, 1) + ' m guardados</span>' +
+            '</div>' + tablaBajo + '</div>';
+    },
+
+    /* ── Impresión / PDF ──────────────────────────────────────────────── */
+
+    imprimir() {
+        const cont = document.getElementById('informesContent');
+        if (!cont || !this._loaded) {
+            App.toast.show('Espera a que el informe termine de cargar', 'warning');
+            return;
+        }
+        const w = window.open('', '_blank', 'width=1100,height=800');
+        if (!w) {
+            App.toast.show('El navegador bloqueó la ventana emergente. Permite popups para esta página.', 'error', 5000);
+            return;
+        }
+        const estilos = (document.getElementById('informesEstilos') || {}).textContent || '';
+        const titulo = 'Informe Notelodigo — ' + this._titulo(this._rango(), this._periodo);
+        const css =
+            '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
+            'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+            'margin:0;padding:20px 24px;color:#2b2b2b;background:#fff;font-size:12px;}' +
+            ':root{--text-muted:#777;--text-light:#888;--primary:#C2185B;}' +
+            '.card{border:1px solid #e6e0e3;border-radius:8px;padding:14px 16px;margin-bottom:12px;' +
+            'break-inside:avoid;page-break-inside:avoid;}' +
+            '.card-title{font-size:14px;font-weight:700;margin-bottom:10px;color:#8e0e45;}' +
+            '.table-container{overflow:visible;}' +
+            '.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;' +
+            'font-weight:600;background:#f3f0f1;color:#555;margin-right:6px;}' +
+            '.badge-danger{background:#fdecea;color:#b3261e;}' +
+            '.badge-warning{background:#fff4e5;color:#8a5300;}' +
+            '.badge-info{background:#e8f1fb;color:#1a4f8a;}' +
+            '.badge-neutral{background:#f5f5f5;color:#666;}' +
+            '@page{size:A4;margin:11mm;}' + estilos;
+        w.document.write('<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>' +
+            this._esc(titulo) + '</title><style>' + css + '</style></head><body>' +
+            cont.innerHTML + '</body></html>');
+        w.document.close();
+        w.addEventListener('load', () => { w.focus(); w.print(); });
+    },
+};
+
 const _origNavigateTo = App.ui.navigateTo.bind(App.ui);
 App.ui.navigateTo = function(sectionId) {
     _origNavigateTo(sectionId);
@@ -19496,6 +20660,11 @@ App.ui.navigateTo = function(sectionId) {
     }
     if (sectionId === 'telas') {
         App.telas.load();
+    }
+    if (sectionId === 'informes') {
+        // El informe siempre se recalcula al entrar: son datos de gestión
+        // y una foto vieja induce a error en una reunión.
+        App.informes.load(true).catch(e => console.warn('[informes.load]', e.message));
     }
     if (sectionId === 'ajustes') {
         // Actualizar estado de sesión al entrar en Ajustes
