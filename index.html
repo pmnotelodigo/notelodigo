@@ -1823,7 +1823,6 @@
             margin: 6px 0 2px;
             font-size: 12px;
             line-height: 1.35;
-            cursor: pointer;
         }
         .jose-adorno.comprado {
             border-color: #a5d6a7;
@@ -16544,9 +16543,7 @@ App.jose = {
         if (this._bandeja === 'cortador') {
             actions = btnAccion('marcarRecogidoCorte', t._rowIndex, '&#x2713; Recogido');
         } else if (this._bandeja === 'adornos') {
-            // Sin botones: la casilla del adorno ES la acción. Al ticarla el
-            // traje sale de esta bandeja y aparece en "Llevar al taller".
-            actions = '';
+            actions = btnAccion('marcarAdornoComprado', t._rowIndex, '&#x2713; Comprado');
         } else if (this._bandeja === 'llevar') {
             // Si Pilar ya asignó un taller, lo preseleccionamos para que Jose lo vea de un vistazo.
             // Lee del catálogo TALLERES (activos) + fallback CONFIG; el helper centraliza la lógica.
@@ -16662,63 +16659,72 @@ App.jose = {
         };
     },
 
-    /** Barra tocable del adorno dentro de la card (solo bandeja "llevar").
-     *  Si el traje no tiene adorno ni receta de modelo, no pinta nada. */
+    /** Barra del adorno dentro de la card. Es INFORMATIVA, no se pulsa
+     *  (Andres, 2026-09-01): en "Llevar al taller" quedaria pegada al boton
+     *  "Llevado" y un misclic devolveria el traje a la bandeja Adornos sin
+     *  que Jose se entere. Marcar se hace con el boton de accion de la card
+     *  (doble pulsacion, como el resto); desmarcar, desde la ficha. */
     _adornoBlock(t) {
         const info = this._adornoInfo(t);
         // Todos los trajes llevan adorno; si el sheet no lo tiene escrito
-        // igualmente pintamos la casilla (si no, el traje se quedaria
-        // atascado en la bandeja "Adornos" sin forma de ticarlo).
+        // igualmente pintamos la barra (si no, el traje se quedaria en la
+        // bandeja "Adornos" sin nada que mirar).
         const texto  = info.tiene ? this._esc(info.texto) : '<em>(sin adorno indicado)</em>';
         const box    = info.comprado ? '&#x2705;' : '&#x2B1C;';
-        const estado = info.comprado
-            ? 'Comprado'
-            : 'Pendiente &#x2014; pulsa al comprarlo';
+        const estado = info.comprado ? 'Comprado' : 'Pendiente de comprar';
         const lg = (this._bandeja === 'adornos') ? ' lg' : '';
         return (
-            `<button type="button" class="jose-adorno${info.comprado ? ' comprado' : ''}${lg}" ` +
-            `onclick="event.stopPropagation(); App.jose.toggleAdornoComprado(${t._rowIndex});" ` +
-            `title="Marcar / desmarcar el adorno como comprado">` +
+            `<div class="jose-adorno${info.comprado ? ' comprado' : ''}${lg}">` +
                 `<span class="jose-adorno-box">${box}</span>` +
                 `<span class="jose-adorno-txt">&#x2728; ${texto}` +
                     `<span class="jose-adorno-estado">${estado}</span>` +
                 `</span>` +
-            `</button>`
+            `</div>`
         );
     },
 
-    /** Marca / desmarca el adorno de un traje como comprado.
-     *  Es un TOGGLE: sin doble pulsacion ni toast de deshacer, porque volver
-     *  a pulsar ya lo revierte. Escritura optimista (memoria + overlay
-     *  anti-race primero, sheet despues por la cola) como el resto. */
-    toggleAdornoComprado(rowIndex) {
+    /** Accion inline de la bandeja "Adornos": marca el adorno como comprado
+     *  y el traje salta a "Llevar al taller". Va por el boton de accion de la
+     *  card, o sea con DOBLE PULSACION (_armOrRun) igual que "Recogido" y
+     *  "Llevado", y con el toast "Deshacer" de 8 s por si acaso. */
+    marcarAdornoComprado(rowIndex) {
         try {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
-            const COL  = App.trajes.COL;
-            const info = this._adornoInfo(t);
-            const hoy  = App.trajes._toSheetDate(App.trajes._todayISO());
-            const updates = info.comprado
-                ? [[COL.adornoComprado, ''],
-                   [COL.fechaAdornoComprado, ''],
-                   [COL.fechaUltimaMod, hoy]]
-                : [[COL.adornoComprado, 'COMPRADO'],
-                   [COL.fechaAdornoComprado, hoy],
-                   [COL.fechaUltimaMod, hoy]];
-            updates.forEach(([c, v]) => { t[c] = v; });
-            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
-            if (tc) updates.forEach(([c, v]) => { tc[c] = v; });
-            this._noteWrites(rowIndex, updates);
-            this.filter();
-            App.toast.show(
-                info.comprado
-                    ? `Traje #${t[COL.num]}: adorno SIN comprar &#x2014; vuelve a la bandeja &#x1F380; Adornos.`
-                    : `&#x2705; Traje #${t[COL.num]}: adorno comprado &#x2014; ya puedes llevarlo al taller.`,
-                info.comprado ? 'info' : 'success', 3500);
-            this._enqueueWrites(
-                () => this._writeUpdatesRemote(rowIndex, updates), 'adornoComprado');
+            const COL = App.trajes.COL;
+            const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
+            const updates = [
+                [COL.adornoComprado,      'COMPRADO'],
+                [COL.fechaAdornoComprado, hoy],
+                [COL.fechaUltimaMod,      hoy],
+            ];
+            this._ejecutarAccion([{ rowIndex, updates }],
+                `&#x2705; Traje #${t[COL.num]}: adorno comprado &#x2014; ya puedes llevarlo al taller.`);
         } catch (err) {
-            console.error('[jose.toggleAdornoComprado]', err);
+            console.error('[jose.marcarAdornoComprado]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
+    },
+
+    /** Deshacer tardio: devuelve el traje a la bandeja "Adornos". SOLO desde
+     *  la ficha del traje (hay que abrir la card a proposito), nunca desde un
+     *  boton pegado a "Llevado". Tambien con doble pulsacion. */
+    desmarcarAdornoComprado(rowIndex) {
+        try {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (!t) throw new Error('Traje no encontrado.');
+            const COL = App.trajes.COL;
+            const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
+            const updates = [
+                [COL.adornoComprado,      ''],
+                [COL.fechaAdornoComprado, ''],
+                [COL.fechaUltimaMod,      hoy],
+            ];
+            this._ejecutarAccion([{ rowIndex, updates }],
+                `Traje #${t[COL.num]}: adorno SIN comprar &#x2014; vuelve a la bandeja &#x1F380; Adornos.`);
+            this.closeFicha();
+        } catch (err) {
+            console.error('[jose.desmarcarAdornoComprado]', err);
             App.toast.show('Error: ' + err.message, 'error', 5000);
         }
     },
@@ -17176,9 +17182,16 @@ App.jose = {
         const adornoComprado = (t[COL.adornoComprado] || '')
             .toString().toUpperCase().trim() === 'COMPRADO';
         const fAdornoComp = (t[COL.fechaAdornoComprado] || '').toString().trim();
+        // Desmarcar SOLO se puede desde aqui (ver _adornoBlock): hay que abrir
+        // la ficha a proposito, asi que no hay riesgo de misclic desde la card.
+        const btnDesmarcar = adornoComprado
+            ? ` <button class="btn btn-secondary btn-sm jose-btn-accion" style="margin-left:8px;" ` +
+              `onclick="App.jose._armOrRun(this, 'desmarcarAdornoComprado', ${rowIndex})">` +
+              `&#x21A9; No, sin comprar</button>`
+            : '';
         const adornoEstadoRow = adornos
             ? fila('Adorno comprado', adornoComprado
-                ? `<span style="color:#1b5e20;">&#x2705; Si${fAdornoComp ? ' &middot; ' + fAdornoComp : ''}</span>`
+                ? `<span style="color:#1b5e20;">&#x2705; Si${fAdornoComp ? ' &middot; ' + fAdornoComp : ''}</span>${btnDesmarcar}`
                 : `<span style="color:#b71c1c;">&#x2B1C; Pendiente de comprar</span>`)
             : '';
 
