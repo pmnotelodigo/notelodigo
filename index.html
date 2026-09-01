@@ -1804,6 +1804,44 @@
             50%      { transform: scale(1.06); box-shadow: 0 0 0 6px rgba(245,158,11,0); }
         }
 
+        /* -- Check "adorno comprado" (bandeja Llevar al taller) -----------
+           Barra grande y tocable dentro de la card: Jose ve que adorno lleva
+           el traje y lo marca cuando lo ha comprado. Es un TOGGLE (un toque
+           marca, otro desmarca), por eso NO lleva doble pulsacion como los
+           botones de accion: el propio boton es su deshacer. */
+        .jose-adorno {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            text-align: left;
+            border: 1px solid #f0c36d;
+            background: #fff8e1;
+            color: #7c3a00;
+            border-radius: 8px;
+            padding: 8px 10px;
+            margin: 6px 0 2px;
+            font-size: 12px;
+            line-height: 1.35;
+            cursor: pointer;
+        }
+        .jose-adorno.comprado {
+            border-color: #a5d6a7;
+            background: #eaf7ea;
+            color: #1b5e20;
+        }
+        .jose-adorno .jose-adorno-box { font-size: 20px; line-height: 1; flex: 0 0 auto; }
+        .jose-adorno .jose-adorno-txt { flex: 1 1 auto; min-width: 0; }
+        .jose-adorno .jose-adorno-estado {
+            display: block;
+            margin-top: 2px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            font-weight: 700;
+            opacity: 0.75;
+        }
+
         /* ── Modelos en solo lectura (roles Dependienta y Jose) ──────────
            Ocultamos botones de creación, guardado y borrado, y
            deshabilitamos los inputs del modal. La clase la pone
@@ -10328,6 +10366,13 @@ App.trajes = {
         trajeEntregadoTienda: 'TRAJE ENTREGADO TIENDA',
         fechaEntregadoTienda: 'FECHA ENTREGADO TIENDA',
         trajeEntregado: 'TRAJE ENTREGADO',
+        adornos: 'ADORNOS',
+        // Check de "adorno comprado" de Jose (fase entre cortador y taller):
+        // - ADORNO COMPRADO: estado (COMPRADO | vacio) - es la CONDICION
+        // - FECHA ADORNO COMPRADO: cuando lo compro (informativa)
+        // Ambas se crean solas en el LISTADO al primer uso.
+        adornoComprado: 'ADORNO COMPRADO',
+        fechaAdornoComprado: 'FECHA ADORNO COMPRADO',
         fechaUltimaMod: 'FECHA ULTIMA MOD',
     },
 
@@ -16524,6 +16569,11 @@ App.jose = {
             ? `<div style="font-size:13px; font-weight:600; color:#444; margin-bottom:4px;">TALLA ${tallaTxt}</div>`
             : '';
 
+        // Adorno: solo en la bandeja donde Jose lo compra (recogido del
+        // cortador y todavia sin llevar al taller). En el resto de bandejas
+        // no aporta nada y ensucia la card.
+        const adornoHtml = (this._bandeja === 'llevar') ? this._adornoBlock(t) : '';
+
         return (
             `<div class="card" style="padding:12px; cursor:pointer;" ` +
             `onclick="App.jose.verFicha(${t._rowIndex})">` +
@@ -16538,10 +16588,107 @@ App.jose = {
             (feria  ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F4CD; ${feria}</div>` : '') +
             (diasInfo ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">&#x23F1; ${diasInfo}</div>` : '') +
             timelineHtml +
+            adornoHtml +
             `<div style="display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:8px;" ` +
             `onclick="event.stopPropagation();">${actions}</div>` +
             `</div>`
         );
+    },
+
+    // -- Adornos: check de "comprado" (peticion de Pilar, 2026-09-01) ----
+    // Jose compra los adornos entre que recoge el corte del cortador y lo
+    // lleva al taller. Por eso el check vive en la bandeja "Llevar al
+    // taller": cada card dice que adorno lleva ese traje (receta del modelo
+    // + color/variante de la clienta) y Jose lo marca al comprarlo.
+    // Persistencia: dos columnas nuevas del LISTADO, autocreadas al primer
+    // uso (mismo patron que las de tienda):
+    //   ADORNO COMPRADO        -> 'COMPRADO' | vacio   <- la CONDICION
+    //   FECHA ADORNO COMPRADO  -> informativa, para leer el Excel de un vistazo
+
+    _esc(s) {
+        return (s == null ? '' : String(s))
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    },
+
+    /** Info del adorno de un traje: receta del catalogo MODELOS + variante
+     *  de la clienta (columna ADORNOS del LISTADO) + si ya esta comprado.
+     *  Devuelve { receta, traje, texto, comprado, tiene }. */
+    _adornoInfo(t) {
+        const COL = App.trajes.COL;
+        if (!t) return { receta: '', traje: '', texto: '', comprado: false, tiene: false };
+        const modeloRaw = (t[COL.modelo] || '').trim();
+        const modeloFull = (App.modelos?._data || []).find(m =>
+            m.NOMBRE && m.NOMBRE.toLowerCase() === modeloRaw.toLowerCase());
+        // Leemos 'ADORNOS' literal (igual que verFicha): COL.adornos ha dado
+        // problemas con caracteres invisibles en algunas temporadas.
+        const tc = App.clientas?.data?.find(r => r._rowIndex === t._rowIndex);
+        const receta = (modeloFull?.ADORNOS || '').toString().trim();
+        const traje  = (t['ADORNOS'] || tc?.['ADORNOS'] || '').toString().trim();
+        const partes = [];
+        if (receta) partes.push(receta);
+        if (traje && traje.toLowerCase() !== receta.toLowerCase()) partes.push(traje);
+        const comprado = (t[COL.adornoComprado] || '')
+            .toString().toUpperCase().trim() === 'COMPRADO';
+        return {
+            receta, traje, comprado,
+            texto: partes.join(' \u00b7 ').replace(/\s*\n\s*/g, ' \u00b7 '),
+            tiene: partes.length > 0,
+        };
+    },
+
+    /** Barra tocable del adorno dentro de la card (solo bandeja "llevar").
+     *  Si el traje no tiene adorno ni receta de modelo, no pinta nada. */
+    _adornoBlock(t) {
+        const info = this._adornoInfo(t);
+        if (!info.tiene) return '';
+        const box    = info.comprado ? '&#x2705;' : '&#x2B1C;';
+        const estado = info.comprado ? 'Comprado' : 'Pendiente &#x2014; pulsa al comprarlo';
+        return (
+            `<button type="button" class="jose-adorno${info.comprado ? ' comprado' : ''}" ` +
+            `onclick="event.stopPropagation(); App.jose.toggleAdornoComprado(${t._rowIndex});" ` +
+            `title="Marcar / desmarcar el adorno como comprado">` +
+                `<span class="jose-adorno-box">${box}</span>` +
+                `<span class="jose-adorno-txt">&#x2728; ${this._esc(info.texto)}` +
+                    `<span class="jose-adorno-estado">${estado}</span>` +
+                `</span>` +
+            `</button>`
+        );
+    },
+
+    /** Marca / desmarca el adorno de un traje como comprado.
+     *  Es un TOGGLE: sin doble pulsacion ni toast de deshacer, porque volver
+     *  a pulsar ya lo revierte. Escritura optimista (memoria + overlay
+     *  anti-race primero, sheet despues por la cola) como el resto. */
+    toggleAdornoComprado(rowIndex) {
+        try {
+            const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
+            if (!t) throw new Error('Traje no encontrado.');
+            const COL  = App.trajes.COL;
+            const info = this._adornoInfo(t);
+            const hoy  = App.trajes._toSheetDate(App.trajes._todayISO());
+            const updates = info.comprado
+                ? [[COL.adornoComprado, ''],
+                   [COL.fechaAdornoComprado, ''],
+                   [COL.fechaUltimaMod, hoy]]
+                : [[COL.adornoComprado, 'COMPRADO'],
+                   [COL.fechaAdornoComprado, hoy],
+                   [COL.fechaUltimaMod, hoy]];
+            updates.forEach(([c, v]) => { t[c] = v; });
+            const tc = App.clientas?.data?.find(r => r._rowIndex === rowIndex);
+            if (tc) updates.forEach(([c, v]) => { tc[c] = v; });
+            this._noteWrites(rowIndex, updates);
+            this.filter();
+            App.toast.show(
+                info.comprado
+                    ? `Traje #${t[COL.num]}: adorno marcado como NO comprado.`
+                    : `&#x2705; Traje #${t[COL.num]}: adorno comprado.`,
+                info.comprado ? 'info' : 'success', 2500);
+            this._enqueueWrites(
+                () => this._writeUpdatesRemote(rowIndex, updates), 'adornoComprado');
+        } catch (err) {
+            console.error('[jose.toggleAdornoComprado]', err);
+            App.toast.show('Error: ' + err.message, 'error', 5000);
+        }
     },
 
     /** Acción inline: marca CORTE=RECOGIDO + auto-stamp fechas + descuenta stock. */
@@ -16639,6 +16786,16 @@ App.jose = {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
             const COL = App.trajes.COL;
+            // Aviso (NO bloqueo) si el adorno todavia no esta comprado: a
+            // veces el adorno se le lleva al taller mas tarde, asi que la
+            // decision es de Jose.
+            const ad = this._adornoInfo(t);
+            if (ad.tiene && !ad.comprado) {
+                const ok = confirm(
+                    `OJO: el adorno del traje #${t[COL.num]} NO esta marcado como comprado.\n\n` +
+                    `${ad.texto}\n\n\u00bfLlevarlo igualmente al taller?`);
+                if (!ok) return;
+            }
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
             const updates = [
                 ['TALLER',               taller],
@@ -16989,6 +17146,17 @@ App.jose = {
             `<tr><td style="padding:5px 0; color:#666; vertical-align:top; min-width:130px;">${label}</td>` +
             `<td style="padding:5px 0; color:${color};"><strong>${value || '—'}</strong></td></tr>`;
 
+        // Estado del check de "adorno comprado" (lo marca Jose en la bandeja
+        // "Llevar al taller"). Solo se muestra si el traje lleva adorno.
+        const adornoComprado = (t[COL.adornoComprado] || '')
+            .toString().toUpperCase().trim() === 'COMPRADO';
+        const fAdornoComp = (t[COL.fechaAdornoComprado] || '').toString().trim();
+        const adornoEstadoRow = adornos
+            ? fila('Adorno comprado', adornoComprado
+                ? `<span style="color:#1b5e20;">&#x2705; Si${fAdornoComp ? ' &middot; ' + fAdornoComp : ''}</span>`
+                : `<span style="color:#b71c1c;">&#x2B1C; Pendiente de comprar</span>`)
+            : '';
+
         const tlf = telefono
             ? `<a href="tel:${telefono}" style="text-decoration:none;">${telefono}</a> ` +
               `<a href="https://wa.me/${telefono.replace(/\D/g, '')}" target="_blank" rel="noopener" ` +
@@ -17007,6 +17175,7 @@ App.jose = {
             (medidas ? fila('Talla / medidas', medidas) : '') +
             (escandalloM ? fila('Tela ppal (escandallo)', `${escandalloM} m`) : '') +
             (adornos ? fila('Adornos', `<span style="font-size:12px; line-height:1.5;">${adornos.replace(/\n/g, '<br>')}</span>`) : '') +
+            adornoEstadoRow +
             `</table>` +
             `<div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border-light);">` +
             `<label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px;">Taller asignado</label>` +
