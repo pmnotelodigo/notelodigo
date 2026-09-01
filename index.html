@@ -17030,7 +17030,11 @@ App.jose = {
         const hdr = (headers[0] || []).map(h => (h || '').toString().trim());
         const rangeUpdates = [];
         for (const [col, val] of pairs) {
-            let idx = hdr.indexOf(col);
+            // Match por nombre, insensible a mayusculas (igual que
+            // App.sheets.ensureColumn): si Pilar o Andres crearon la columna
+            // a mano con otro casing, la reutilizamos en vez de duplicarla.
+            const target = (col || '').toLowerCase();
+            let idx = hdr.findIndex(h => h.toLowerCase() === target);
             if (idx === -1) {
                 // Columna que aún no existe (p.ej. TRAJE/FECHA ENTREGADO TIENDA
                 // recién estrenadas): crearla en la primera columna libre.
