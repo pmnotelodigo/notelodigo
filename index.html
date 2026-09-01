@@ -1831,6 +1831,10 @@
             color: #1b5e20;
         }
         .jose-adorno .jose-adorno-box { font-size: 20px; line-height: 1; flex: 0 0 auto; }
+        /* En la bandeja "Adornos" la casilla ES la accion principal: mas
+           grande y con mas area de toque para el movil. */
+        .jose-adorno.lg { padding: 12px 12px; font-size: 13px; margin: 8px 0 2px; }
+        .jose-adorno.lg .jose-adorno-box { font-size: 28px; }
         .jose-adorno .jose-adorno-txt { flex: 1 1 auto; min-width: 0; }
         .jose-adorno .jose-adorno-estado {
             display: block;
@@ -3375,6 +3379,9 @@
                     <div id="joseBandejas" style="display:flex; gap:6px; flex-wrap:wrap;">
                         <button class="bandeja active" data-bandeja="cortador" onclick="App.jose.setBandeja('cortador')">
                             &#x1F4E5; Recoger del cortador <span class="bandeja-count" id="joseCountCortador">0</span>
+                        </button>
+                        <button class="bandeja" data-bandeja="adornos" onclick="App.jose.setBandeja('adornos')">
+                            &#x1F380; Adornos <span class="bandeja-count" id="joseCountAdornos">0</span>
                         </button>
                         <button class="bandeja" data-bandeja="llevar" onclick="App.jose.setBandeja('llevar')">
                             &#x1F69B; Llevar al taller <span class="bandeja-count" id="joseCountLlevar">0</span>
@@ -16152,6 +16159,7 @@ App.jose = {
         const COL = App.trajes.COL;
         const all = App.trajes.data || [];
         const cortador = [];
+        const adornos = [];     // corte recogido pero adorno sin comprar (puerta)
         const llevar = [];
         const recoger = [];
         const tienda = [];      // recogidos del taller, pendientes de dejar en la tienda
@@ -16200,7 +16208,13 @@ App.jose = {
             //   (FECHA ENTREGA TALLER vacía = Jose aún no ha pulsado "Llevado"). El TALLER
             //   puede estar ya asignado por Pilar — no nos importa, sigue siendo de Jose.
             else if (corte === 'RECOGIDO' && !fechaEnt) {
-                llevar.push(t);
+                // PUERTA DE ADORNOS (Pilar, 2026-09-01): "mi padre no puede
+                // llevar al taller nada que no este completo". Mientras el
+                // adorno no este ticado como comprado, el traje vive en la
+                // bandeja "Adornos" y NO aparece en "Llevar al taller".
+                // Al ticarlo salta solo a la bandeja siguiente.
+                if (this._adornoInfo(t).comprado) llevar.push(t);
+                else adornos.push(t);
             }
             // ─ Recoger del taller: corte recogido + fecha de entrega rellena (ya está en taller)
             //   y el traje aún no ha vuelto.
@@ -16210,11 +16224,11 @@ App.jose = {
         }
         // Log diagnóstico — visible en consola con copy(window._noteLog)
         this._log('calcLists', {
-            llevar: llevar.length, recoger: recoger.length,
+            adornos: adornos.length, llevar: llevar.length, recoger: recoger.length,
             tienda: tienda.length, historico: historico.length,
             trajesConTaller: debugRows,
         });
-        return { cortador, llevar, recoger, tienda, historico };
+        return { cortador, adornos, llevar, recoger, tienda, historico };
     },
 
     filter() {
@@ -16228,6 +16242,7 @@ App.jose = {
             el.classList.toggle('has-pending', highlight && n > 0);
         };
         setCount('joseCountCortador',  lists.cortador.length);
+        setCount('joseCountAdornos',   lists.adornos.length);
         setCount('joseCountLlevar',    lists.llevar.length);
         setCount('joseCountRecoger',   lists.recoger.length);
         setCount('joseCountTienda',    lists.tienda.length);
@@ -16236,7 +16251,8 @@ App.jose = {
         // Subtítulo según bandeja activa
         const subtitleMap = {
             cortador:  'Trajes en el cortador esperando ser recogidos.',
-            llevar:    'Trajes recogidos del cortador, en el coche, pendientes de llevar al taller.',
+            adornos:   'Adornos pendientes de comprar. Marca cada uno al comprarlo y el traje pasa solo a "Llevar al taller".',
+            llevar:    'Trajes con el adorno ya comprado, en el coche, pendientes de llevar al taller.',
             recoger:   'Trajes en talleres, pendientes de recoger.',
             tienda:    'Trajes recogidos del taller, en el coche, pendientes de dejar en la tienda.',
             historico: 'Trajes ya entregados en la tienda — referencia para consulta (solo lectura).',
@@ -16245,20 +16261,21 @@ App.jose = {
         if (subt) subt.textContent = subtitleMap[this._bandeja] || '';
 
         // Badge del sidebar: total de trajes pendientes (las 4 bandejas accionables, no histórico)
-        this.refreshBadge(lists.cortador.length + lists.llevar.length +
+        this.refreshBadge(lists.cortador.length + lists.adornos.length + lists.llevar.length +
                           lists.recoger.length + lists.tienda.length);
 
         const list = lists[this._bandeja] || [];
         this._render(list);
     },
 
-    /** Cuenta total de trajes que requieren acción de Jose (sumas de las 4 bandejas).
+    /** Cuenta total de trajes que requieren acción de Jose (suma de las 5
+     *  bandejas accionables; el histórico no cuenta).
      *  Si se le pasa un número, lo usa; si no, lo recalcula. */
     refreshBadge(count) {
         let n = count;
         if (typeof n !== 'number') {
             const lists = this._calcLists();
-            n = lists.cortador.length + lists.llevar.length +
+            n = lists.cortador.length + lists.adornos.length + lists.llevar.length +
                 lists.recoger.length + lists.tienda.length;
         }
         const el = document.getElementById('joseBadgeSidebar');
@@ -16452,6 +16469,9 @@ App.jose = {
         if (this._bandeja === 'cortador') {
             const d = App.trajes._diasDesde(t[COL.fechaEnviadoCorte]);
             if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} esperando`;
+        } else if (this._bandeja === 'adornos') {
+            const d = App.trajes._diasDesde(t[COL.fechaRecogidoCorte]);
+            if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} esperando el adorno`;
         } else if (this._bandeja === 'llevar') {
             const d = App.trajes._diasDesde(t[COL.fechaRecogidoCorte]);
             if (d != null && d >= 0) diasInfo = `${d} día${d === 1 ? '' : 's'} en el coche`;
@@ -16485,7 +16505,7 @@ App.jose = {
         const placeholder = '<em style="color:#aaa; font-style:normal;">(sin fecha)</em>';
         const showVal = (v) => v ? `<strong>${v}</strong>` : placeholder;
         // Orden de fases (cada bandeja muestra su fase y las anteriores)
-        const FASES = ['cortador', 'llevar', 'recoger', 'tienda', 'historico'];
+        const FASES = ['cortador', 'adornos', 'llevar', 'recoger', 'tienda', 'historico'];
         const faseIdx = FASES.indexOf(this._bandeja);
         // cortador y posteriores: enviado a corte
         if (faseIdx >= 0) {
@@ -16496,15 +16516,15 @@ App.jose = {
             timelineItems.push(`<span title="Fecha en que Jose recogió el corte del cortador">&#x1F4E5; Recogido del corte: ${showVal(fRec)}</span>`);
         }
         // recoger y posteriores: llevado al taller
-        if (faseIdx >= 2) {
+        if (faseIdx >= 3) {
             timelineItems.push(`<span title="Fecha en que Jose llevó el corte al taller">&#x1F3ED; Llevado al taller: ${showVal(fEnt)}</span>`);
         }
         // tienda y posteriores: recogido del taller
-        if (faseIdx >= 3) {
+        if (faseIdx >= 4) {
             timelineItems.push(`<span title="Fecha en que Jose recogió el traje terminado del taller">&#x1F4E6; Recogido del taller: ${showVal(fRcd)}</span>`);
         }
         // histórico: entregado en tienda
-        if (faseIdx >= 4) {
+        if (faseIdx >= 5) {
             timelineItems.push(`<span title="Fecha en que Jose dejó el traje en la tienda">&#x1F3EA; Entregado en tienda: ${showVal(fTnd)}</span>`);
         }
         const timelineHtml = timelineItems.length
@@ -16523,6 +16543,10 @@ App.jose = {
         let actions = '';
         if (this._bandeja === 'cortador') {
             actions = btnAccion('marcarRecogidoCorte', t._rowIndex, '&#x2713; Recogido');
+        } else if (this._bandeja === 'adornos') {
+            // Sin botones: la casilla del adorno ES la acción. Al ticarla el
+            // traje sale de esta bandeja y aparece en "Llevar al taller".
+            actions = '';
         } else if (this._bandeja === 'llevar') {
             // Si Pilar ya asignó un taller, lo preseleccionamos para que Jose lo vea de un vistazo.
             // Lee del catálogo TALLERES (activos) + fallback CONFIG; el helper centraliza la lógica.
@@ -16569,10 +16593,12 @@ App.jose = {
             ? `<div style="font-size:13px; font-weight:600; color:#444; margin-bottom:4px;">TALLA ${tallaTxt}</div>`
             : '';
 
-        // Adorno: solo en la bandeja donde Jose lo compra (recogido del
-        // cortador y todavia sin llevar al taller). En el resto de bandejas
-        // no aporta nada y ensucia la card.
-        const adornoHtml = (this._bandeja === 'llevar') ? this._adornoBlock(t) : '';
+        // Adorno: en la bandeja "Adornos" (donde Jose lo compra y tica) y en
+        // "Llevar al taller" (ya ticado, por si hay que corregir un tic). En
+        // el resto de bandejas no aporta nada y ensucia la card.
+        const esAdornos = (this._bandeja === 'adornos');
+        const adornoHtml = (esAdornos || this._bandeja === 'llevar')
+            ? this._adornoBlock(t) : '';
 
         return (
             `<div class="card" style="padding:12px; cursor:pointer;" ` +
@@ -16585,9 +16611,9 @@ App.jose = {
                 `line-height:1.2; margin-bottom:2px; letter-spacing:0.2px;">${modelo}</div>` +
             (tipoTela ? `<div style="font-size:12px; color:#666; margin-bottom:4px;">${tipoTela}</div>` : '') +
             tallaLine +
-            (feria  ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F4CD; ${feria}</div>` : '') +
+            (feria && !esAdornos ? `<div style="font-size:11px; color:#888; margin-bottom:4px;">&#x1F4CD; ${feria}</div>` : '') +
             (diasInfo ? `<div style="font-size:11px; color:#888; margin-bottom:6px;">&#x23F1; ${diasInfo}</div>` : '') +
-            timelineHtml +
+            (esAdornos ? '' : timelineHtml) +
             adornoHtml +
             `<div style="display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:8px;" ` +
             `onclick="event.stopPropagation();">${actions}</div>` +
@@ -16640,15 +16666,21 @@ App.jose = {
      *  Si el traje no tiene adorno ni receta de modelo, no pinta nada. */
     _adornoBlock(t) {
         const info = this._adornoInfo(t);
-        if (!info.tiene) return '';
+        // Todos los trajes llevan adorno; si el sheet no lo tiene escrito
+        // igualmente pintamos la casilla (si no, el traje se quedaria
+        // atascado en la bandeja "Adornos" sin forma de ticarlo).
+        const texto  = info.tiene ? this._esc(info.texto) : '<em>(sin adorno indicado)</em>';
         const box    = info.comprado ? '&#x2705;' : '&#x2B1C;';
-        const estado = info.comprado ? 'Comprado' : 'Pendiente &#x2014; pulsa al comprarlo';
+        const estado = info.comprado
+            ? 'Comprado'
+            : 'Pendiente &#x2014; pulsa al comprarlo';
+        const lg = (this._bandeja === 'adornos') ? ' lg' : '';
         return (
-            `<button type="button" class="jose-adorno${info.comprado ? ' comprado' : ''}" ` +
+            `<button type="button" class="jose-adorno${info.comprado ? ' comprado' : ''}${lg}" ` +
             `onclick="event.stopPropagation(); App.jose.toggleAdornoComprado(${t._rowIndex});" ` +
             `title="Marcar / desmarcar el adorno como comprado">` +
                 `<span class="jose-adorno-box">${box}</span>` +
-                `<span class="jose-adorno-txt">&#x2728; ${this._esc(info.texto)}` +
+                `<span class="jose-adorno-txt">&#x2728; ${texto}` +
                     `<span class="jose-adorno-estado">${estado}</span>` +
                 `</span>` +
             `</button>`
@@ -16680,9 +16712,9 @@ App.jose = {
             this.filter();
             App.toast.show(
                 info.comprado
-                    ? `Traje #${t[COL.num]}: adorno marcado como NO comprado.`
-                    : `&#x2705; Traje #${t[COL.num]}: adorno comprado.`,
-                info.comprado ? 'info' : 'success', 2500);
+                    ? `Traje #${t[COL.num]}: adorno SIN comprar &#x2014; vuelve a la bandeja &#x1F380; Adornos.`
+                    : `&#x2705; Traje #${t[COL.num]}: adorno comprado &#x2014; ya puedes llevarlo al taller.`,
+                info.comprado ? 'info' : 'success', 3500);
             this._enqueueWrites(
                 () => this._writeUpdatesRemote(rowIndex, updates), 'adornoComprado');
         } catch (err) {
@@ -16786,16 +16818,9 @@ App.jose = {
             const t = App.trajes.data.find(r => r._rowIndex === rowIndex);
             if (!t) throw new Error('Traje no encontrado.');
             const COL = App.trajes.COL;
-            // Aviso (NO bloqueo) si el adorno todavia no esta comprado: a
-            // veces el adorno se le lleva al taller mas tarde, asi que la
-            // decision es de Jose.
-            const ad = this._adornoInfo(t);
-            if (ad.tiene && !ad.comprado) {
-                const ok = confirm(
-                    `OJO: el adorno del traje #${t[COL.num]} NO esta marcado como comprado.\n\n` +
-                    `${ad.texto}\n\n\u00bfLlevarlo igualmente al taller?`);
-                if (!ok) return;
-            }
+            // Sin aviso de adorno aqui: un traje solo llega a la bandeja
+            // "Llevar al taller" cuando su adorno ya esta ticado como
+            // comprado (ver la puerta en _calcLists).
             const hoy = App.trajes._toSheetDate(App.trajes._todayISO());
             const updates = [
                 ['TALLER',               taller],
