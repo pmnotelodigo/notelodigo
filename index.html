@@ -15128,9 +15128,22 @@ App.trajes = {
         // ANULADOS guarda es exactamente eso, así que borrar más allá destruiría datos
         // de columnas auxiliares que luego no se podrían recuperar.
         const ancho = Math.max(hdr.length, 1);
-        const lastColLetter = App.sheets._colLetter(ancho - 1);
+        // Se limpia CELDA A CELDA (en una sola llamada batch), no con un único rango
+        // A:Z de la fila. Escribir el rango entero lo rechaza Google en este LISTADO
+        // ("celda u objeto protegidos") aunque la fila no esté protegida y el usuario
+        // pueda vaciarla a mano; escribiendo por celdas —que es como escribe el resto
+        // de la app— funciona. Solo se tocan las que tienen algo: menos escrituras y
+        // menos posibilidades de topar con una celda protegida.
+        const aLimpiar = [];
+        for (let i = 0; i < ancho; i++) {
+            if (!String(cur[i] || '').trim()) continue;
+            aLimpiar.push({ i, range: `${tab}!${App.sheets._colLetter(i)}${row}`, values: [['']] });
+        }
         try {
-            await App.sheets.writeRange(sheetId, `${tab}!A${row}:${lastColLetter}${row}`, [new Array(ancho).fill('')]);
+            if (aLimpiar.length) {
+                await App.sheets.batchWriteRanges(sheetId,
+                    aLimpiar.map(({ range, values }) => ({ range, values })));
+            }
         } catch (err) {
             // Vaciar la fila entera de un golpe falla si el LISTADO tiene alguna columna
             // PROTEGIDA (típico: Nº, NOMBRE, FICHA… protegidas para que nadie las pise a
@@ -15139,15 +15152,15 @@ App.trajes = {
             // se informa de lo que quede. Lo imprescindible es NOMBRE: la app solo muestra
             // las filas que lo tienen, así que si esa se limpia el traje ya desaparece.
             if (!/protegid|protected|permission/i.test(err.message || '')) throw err;
-            console.warn('[anular] La fila entera está protegida; limpiando columna a columna:', err.message);
+            // Alguna celda concreta está protegida: se reintenta una a una para limpiar
+            // todo lo que se pueda y poder decir exactamente cuáles se resisten.
+            console.warn('[anular] Alguna celda está protegida; limpiando una a una:', err.message);
             const noBorradas = [];
-            for (let i = 0; i < ancho; i++) {
-                if (!String(cur[i] || '').trim()) continue;   // ya vacía, no hace falta tocarla
-                const letra = App.sheets._colLetter(i);
+            for (const { i, range, values } of aLimpiar) {
                 try {
-                    await App.sheets.writeRange(sheetId, `${tab}!${letra}${row}`, [['']]);
+                    await App.sheets.writeRange(sheetId, range, values);
                 } catch (e2) {
-                    noBorradas.push(hdr[i] || letra);
+                    noBorradas.push(hdr[i] || App.sheets._colLetter(i));
                 }
             }
             const iNombre = hdr.indexOf('NOMBRE');
