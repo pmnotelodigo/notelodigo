@@ -14909,18 +14909,24 @@ App.trajes = {
         const nombre    = String(an['NOMBRE'] || snapshot['NOMBRE'] || '').trim();
         const telaVuelta = String(an['TELA'] || '').toUpperCase().includes('DEVUELTA');
 
+        const bloqueTela = telaVuelta
+            ? `<div style="background:#fff8e1; padding:8px 10px; border-radius:4px; font-size:12px;">` +
+              `Su tela se devolvió al stock al anularlo, así que vuelve <strong>al principio del flujo</strong> ` +
+              `(esperando tela, sin corte ni taller). Cuando le vuelvas a marcar TELA RECIBIDA se descontará del stock como siempre.</div>`
+            : `<div style="background:#e8f5e9; color:#1b5e20; padding:8px 10px; border-radius:4px; font-size:12px;">` +
+              `Su tela estaba cortada y no se devolvió al stock, así que vuelve <strong>en el mismo punto</strong> en que se quedó. ` +
+              `El consumo de tela sigue registrado: no se descuenta nada otra vez.</div>`;
+
+        // Vuelve SIEMPRE tal cual estaba, con su nombre. Si el traje se va a confeccionar
+        // sin clienta, el nombre se cambia a mano en la ficha del traje: la app no se
+        // inventa ninguna convención (y "STOCK NNN" se reserva para la temporada de
+        // producción; la sección Trajes de stock es otra cosa: las VENTAS de esos trajes).
         const answer = await App.ui.confirmDialog({
             title: '↩️ Recuperar traje',
             message:
                 `Vuelve al listado el traje <strong>N&ordm; ${num} · ${nombre}</strong>` +
-                (snapshot['MODELO'] ? ` (${snapshot['MODELO']})` : '') + `.<br><br>` +
-                (telaVuelta
-                    ? `<div style="background:#fff8e1; padding:8px 10px; border-radius:4px; font-size:12px;">` +
-                      `Su tela se devolvió al stock al anularlo, así que vuelve <strong>al principio del flujo</strong> ` +
-                      `(esperando tela, sin corte ni taller). Cuando le vuelvas a marcar TELA RECIBIDA se descontará del stock como siempre.</div>`
-                    : `<div style="background:#e8f5e9; color:#1b5e20; padding:8px 10px; border-radius:4px; font-size:12px;">` +
-                      `Su tela estaba cortada y no se devolvió al stock, así que vuelve <strong>en el mismo punto</strong> en que se quedó. ` +
-                      `El consumo de tela sigue registrado: no se descuenta nada otra vez.</div>`) +
+                (snapshot['MODELO'] ? ` (${snapshot['MODELO']})` : '') + `, con todos sus datos.<br><br>` +
+                bloqueTela +
                 `<div style="font-size:11px; color:var(--text-muted); margin-top:10px;">` +
                 (snapshot['FICHA'] ? `Su ficha vuelve de la carpeta ANULADAS a la de fichas. ` : '') +
                 `Si necesita orden de corte, dale a <strong>Sincronizar</strong> en la sección Orden de corte del modelo.</div>`,
@@ -14975,6 +14981,34 @@ App.trajes = {
                          `<span style="font-size:12px;">El traje sigue en la lista de anulados. Puedes volver a intentarlo.</span>`,
                 actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
             });
+        }
+    },
+
+    /** Escribe celdas sueltas de una fila del LISTADO. Se hace SIEMPRE por celdas
+     *  (agrupadas en un solo batch), nunca como un rango A:Z de la fila entera:
+     *  Google rechaza ese rango con "celda u objeto protegidos" en el LISTADO de Pilar
+     *  aunque las celdas no lo estén y se puedan editar a mano desde Sheets. Por celdas
+     *  —como escribe el resto de la app— funciona.
+     *  Si el batch falla por protección, reintenta una a una y devuelve las que no pudo.
+     *  `celdas`: [{ i, range, values }]. Devuelve { noEscritas: [nombre de columna] }. */
+    async _escribirCeldas(sheetId, celdas, hdr) {
+        if (!celdas.length) return { noEscritas: [] };
+        try {
+            await App.sheets.batchWriteRanges(sheetId,
+                celdas.map(({ range, values }) => ({ range, values })));
+            return { noEscritas: [] };
+        } catch (err) {
+            if (!/protegid|protected|permission/i.test(err.message || '')) throw err;
+            console.warn('[anular] Alguna celda está protegida; escribiendo una a una:', err.message);
+            const noEscritas = [];
+            for (const { i, range, values } of celdas) {
+                try {
+                    await App.sheets.writeRange(sheetId, range, values);
+                } catch (e2) {
+                    noEscritas.push((hdr && hdr[i]) || App.sheets._colLetter(i));
+                }
+            }
+            return { noEscritas };
         }
     },
 
@@ -15038,13 +15072,21 @@ App.trajes = {
         const p2 = n => String(n).padStart(2, '0');
         valores['FECHA ULTIMA MOD'] = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
 
-        const rowValues = new Array(hdr.length).fill('');
+        // La fila destino está vacía (o es nueva), así que basta con escribir los
+        // valores que tienen contenido. Por celdas, nunca como rango entero.
+        const celdas = [];
         for (const [col, v] of Object.entries(valores)) {
             const i = hdr.indexOf(col);
-            if (i >= 0) rowValues[i] = v == null ? '' : String(v);
+            const txt = v == null ? '' : String(v);
+            if (i >= 0 && txt) celdas.push({ i, range: `${tab}!${App.sheets._colLetter(i)}${row}`, values: [[txt]] });
         }
-        const lastCol = App.sheets._colLetter(hdr.length - 1);
-        await App.sheets.writeRange(sheetId, `${tab}!A${row}:${lastCol}${row}`, [rowValues]);
+        const { noEscritas } = await this._escribirCeldas(sheetId, celdas, hdr);
+        if (noEscritas.length) {
+            throw new Error(
+                `No se han podido escribir estas columnas en la fila ${row} porque están protegidas: ` +
+                `${noEscritas.join(', ')}. El traje habría vuelto incompleto, así que se ha parado. ` +
+                `Quita la protección (Datos → Proteger hojas y rangos) y vuelve a intentarlo.`);
+        }
 
         // Notas de celda: las originales + una que deja constancia de la recuperación
         const notes = snapshot._notes || {};
@@ -15099,13 +15141,14 @@ App.trajes = {
                 values: [[val]],
             });
         };
-        set('ESTADO', `RECUPERADO (${fecha})`);
+        const estadoTxt = `RECUPERADO (${fecha})`;
+        set('ESTADO', estadoTxt);
         set('PENDIENTE CONFECCIONAR', 'NO');
         if (this._anulIdx(hdr, 'ESTADO') === -1) {
             throw new Error('La pestaña ANULADOS no tiene columna ESTADO: no se puede marcar como recuperado.');
         }
         if (updates.length) await App.sheets.batchWriteRanges(sheetId, updates);
-        an['ESTADO'] = `RECUPERADO (${fecha})`;
+        an['ESTADO'] = estadoTxt;
         an['PENDIENTE CONFECCIONAR'] = 'NO';
     },
 
@@ -15139,30 +15182,10 @@ App.trajes = {
             if (!String(cur[i] || '').trim()) continue;
             aLimpiar.push({ i, range: `${tab}!${App.sheets._colLetter(i)}${row}`, values: [['']] });
         }
-        try {
-            if (aLimpiar.length) {
-                await App.sheets.batchWriteRanges(sheetId,
-                    aLimpiar.map(({ range, values }) => ({ range, values })));
-            }
-        } catch (err) {
-            // Vaciar la fila entera de un golpe falla si el LISTADO tiene alguna columna
-            // PROTEGIDA (típico: Nº, NOMBRE, FICHA… protegidas para que nadie las pise a
-            // mano). La edición normal no lo nota porque escribe solo las columnas que
-            // toca. Aquí reintentamos columna a columna: se limpia todo lo que se pueda y
-            // se informa de lo que quede. Lo imprescindible es NOMBRE: la app solo muestra
-            // las filas que lo tienen, así que si esa se limpia el traje ya desaparece.
-            if (!/protegid|protected|permission/i.test(err.message || '')) throw err;
-            // Alguna celda concreta está protegida: se reintenta una a una para limpiar
-            // todo lo que se pueda y poder decir exactamente cuáles se resisten.
-            console.warn('[anular] Alguna celda está protegida; limpiando una a una:', err.message);
-            const noBorradas = [];
-            for (const { i, range, values } of aLimpiar) {
-                try {
-                    await App.sheets.writeRange(sheetId, range, values);
-                } catch (e2) {
-                    noBorradas.push(hdr[i] || App.sheets._colLetter(i));
-                }
-            }
+        {
+            // Lo imprescindible es NOMBRE: la app solo muestra las filas que lo tienen,
+            // así que si esa se limpia el traje ya desaparece aunque quede algún resto.
+            const { noEscritas: noBorradas } = await this._escribirCeldas(sheetId, aLimpiar, hdr);
             const iNombre = hdr.indexOf('NOMBRE');
             const nombreProtegido = iNombre >= 0 &&
                 noBorradas.includes(hdr[iNombre] || App.sheets._colLetter(iNombre));
