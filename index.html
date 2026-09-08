@@ -2808,6 +2808,12 @@
                          title="Trajes con incidencia o estado REVISAR (transversal a las fases físicas).">
                         &#x26A0;&#xFE0F; Revisar <span class="count" id="bdCount-revisar">&mdash;</span>
                     </div>
+
+                    <!-- Anulados: fuera del flujo, se lee de la pestaña ANULADOS -->
+                    <div class="bandeja" data-bandeja="anulados" onclick="App.trajes.setBandeja('anulados')"
+                         title="Trajes anulados. Aquí ves los que tienen la tela ya cortada, pendientes de confeccionar para stock, y puedes recuperar uno si la clienta vuelve.">
+                        &#x1F5D1;&#xFE0F; Anulados <span class="count" id="bdCount-anulados">&mdash;</span>
+                    </div>
                 </div>
 
                 <!-- Toolbar -->
@@ -3141,6 +3147,12 @@
 
                     <!-- Botones (fijos abajo) -->
                     <div class="modal-actions" style="flex-shrink:0; padding-top:10px; margin-top:8px; border-top:1px solid var(--border-light);">
+                        <!-- Anular traje: solo Admin (se muestra/oculta en showEditModal). Deshace
+                             stock, retales, orden de corte y ficha antes de vaciar la fila. -->
+                        <button class="btn btn-danger btn-sm" id="btnAnularTraje" onclick="App.trajes.anular()"
+                                style="margin-right:auto; display:none;" title="Anular este traje y deshacer todo lo que dejó por el camino">
+                            &#x1F5D1;&#xFE0F; Anular traje
+                        </button>
                         <button class="btn btn-secondary" onclick="App.trajes.closeEditModal()">Cancelar</button>
                         <button class="btn btn-primary" onclick="App.trajes.guardarEdicion()" id="btnGuardarEdicion">
                             Guardar cambios
@@ -5174,9 +5186,24 @@ const App = {
             // inicial) no rompa el acceso por nombre de columna en el resto del
             // código (que usa los nombres "limpios" como p.ej. App.trajes.COL).
             const headers = rows[0].map(h => String(h || '').trim());
+            // Aviso si el sheet tiene cabeceras REPETIDAS (p.ej. una columna
+            // creada a mano y otra autocreada por la app con el mismo nombre).
+            const dupHeaders = headers.filter((h, i) => h && headers.indexOf(h) !== i);
+            if (dupHeaders.length) {
+                console.warn('[getListadoTrajes] Cabeceras duplicadas en el LISTADO ' +
+                    '(se usa siempre la PRIMERA, borra las sobrantes en el sheet):',
+                    [...new Set(dupHeaders)]);
+            }
             const data = rows.slice(1).map((row, idx) => {
                 const obj = { _rowIndex: idx + 2, _notes: {} }; // 1-based, skip header
                 headers.forEach((h, i) => {
+                    if (!h) return;
+                    // Con cabeceras duplicadas gana la PRIMERA, que es la misma
+                    // que usan las escrituras (_writeUpdatesRemote busca con
+                    // findIndex). Antes ganaba la ULTIMA: la app escribia en una
+                    // columna y leia la otra (vacia), asi que el cambio parecia
+                    // no guardarse nunca — visto con ADORNO COMPRADO duplicada.
+                    if (Object.prototype.hasOwnProperty.call(obj, h)) return;
                     obj[h] = (row[i] || '').toString().trim();
                 });
                 return obj;
@@ -5279,6 +5306,17 @@ const App = {
                 method: 'PATCH',
                 body: JSON.stringify({ trashed: true }),
             });
+        },
+
+        /** Move a Drive file to another folder (addParents / removeParents).
+         *  oldParentId es opcional: si no se pasa, el fichero queda también en la
+         *  carpeta antigua (Drive lo permite). Funciona en Unidades Compartidas. */
+        async moveDriveFile(fileId, newParentId, oldParentId = null) {
+            let url = `https://www.googleapis.com/drive/v3/files/${fileId}` +
+                      `?addParents=${encodeURIComponent(newParentId)}` +
+                      `&supportsAllDrives=true&fields=id,name,parents`;
+            if (oldParentId) url += `&removeParents=${encodeURIComponent(oldParentId)}`;
+            return this._fetch(url, { method: 'PATCH', body: JSON.stringify({}) });
         },
 
         /** Upload a binary File to Drive using multipart upload. Returns {id, name, ...}. */
@@ -9758,10 +9796,22 @@ App.clientas = {
         if (idxNum >= 0) {
             const colLetraNum = String.fromCharCode(65 + idxNum);
             const numData = await App.sheets.readRange(sheetId, `${tab}!${colLetraNum}2:${colLetraNum}${lastDataRow}`);
-            const maxNum = numData.reduce((max, r) => {
+            let maxNum = numData.reduce((max, r) => {
                 const n = parseInt((r[0] || '').replace(/\D/g, ''), 10);
                 return isNaN(n) ? max : Math.max(max, n);
             }, 0);
+            // Los trajes ANULADOS ya no están en el LISTADO (su fila se vació), pero
+            // su Nº no se puede reutilizar: hay movimientos de tela, PDFs y avisos
+            // con ese número. Leemos la pestaña ANULADOS y contamos también sus Nº.
+            // Si la pestaña no existe todavía, readRange falla → se ignora.
+            try {
+                const anulTab = (App.trajes && App.trajes.ANULADOS_TAB) || 'ANULADOS';
+                const anulados = await App.sheets.readRange(sheetId, `${anulTab}!C2:C`);
+                maxNum = (anulados || []).reduce((max, r) => {
+                    const n = parseInt(String(r[0] || '').replace(/\D/g, ''), 10);
+                    return isNaN(n) ? max : Math.max(max, n);
+                }, maxNum);
+            } catch (e) { /* sin pestaña ANULADOS: nada que sumar */ }
             nextNum = String(maxNum + 1).padStart(3, '0');
         }
 
@@ -11387,6 +11437,9 @@ App.trajes = {
             esperandoTela: 0, pedirTela: 0, listos: 0, enCorte: 0,
             asignarTaller: 0, enTaller: 0,
             recibidos: 0, entregados: 0, revisar: 0,
+            // Anulados vive en su propia pestaña: solo se sabe el número una vez
+            // cargada (al entrar en la bandeja). Antes de eso se deja en blanco.
+            anulados: this._anuladosLoaded ? this._anulados.length : null,
         };
         for (const t of this.data) {
             const b = this._getBandeja(t);
@@ -11401,7 +11454,7 @@ App.trajes = {
         for (const [k, v] of Object.entries(counts)) {
             const el = document.getElementById('bdCount-' + k);
             if (!el) continue;
-            el.textContent = v;
+            el.textContent = (v === null || v === undefined) ? '\u2014' : v;
             const isPending = accionables.has(k) && v > 0;
             el.classList.toggle('has-pending', isPending);
             // Punto rojo parpadeante sobre la bandeja entera (no solo el chip).
@@ -11463,6 +11516,8 @@ App.trajes = {
     },
 
     async load(forceRefresh = false) {
+        // Un "Actualizar" explícito refresca también la lista de anulados.
+        if (forceRefresh) this._anuladosLoaded = false;
         document.getElementById('trajesList').innerHTML =
             '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando trajes...</p></div>';
         try {
@@ -11486,6 +11541,14 @@ App.trajes = {
             // Asegura catálogos para el cálculo de stock agregado (no bloqueante)
             this._ensureCatalogsLoaded();
             this.filter();
+            // Contador de la bandeja "Anulados" en segundo plano: así se ve de un
+            // vistazo si hay trajes con la tela cortada pendientes de confeccionar,
+            // sin retrasar la carga de la lista.
+            if (!this._anuladosLoaded) {
+                this.loadAnulados()
+                    .then(() => this._updateBandejaCounts())
+                    .catch(e => console.warn('[trajes.loadAnulados]', e.message));
+            }
         } catch (err) {
             document.getElementById('trajesList').innerHTML =
                 `<div class="alert alert-danger" style="margin:20px;">Error cargando trajes: ${err.message}</div>`;
@@ -11532,6 +11595,16 @@ App.trajes = {
     filter() {
         const q = (document.getElementById('trajeSearch')?.value || '').toLowerCase().trim();
         const bandeja = this._bandeja || 'todos';
+
+        // La bandeja "Anulados" no sale del LISTADO (esos trajes ya no están ahí):
+        // se lee de la pestaña ANULADOS y se pinta con su propia vista.
+        if (bandeja === 'anulados') {
+            this.filtered = [];
+            this._updateBandejaCounts();
+            this._renderActiveFilters();
+            this._renderAnulados(q);
+            return;
+        }
 
         // Recalcular el mapa agregado de stock — barato (~500 trajes max).
         // Si los catálogos no están cargados, devuelve mapa vacío (no marca nada).
@@ -11709,6 +11782,11 @@ App.trajes = {
 
     render() {
         const container = document.getElementById('trajesList');
+        // La bandeja "Anulados" tiene su propia vista (no sale del LISTADO).
+        if ((this._bandeja || '') === 'anulados') {
+            this._renderAnulados((document.getElementById('trajeSearch')?.value || ''));
+            return;
+        }
         const total = this.filtered.length;
         const groupBy = (document.getElementById('trajeGroupBy')?.value || '');
 
@@ -13118,6 +13196,14 @@ App.trajes = {
             App.mensajes.renderBotones(t, 'trajeMensajesBtns');
         }
 
+        // Botón "Anular traje": solo Admin (Pilar / Andrés). Dependientas y Jose no lo ven.
+        const btnAnular = document.getElementById('btnAnularTraje');
+        if (btnAnular) {
+            btnAnular.style.display = (App.isAdmin && App.isAdmin()) ? '' : 'none';
+            btnAnular.disabled = false;
+            btnAnular.innerHTML = '&#x1F5D1;&#xFE0F; Anular traje';
+        }
+
         // Snapshot de los campos relevantes para detectar transiciones cuando se guarde
         this._editSnapshot = {
             'TELA RECIBIDA':   t[this.COL.telaRecibida]   || '',
@@ -13856,6 +13942,1064 @@ App.trajes = {
             'warning', 0
         );
         return true;
+    },
+
+    /* ==========================================================
+       ANULAR TRAJE — quitar un traje de la app sin dejar cabos sueltos
+       ──────────────────────────────────────────────────────────
+       Un traje deja rastro en varios sitios. Al anularlo hay que deshacerlo
+       TODO, en este orden (lo reversible primero, el LISTADO al final):
+         1. Tela: si tenía CONSUMO_TRAJE vivo → REVERSO (+metros al stock).
+            Si la tela ya se cortó (CORTE=ENVIADO/RECOGIDO, orden impresa…)
+            NO se devuelve: esos metros ya no existen. Pilar decide con un check.
+         2. Retales: el trocito que se guardó "al asignar este traje" vuelve
+            al rollo (solo si la tela no se cortó).
+         3. Orden de corte: se borra su fila en TODAS las pestañas del ORDEN
+            (no solo la del modelo actual, por si le cambiaron el modelo).
+            sincronizar() nunca borra filas, así que si no lo hacemos aquí
+            quedaría un ❌ HUÉRFANO para siempre.
+         4. Ficha (Google Doc): se mueve a la subcarpeta ANULADAS y se renombra
+            "ANULADA_…". No se borra por si la clienta vuelve.
+         5. Pestaña ANULADOS del LISTADO: se apunta el traje con TODOS sus
+            datos (JSON) y qué se deshizo. Sirve de histórico y para que el Nº
+            no se vuelva a asignar (ver App.clientas._calcularProximoNum).
+         6. LISTADO: se VACÍA la fila (no se elimina) para no mover las filas
+            de los demás — Jose / talleres / otras dependientas escriben por
+            número de fila y un desplazamiento pisaría el traje equivocado.
+            Antes de vaciar se comprueba que la fila sigue teniendo ese Nº.
+       Los pedidos a proveedor NO se tocan: la tela pedida llegará igual y
+       entrará en stock desde Pedidos. Tampoco se toca MOVIMIENTOS (es el
+       histórico) ni los PDFs ya generados.
+       Cada paso es idempotente: si algo falla a mitad, se puede volver a
+       pulsar "Anular" y los pasos ya hechos no se repiten.
+       ========================================================== */
+    ANULADOS_TAB: 'ANULADOS',
+    ANULADOS_HEADERS: [
+        'FECHA ANULACION', 'USUARIO', 'Nº', 'NOMBRE', 'TELÉFONO', 'CORREO', 'FERIA',
+        'MODELO', 'TIPO TELA', 'MEDIDAS', 'FICHA', 'ESTADO', 'TELA',
+        'PENDIENTE CONFECCIONAR', 'MOTIVO', 'QUE SE DESHIZO', 'DATOS ORIGINALES',
+    ],
+    // Valores de la columna TELA de ANULADOS
+    TELA_DEVUELTA: 'DEVUELTA AL STOCK',
+    TELA_PERDIDA:  'PERDIDA - YA CORTADA',
+    _anulados: [],          // filas de la pestaña ANULADOS (bandeja "Anulados")
+    _anuladosLoaded: false,
+    _anuladosPromise: null,   // carga en vuelo (evita leer la pestaña dos veces)
+
+    /** Punto de entrada: botón "Anular traje" del modal de edición. */
+    async anular() {
+        const rowIndex = this._editRowIndex;
+        if (!rowIndex) return;
+        const t = this.data.find(r => r._rowIndex === rowIndex);
+        if (!t) { App.toast.show('Traje no encontrado', 'error'); return; }
+        if (!(App.isAdmin && App.isAdmin())) {
+            App.toast.show('Solo un Admin puede anular trajes.', 'warning');
+            return;
+        }
+        const num    = String(t[this.COL.num] || '').trim();
+        const nombre = String(t[this.COL.nombre] || '').trim();
+        if (!num) { App.toast.show('Este traje no tiene Nº — no se puede anular desde la app.', 'error', 6000); return; }
+
+        const btn = document.getElementById('btnAnularTraje');
+        if (btn) { btn.disabled = true; btn.textContent = 'Comprobando…'; }
+        let analisis;
+        try {
+            analisis = await this._analizarAnulacion(t);
+        } catch (err) {
+            console.error('[anular.analisis]', err);
+            App.toast.show('No se pudo comprobar el traje: ' + err.message, 'error', 6000);
+            if (btn) { btn.disabled = false; btn.innerHTML = '&#x1F5D1;&#xFE0F; Anular traje'; }
+            return;
+        }
+        if (btn) { btn.disabled = false; btn.innerHTML = '&#x1F5D1;&#xFE0F; Anular traje'; }
+
+        const opciones = await this._dialogoAnulacion(t, analisis);
+        if (!opciones) return;   // cancelado
+
+        this.closeEditModal();
+        App.toast.show(`Anulando el traje Nº ${num}…`, 'info', 3000);
+        let resultado;
+        try {
+            resultado = await this._ejecutarAnulacion(t, analisis, opciones);
+        } catch (err) {
+            console.error('[anular.ejecutar]', err);
+            const hechas = (err._hecho || []).map(h => `<li>${h}</li>`).join('');
+            await App.ui.confirmDialog({
+                title: '❌ La anulación se ha parado',
+                message:
+                    `<div style="margin-bottom:8px;">Falló en: <strong>${err._paso || 'un paso'}</strong><br>` +
+                    `<span style="color:#b71c1c;">${err.message}</span></div>` +
+                    (hechas ? `<div style="font-size:12px;">Lo que SÍ se había hecho ya:<ul style="margin:4px 0 8px 18px;">${hechas}</ul></div>` : '') +
+                    `<div style="font-size:12px;">El traje <strong>sigue en el LISTADO</strong> (no se borra nada hasta que todo lo demás está deshecho). ` +
+                    `Corrige el problema y vuelve a pulsar <strong>Anular traje</strong>: lo ya hecho no se repite.</div>`,
+                actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
+            });
+            // Refrescar por si algún paso parcial cambió stock / orden
+            await App.sheets.invalidateListadoCache().catch(() => {});
+            return;
+        }
+
+        const lineas = resultado.hecho.map(h => `<li>${h}</li>`).join('');
+        const manual = resultado.manual.map(h => `<li>${h}</li>`).join('');
+        await App.ui.confirmDialog({
+            title: '✅ Traje anulado',
+            message:
+                `El traje <strong>Nº ${num} · ${nombre}</strong> ya no está en la app.<br><br>` +
+                `<div style="font-size:12px;"><strong>Se ha deshecho:</strong><ul style="margin:4px 0 8px 18px;">${lineas || '<li>Nada más que la fila del LISTADO (no había rastro en otros sitios).</li>'}</ul></div>` +
+                (manual
+                    ? `<div style="font-size:12px; background:#fff8e1; padding:8px 10px; border-radius:4px;"><strong>Queda por hacer a mano:</strong><ul style="margin:4px 0 0 18px;">${manual}</ul></div>`
+                    : '') +
+                `<div style="font-size:11px; color:var(--text-muted); margin-top:8px;">Queda apuntado en la pestaña <strong>ANULADOS</strong> del LISTADO con todos sus datos por si hay que recuperarlo. El Nº ${num} no se volverá a usar.</div>`,
+            actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
+        });
+    },
+
+    /** Recopila TODO lo que este traje ha dejado en Drive antes de decidir nada.
+     *  No escribe. Devuelve un objeto con consumos, retales, pedidos, filas de
+     *  orden de corte, ficha y avisos para el diálogo. */
+    async _analizarAnulacion(t) {
+        const num = String(t[this.COL.num] || '').trim();
+        const a = {
+            num,
+            consumos: [],     // CONSUMO_TRAJE vivos (cualquier tela)
+            retales: [],      // filas RETALES cuyo ORIGEN menciona este traje
+            pedidos: [],      // PEDIDO_PROVEEDOR que incluyen este Nº (solo informativo)
+            ordenRows: [],    // {tab, sheetRow, impreso, enviado}
+            docId: null, docUrl: '',
+            telaCortada: false,
+            avisos: [], errores: [],
+        };
+
+        // 1. Movimientos de tela (consumos vivos + pedidos que lo incluyen)
+        try {
+            const all = await App.movimientos.loadAll();
+            a.consumos = App.movimientos.findOpenConsumosByTraje(num, all);
+            const { recepcionadosVivos } = App.movimientos._vivosFromAll(all);
+            for (const m of all) {
+                if (m.TIPO !== App.movimientos.TIPOS.PEDIDO) continue;
+                const trajes = App.movimientos._parseTrajesCsv(m.TRAJE_NUM);
+                if (!trajes.some(n => App.movimientos._numMatch(n, num))) continue;
+                const id = App.movimientos.extractPedidoId(m.NOTAS);
+                a.pedidos.push({
+                    ...m,
+                    pedidoId:     id,
+                    recepcionado: !!id && recepcionadosVivos.has(id),
+                    otrosTrajes:  trajes.filter(n => !App.movimientos._numMatch(n, num)),
+                });
+            }
+        } catch (e) {
+            a.errores.push('No se pudo leer MOVIMIENTOS (stock de tela): ' + e.message);
+        }
+
+        // 2. Retales guardados a raíz de este traje ("asignación a traje 012")
+        try {
+            if (App.telas) {
+                if (!App.telas._data?.length) await App.telas.load();
+                await App.telas.loadRetales();
+                const nInt = parseInt(num, 10);
+                const core = isNaN(nInt) ? num.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : `0*${nInt}`;
+                const re = new RegExp(`traje\\s*#?${core}(?!\\d)`, 'i');
+                a.retales = (App.telas._retales || []).filter(r => re.test(r.ORIGEN || ''));
+            }
+        } catch (e) {
+            a.errores.push('No se pudo leer RETALES: ' + e.message);
+        }
+
+        // 3. Orden de corte: buscar el Nº en todas las pestañas
+        try {
+            a.ordenRows = await this._buscarEnOrdenCorte(num);
+        } catch (e) {
+            a.errores.push('No se pudo leer ORDEN DE CORTE: ' + e.message);
+        }
+
+        // 4. Ficha (Google Doc)
+        a.docUrl = String(t['FICHA'] || '').trim();
+        const dm = a.docUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        a.docId = dm ? dm[1] : null;
+
+        // 5. Estado físico del traje → ¿se cortó ya la tela?
+        const corte    = (t[this.COL.corte]          || '').toUpperCase().trim();
+        const taller   = (t[this.COL.taller]         || '').trim();
+        const trajeRec = (t[this.COL.trajeRecibido]  || '').toUpperCase().trim();
+        const trajeEnt = (t[this.COL.trajeEntregado] || '').toUpperCase().trim();
+        a.corte = corte; a.taller = taller;
+        a.telaCortada =
+            corte === 'ENVIADO' || corte === 'RECOGIDO' ||
+            trajeRec === 'RECIBIDO' || trajeEnt === 'ENTREGADO' ||
+            a.ordenRows.some(r => r.impreso || r.enviado);
+
+        // 6. Avisos para Pilar (cosas que la app no puede deshacer sola)
+        if (a.ordenRows.some(r => r.impreso)) {
+            a.avisos.push('La <strong>orden de corte ya se imprimió</strong>: avisa al cortador para que no corte este traje (o para saber si ya lo cortó).');
+        }
+        if (corte === 'ENVIADO') {
+            a.avisos.push('El traje consta como <strong>enviado a corte</strong>: la tela está en el cortador.');
+        }
+        if (taller) {
+            const fEnt = (t[this.COL.fechaEntregaTaller] || '').toString().trim();
+            a.avisos.push(`Está asignado al taller <strong>${taller}</strong>${fEnt ? ` (entregado el ${fEnt})` : ''}: avisa al taller y recupera el traje o la tela.`);
+        }
+        if (trajeEnt === 'ENTREGADO') {
+            a.avisos.push('Este traje consta como <strong>ENTREGADO a la clienta</strong>. Al anularlo desaparece del histórico y de los informes.');
+        }
+        for (const p of a.pedidos) {
+            const fmt = n => Number(Number(n).toFixed(2)).toString();
+            const otros = p.otrosTrajes.length ? ` (el pedido también cubre los trajes ${p.otrosTrajes.map(n => '#' + n).join(', ')})` : '';
+            if (p.recepcionado) {
+                a.avisos.push(`La tela de este traje llegó en el pedido a <strong>${p.PROVEEDOR || '—'}</strong> de ${fmt(p.METROS)} m de ${p.TELA_TIPO}/${p.TELA_VARIANTE}${otros}. Esos metros se quedan en stock: no se tocan.`);
+            } else {
+                a.avisos.push(`Hay un <strong>pedido a ${p.PROVEEDOR || 'proveedor'} sin recibir</strong> de ${fmt(p.METROS)} m de ${p.TELA_TIPO}/${p.TELA_VARIANTE} que incluye este traje${otros}. No se cancela: cuando llegue, regístralo en Pedidos y la tela entrará en stock igualmente.`);
+            }
+        }
+        return a;
+    },
+
+    /** Busca un Nº en TODAS las pestañas del ORDEN DE CORTE (una sola llamada batchGet).
+     *  Devuelve [{tab, sheetRow, impreso, enviado, coherencia}]. */
+    async _buscarEnOrdenCorte(num) {
+        const ordenId = App.settings.get('ordenId');
+        if (!ordenId || !num) return [];
+        const tabs = (await App.sheets.getSheetNames(ordenId)).filter(tn => !tn.startsWith('_'));
+        if (!tabs.length) return [];
+        const ranges = tabs.map(tn => `'${tn.replace(/'/g, "''")}'!A4:Z200`);
+        const valueRanges = await App.sheets.batchGet(ordenId, ranges);
+        const truthy = v => {
+            const s = String(v || '').toUpperCase().trim();
+            return s === 'TRUE' || s === '✓' || s === 'SI' || s === 'SÍ' || s === 'X';
+        };
+        const hits = [];
+        valueRanges.forEach((vr, i) => {
+            const rows = vr.values || [];
+            const hdr  = (rows[0] || []).map(h => String(h || '').trim());
+            const iNum = hdr.indexOf('Nº');
+            if (iNum < 0) return;
+            const iImp = hdr.indexOf('IMPRESO');
+            const iEnv = hdr.indexOf('ENVIAR A CORTE');
+            const iCoh = hdr.indexOf('COHERENCIA');
+            rows.slice(2).forEach((row, j) => {
+                if (!App.corte._numMatch(row[iNum], num)) return;
+                hits.push({
+                    tab:        tabs[i],
+                    sheetRow:   j + 6,   // fila 4 = cabecera, 5 = tallas, 6 = 1ª de datos
+                    impreso:    iImp >= 0 && truthy(row[iImp]),
+                    enviado:    iEnv >= 0 && truthy(row[iEnv]),
+                    coherencia: iCoh >= 0 ? String(row[iCoh] || '') : '',
+                });
+            });
+        });
+        return hits;
+    },
+
+    /** Diálogo de confirmación con el resumen y las casillas. Devuelve
+     *  {tela, retal, orden, doc, motivo} o null si se cancela. */
+    async _dialogoAnulacion(t, a) {
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+        const num    = a.num;
+        const nombre = String(t[this.COL.nombre] || '').trim();
+        const modelo = String(t[this.COL.modelo] || '').trim();
+        const metrosTotal = a.consumos.reduce((s2, c) => s2 + Math.abs(Number(c.METROS) || 0), 0);
+        const telaLista = a.consumos.map(c =>
+            `<strong>${fmt(Math.abs(c.METROS))} m</strong> de <strong>${c.TELA_TIPO}/${c.TELA_VARIANTE}</strong>`
+        ).join(' + ');
+        const retalLista = a.retales.map(r => `<strong>${fmt(r.METROS)} m</strong> de ${r.TIPO}/${r.VARIANTE}`).join(' + ');
+
+        // ── PASO 1: qué hacer con la tela ────────────────────────────────────
+        // Solo se pregunta si hay consumo registrado. Es la decisión que descuadra
+        // el stock si se falla, así que va en su propia pantalla y con dos botones
+        // explícitos, no una casilla que se pueda pasar por alto.
+        let destinoTela = null;   // 'devolver' | 'perdida' | null (no había tela)
+        if (a.consumos.length) {
+            const motivoCortado = a.corte
+                ? `CORTE = <strong>${a.corte}</strong>`
+                : (a.ordenRows.some(r => r.impreso) ? 'su <strong>orden de corte ya está impresa</strong>'
+                                                    : 'ya ha pasado del corte');
+            let telaHtml =
+                `<div style="margin-bottom:10px;">Traje <strong>Nº ${num} · ${nombre}</strong>` +
+                (modelo ? ` (${modelo})` : '') + `.</div>` +
+                `<div style="background:var(--surface-alt, #f7f7f7); padding:10px 12px; border-radius:6px; margin-bottom:12px;">` +
+                `Este traje tiene consumidos ${telaLista}` +
+                (a.retales.length ? `, más un retal guardado de ${retalLista}` : '') + `.</div>` +
+                `<div style="margin-bottom:6px;"><strong>¿Qué hago con esa tela?</strong></div>` +
+                `<div style="font-size:12px; color:var(--text-muted); line-height:1.6;">` +
+                `<strong>Devolver al stock</strong> — la pieza sigue entera, no se ha cortado. Los ${fmt(metrosTotal)} m vuelven al rollo` +
+                (a.retales.length ? ' y el retal se deshace' : '') + `.<br>` +
+                `<strong>Darla por perdida</strong> — ya está cortada. Los metros se quedan como gastados` +
+                (a.retales.length ? ' y el retal sigue en la lista de retales' : '') +
+                `, que es lo que ha pasado de verdad.</div>`;
+            if (a.telaCortada) {
+                telaHtml += `<div style="background:#fff8e1; padding:8px 10px; border-radius:4px; margin-top:12px; font-size:12px;">` +
+                    `Por lo que hay apuntado (${motivoCortado}), <strong>esta tela ya está cortada</strong>: lo normal aquí es darla por perdida.</div>`;
+            }
+            telaHtml += `<div style="font-size:11px; color:var(--text-muted); margin-top:10px;">` +
+                `Si vas a confeccionar el traje después de la campaña para tenerlo de stock, dale a <strong>darla por perdida</strong>: ` +
+                `la tela está cortada y el traje se queda apuntado en la lista de anulados como pendiente de confeccionar.</div>`;
+
+            const accDevolver = { label: '↩️ Devolver al stock (no está cortada)', value: 'devolver', style: a.telaCortada ? 'secondary' : 'primary' };
+            const accPerdida  = { label: '✂️ Darla por perdida (ya está cortada)', value: 'perdida',  style: a.telaCortada ? 'primary' : 'secondary' };
+            destinoTela = await App.ui.confirmDialog({
+                title: '🧵 ¿Qué hago con la tela?',
+                message: telaHtml,
+                actions: a.telaCortada
+                    ? [accPerdida, accDevolver, { label: 'Cancelar', value: null, style: 'secondary' }]
+                    : [accDevolver, accPerdida, { label: 'Cancelar', value: null, style: 'secondary' }],
+            });
+            if (destinoTela !== 'devolver' && destinoTela !== 'perdida') return null;
+        }
+
+        // ── PASO 2: confirmación final con todo lo que se va a hacer ─────────
+        const chk = (id, label, checked, sub = '') =>
+            `<label style="display:flex; gap:8px; align-items:flex-start; margin:6px 0; cursor:pointer;">` +
+            `<input type="checkbox" id="${id}" ${checked ? 'checked' : ''} style="margin-top:3px;">` +
+            `<span>${label}${sub ? `<br><span style="font-size:11px; color:var(--text-muted);">${sub}</span>` : ''}</span></label>`;
+        const info = (label) =>
+            `<div style="display:flex; gap:8px; margin:6px 0; color:var(--text-muted); font-size:12px;"><span>&#x2022;</span><span>${label}</span></div>`;
+
+        let html = `<div style="margin-bottom:10px;">Vas a anular el traje <strong>Nº ${num} · ${nombre}</strong>` +
+                   (modelo ? ` (${modelo})` : '') + `. Sale de la app y pasa a la lista de <strong>anulados</strong>:</div>`;
+
+        // Decisión de la tela ya tomada (se muestra, no se vuelve a preguntar)
+        if (destinoTela === 'devolver') {
+            html += `<div style="background:#e8f5e9; color:#1b5e20; padding:8px 10px; border-radius:4px; margin:8px 0; font-size:12px;">` +
+                    `↩️ ${telaLista} <strong>vuelven al stock</strong>` +
+                    (a.retales.length ? `, y el retal de ${retalLista} vuelve al rollo` : '') + `.</div>`;
+        } else if (destinoTela === 'perdida') {
+            html += `<div style="background:#fff3e0; color:#7c3a00; padding:8px 10px; border-radius:4px; margin:8px 0; font-size:12px;">` +
+                    `✂️ ${telaLista} <strong>se dan por perdidos</strong> (ya cortada). El stock no cambia y el traje queda ` +
+                    `marcado como <strong>pendiente de confeccionar</strong> en la lista de anulados.</div>`;
+        } else {
+            html += info('No hay consumo de tela registrado para este traje: el stock no cambia.');
+        }
+        // Orden de corte
+        if (a.ordenRows.length) {
+            const porTab = {};
+            a.ordenRows.forEach(r => { porTab[r.tab] = (porTab[r.tab] || 0) + (r.impreso ? 1 : 0); });
+            const lista = Object.entries(porTab).map(([tab, imp]) => `<strong>${tab}</strong>` + (imp ? ' (ya impresa)' : '')).join(', ');
+            const nFilas = a.ordenRows.length;
+            html += chk('anulOptOrden', `Borrar su fila en la orden de corte: ${lista}` + (nFilas > 1 ? ` <span style="font-size:11px; color:var(--text-muted);">(${nFilas} filas)</span>` : ''), true);
+        } else {
+            html += info('No está en ninguna orden de corte.');
+        }
+        // Ficha Doc
+        if (a.docId) {
+            html += chk('anulOptDoc', 'Mover su ficha (Google Doc) a la carpeta <strong>ANULADAS</strong> y renombrarla "ANULADA_…"', true,
+                'No se borra: si la clienta vuelve, se recupera de ahí.');
+        } else {
+            html += info('No tiene ficha (Doc) enlazada.');
+        }
+        // Motivo
+        html += `<div style="margin:10px 0 4px;"><label style="font-size:12px; color:var(--text-muted);">Motivo (opcional, queda apuntado en ANULADOS)</label>` +
+                `<input type="text" id="anulMotivo" class="form-input" placeholder="p.ej. la clienta se ha echado atrás" style="width:100%; margin-top:4px;"></div>`;
+        // Avisos
+        if (a.avisos.length) {
+            html += `<div style="background:#fff8e1; padding:8px 10px; border-radius:4px; margin-top:10px; font-size:12px;">` +
+                    `<strong>Ojo:</strong><ul style="margin:4px 0 0 18px; padding:0;">${a.avisos.map(x => `<li>${x}</li>`).join('')}</ul></div>`;
+        }
+        if (a.errores.length) {
+            html += `<div style="background:#fdecea; color:#b71c1c; padding:8px 10px; border-radius:4px; margin-top:10px; font-size:12px;">` +
+                    `<strong>No se pudo comprobar todo:</strong><ul style="margin:4px 0 0 18px; padding:0;">${a.errores.map(x => `<li>${x}</li>`).join('')}</ul>` +
+                    `Si sigues, esa parte NO se deshará. Mejor cancela, revisa la conexión y vuelve a intentarlo.</div>`;
+        }
+        html += `<div style="font-size:11px; color:var(--text-muted); margin-top:10px;">La fila del LISTADO se vaciará y el traje quedará en la bandeja ` +
+                `<strong>🗑️ Anulados</strong> con todos sus datos, por si hay que recuperarlo. El Nº ${num} no se reutiliza. ` +
+                `Los pedidos a proveedor, el histórico de MOVIMIENTOS y los PDF ya generados no se tocan.</div>`;
+
+        const answer = await App.ui.confirmDialog({
+            title: '\u{1F5D1}\u{FE0F} Anular traje',
+            message: html,
+            actions: [
+                { label: a.errores.length ? 'Anular de todos modos' : 'Sí, anular el traje', value: 'ok', style: 'danger' },
+                { label: 'Cancelar', value: null, style: 'secondary' },
+            ],
+        });
+        if (answer !== 'ok') return null;
+        // El body del confirm sigue en el DOM hasta el siguiente diálogo → leemos las casillas
+        const val = id => document.getElementById(id);
+        return {
+            tela:   destinoTela,                       // 'devolver' | 'perdida' | null
+            retal:  destinoTela === 'devolver',        // el retal sigue a la tela
+            orden:  a.ordenRows.length ? !!val('anulOptOrden')?.checked : false,
+            doc:    a.docId            ? !!val('anulOptDoc')?.checked   : false,
+            motivo: (val('anulMotivo')?.value || '').trim(),
+        };
+    },
+
+    /** Ejecuta la anulación paso a paso. Lanza error (con _paso y _hecho) si algo falla
+     *  ANTES de tocar el LISTADO, para que el traje siga ahí y se pueda reintentar. */
+    async _ejecutarAnulacion(t, a, opt) {
+        const fmt = n => Number(Number(n).toFixed(2)).toString();
+        const num    = a.num;
+        const hecho  = [];
+        const manual = [];
+        const fail = (paso, err) => {
+            const e = err instanceof Error ? err : new Error(String(err));
+            e._paso = paso; e._hecho = hecho.slice();
+            throw e;
+        };
+
+        // 1. Tela: reverso de cada consumo vivo (opt.tela: 'devolver' | 'perdida' | null)
+        if (opt.tela === 'devolver') {
+            for (const c of a.consumos) {
+                try {
+                    const r = await this._reversoConsumoAnulacion(c, num);
+                    if (r) hecho.push(`+${fmt(r.metros)} m de ${r.tipo}/${r.variante} devueltos al stock (ahora ${fmt(r.nuevoStock)} m).`);
+                } catch (e) { fail('devolver la tela al stock', e); }
+            }
+        } else if (opt.tela === 'perdida') {
+            const lista = a.consumos.map(c => `${fmt(Math.abs(c.METROS))} m de ${c.TELA_TIPO}/${c.TELA_VARIANTE}`).join(', ');
+            hecho.push(`Tela dada por perdida (${lista}): ya estaba cortada, el stock no se toca.`);
+            manual.push('Tienes una tela ya cortada de este traje: cuando acabe la campaña, confecciónalo para tenerlo de stock (lo tienes apuntado en la bandeja 🗑️ Anulados).');
+        }
+
+        // 2. Retales
+        if (opt.retal) {
+            for (const r of a.retales) {
+                try {
+                    const res = await this._reversoRetalAnulacion(r, num);
+                    hecho.push(`Retal de ${fmt(res.metros)} m de ${res.tipo}/${res.variante} devuelto al rollo (stock ahora ${fmt(res.nuevoStock)} m).`);
+                } catch (e) { fail('devolver el retal al rollo', e); }
+            }
+        }
+
+        // 3. Orden de corte
+        if (opt.orden && a.ordenRows.length) {
+            try {
+                await this._borrarFilasOrdenCorte(a.ordenRows);
+                hecho.push(`Fila borrada en la orden de corte: ${[...new Set(a.ordenRows.map(r => r.tab))].join(', ')}.`);
+                if (a.ordenRows.some(r => r.impreso)) {
+                    manual.push('Avisar al cortador: la orden de corte de este traje ya estaba impresa.');
+                }
+            } catch (e) { fail('borrar la fila de la orden de corte', e); }
+        } else if (a.ordenRows.length) {
+            manual.push(`Borrar a mano su fila en ORDEN DE CORTE (${[...new Set(a.ordenRows.map(r => r.tab))].join(', ')}).`);
+        }
+
+        // 4. Ficha (Doc)
+        if (opt.doc && a.docId) {
+            try {
+                const res = await this._moverFichaAnulada(a.docId);
+                hecho.push(res.yaEstaba
+                    ? `La ficha ya estaba en ANULADAS (${res.name}).`
+                    : `Ficha movida a ANULADAS como <em>${res.name}</em>.`);
+            } catch (e) { fail('mover la ficha a ANULADAS', e); }
+        } else if (a.docId) {
+            manual.push('La ficha (Doc) se ha dejado donde estaba.');
+        }
+
+        // Avisos que no dependen de casillas
+        if (a.taller) manual.push(`Avisar al taller ${a.taller} y recuperar el traje/tela.`);
+        for (const p of a.pedidos) {
+            if (!p.recepcionado) manual.push(`Cuando llegue el pedido a ${p.PROVEEDOR || 'proveedor'} (${fmt(p.METROS)} m de ${p.TELA_TIPO}/${p.TELA_VARIANTE}), registrarlo en Pedidos como siempre.`);
+        }
+
+        // 5. Apuntar en ANULADOS (antes de vaciar: si esto falla, el traje sigue intacto)
+        try {
+            await this._registrarAnulado(t, opt, hecho);
+        } catch (e) { fail('apuntar el traje en la pestaña ANULADOS', e); }
+
+        // 6. Vaciar la fila del LISTADO (último paso, con comprobación de Nº)
+        try {
+            await this._limpiarFilaListado(t);
+        } catch (e) { fail('vaciar la fila del LISTADO', e); }
+
+        // 7. Memoria + cache + vistas
+        this.data = this.data.filter(r => r._rowIndex !== t._rowIndex);
+        if (App.clientas?.data?.length) {
+            App.clientas.data = App.clientas.data.filter(r => r._rowIndex !== t._rowIndex);
+            try { App.clientas.filter(); } catch (e) { /* vista no montada */ }
+        }
+        this._anuladosLoaded = false;   // la bandeja de anulados se recarga al entrar
+        try { this.filter(); } catch (e) { /* vista no montada */ }
+        await App.sheets.invalidateListadoCache().catch(e => console.warn('[anular.invalidate]', e));
+        if (App.telas && document.getElementById('sec-telas')?.classList.contains('active')) {
+            try { App.telas.filter(); } catch (e) { /* nada */ }
+        }
+        return { hecho, manual };
+    },
+
+    /** REVERSO de un CONSUMO_TRAJE concreto (por anulación). Devuelve {tipo, variante, metros, nuevoStock}. */
+    async _reversoConsumoAnulacion(consumo, num) {
+        const tipo     = consumo.TELA_TIPO;
+        const variante = consumo.TELA_VARIANTE;
+        const metrosAbs = Math.abs(Number(consumo.METROS) || 0);
+        if (!metrosAbs) return null;
+        const nuevoStock = await App.telas.updateStock(tipo, variante, +metrosAbs);
+        if (nuevoStock === null) {
+            throw new Error(`La tela ${tipo}/${variante} ya no está en el catálogo de Telas: no se pueden devolver ${metrosAbs} m. Vuelve a darla de alta o desmarca la casilla de la tela.`);
+        }
+        await App.movimientos.append({
+            TIPO:           App.movimientos.TIPOS.REVERSO,
+            TELA_TIPO:      tipo,
+            TELA_VARIANTE:  variante,
+            METROS:         +metrosAbs,
+            TRAJE_NUM:      num,
+            PROVEEDOR:      consumo.PROVEEDOR || '',
+            NOTAS:          `[REF:${consumo.consumoId}] reverso consumo · +${metrosAbs} m al stock (nuevo: ${nuevoStock} m) · traje ${num} ANULADO`,
+        });
+        return { tipo, variante, metros: metrosAbs, nuevoStock };
+    },
+
+    /** Deshace un retal guardado "al asignar este traje": borra la fila de RETALES y
+     *  devuelve sus metros al stock de rollos. Comprueba la tela ANTES de borrar nada. */
+    async _reversoRetalAnulacion(retal, num) {
+        const tipo = retal.TIPO, variante = retal.VARIANTE;
+        const metros = Number(retal.METROS) || 0;
+        if (!App.telas._data?.length) await App.telas.load();
+        const tela = (App.telas._data || []).find(x => x.TIPO === tipo && x.VARIANTE === variante);
+        if (!tela) {
+            throw new Error(`La tela ${tipo}/${variante} del retal ya no está en el catálogo. Desmarca la casilla del retal o vuelve a darla de alta.`);
+        }
+        await App.telas._deleteRetalRow(retal._rowIndex);
+        let nuevoStock = metros ? await App.telas.updateStock(tipo, variante, +metros) : App.telas._stockNum(tela);
+        if (nuevoStock === null) nuevoStock = App.telas._stockNum(tela);
+        await App.movimientos.append({
+            TIPO:           App.movimientos.TIPOS.AJUSTE,
+            TELA_TIPO:      tipo,
+            TELA_VARIANTE:  variante,
+            METROS:         +metros,
+            TRAJE_NUM:      num,
+            PROVEEDOR:      tela.PROVEEDOR || '',
+            NOTAS:          `[RETAL] reverso · ${metros} m del retal vuelven al stock de rollos (nuevo: ${nuevoStock} m) · traje ${num} ANULADO, la tela no se cortó`,
+        });
+        await App.telas.loadRetales().catch(() => {});
+        return { tipo, variante, metros, nuevoStock };
+    },
+
+    /** Borra físicamente las filas [{tab, sheetRow}] del ORDEN DE CORTE (un solo batchUpdate).
+     *  Dentro de cada pestaña se borra de abajo arriba para que los índices no bailen. */
+    async _borrarFilasOrdenCorte(rows) {
+        const ordenId = App.settings.get('ordenId');
+        if (!ordenId || !rows.length) return;
+        const props = await App.sheets.getSheetProperties(ordenId);
+        const byTab = {};
+        rows.forEach(r => (byTab[r.tab] ||= []).push(r.sheetRow));
+        const requests = [];
+        for (const [tab, sheetRows] of Object.entries(byTab)) {
+            const p = props.find(x => x.title === tab);
+            if (!p) throw new Error(`La pestaña "${tab}" ya no existe en el ORDEN DE CORTE.`);
+            [...new Set(sheetRows)].sort((x, y) => y - x).forEach(sr => requests.push({
+                deleteDimension: {
+                    range: { sheetId: p.sheetId, dimension: 'ROWS', startIndex: sr - 1, endIndex: sr },
+                },
+            }));
+        }
+        if (!requests.length) return;
+        await App.sheets._fetch(`${CONFIG.SHEETS_API}/${ordenId}:batchUpdate`, {
+            method: 'POST',
+            body: JSON.stringify({ requests }),
+        });
+        // Si la pestaña afectada está abierta en la sección Orden de corte, recargarla
+        if (App.corte?._currentTab && byTab[App.corte._currentTab]) {
+            App.corte._loadTab(App.corte._currentTab).catch(e => console.warn('[anular.corte.reload]', e));
+        }
+    },
+
+    /** Mueve la ficha Doc a <carpeta actual>/ANULADAS y la renombra ANULADA_<nombre>.
+     *  Idempotente: si ya está en ANULADAS no hace nada. */
+    async _moverFichaAnulada(docId) {
+        const meta = await App.sheets.getDriveFileMetadata(docId);   // id, name, mimeType, parents
+        const parents = meta.parents || [];
+        let parentId = parents[0] || App.settings.get('fichasFolderId') || null;
+        if (!parentId) throw new Error('No sé en qué carpeta está la ficha (sin carpeta padre ni FICHAS_FOLDER_ID).');
+        // ¿Ya está dentro de una carpeta ANULADAS? (reintento tras un fallo posterior)
+        const parentMeta = await App.sheets.getDriveFileMetadata(parentId).catch(() => null);
+        if (parentMeta && parentMeta.name === 'ANULADAS') {
+            return { name: meta.name, yaEstaba: true };
+        }
+        let anuladas = await App.sheets.findChildFolder(parentId, 'ANULADAS');
+        if (!anuladas) anuladas = await App.sheets.createDriveFolder('ANULADAS', parentId);
+        await App.sheets.moveDriveFile(docId, anuladas.id, parentId);
+        const newName = meta.name.startsWith('ANULADA_') ? meta.name : `ANULADA_${meta.name}`;
+        if (newName !== meta.name) await App.sheets.renameDriveFile(docId, newName);
+        return { name: newName, yaEstaba: false };
+    },
+
+    /** Cabeceras de la pestaña ANULADOS: la crea si no existe y garantiza que
+     *  estén todas las columnas (una pestaña creada por una versión anterior de
+     *  la app puede no tenerlas). Devuelve el array de cabeceras ya actualizado. */
+    async _ensureAnuladosHeaders(sheetId) {
+        await App.sheets.ensureSheet(sheetId, this.ANULADOS_TAB, this.ANULADOS_HEADERS);
+        let hdr = ((await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A1:Z1`))[0] || [])
+            .map(h => String(h || '').trim());
+        for (const col of this.ANULADOS_HEADERS) {
+            if (hdr.indexOf(col) === -1) {
+                const res = await App.sheets.ensureColumn(sheetId, this.ANULADOS_TAB, col);
+                hdr = res.hdr;
+            }
+        }
+        return hdr;
+    },
+
+    /** Apunta el traje en la pestaña ANULADOS del LISTADO (con todos sus datos en JSON).
+     *  Si ya está apuntado ese Nº + NOMBRE y sigue ANULADO (reintento), no duplica.
+     *  `opt` es lo elegido en el diálogo: {tela:'devolver'|'perdida'|null, motivo, …}. */
+    async _registrarAnulado(t, opt, hecho) {
+        const sheetId = App.settings.get('listadoId');
+        if (!sheetId) throw new Error('No hay LISTADO configurado para esta temporada.');
+        const hdr = await this._ensureAnuladosHeaders(sheetId);
+        const num    = String(t[this.COL.num] || '').trim();
+        const nombre = String(t[this.COL.nombre] || '').trim();
+        const iNum = hdr.indexOf('Nº'), iNom = hdr.indexOf('NOMBRE'), iEst = hdr.indexOf('ESTADO');
+        const prev = await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A2:Z`).catch(() => []);
+        const yaEsta = (prev || []).some(r =>
+            App.movimientos._numMatch(r[iNum], num) &&
+            String(r[iNom] || '').trim().toUpperCase() === nombre.toUpperCase() &&
+            !String(r[iEst] || '').toUpperCase().includes('RECUPERADO'));
+        if (yaEsta) return false;
+
+        const snapshot = {};
+        for (const [k, v] of Object.entries(t)) if (!k.startsWith('_')) snapshot[k] = v;
+        snapshot._rowIndex = t._rowIndex;
+        snapshot._tab = App.seasons?.getTab() || '2026';
+        if (t._notes && Object.keys(t._notes).length) snapshot._notes = t._notes;
+
+        const d = new Date();
+        const p2 = n => String(n).padStart(2, '0');
+        const fecha = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+        const telaTxt = opt.tela === 'devolver' ? this.TELA_DEVUELTA
+                      : opt.tela === 'perdida'  ? this.TELA_PERDIDA
+                      : '';
+        const valores = {
+            'FECHA ANULACION':        fecha,
+            'USUARIO':                App.user?.name || App.user?.email || '',
+            'Nº':                     "'" + num,          // texto: conserva los ceros ("001")
+            'NOMBRE':                 nombre,
+            'TELÉFONO':               t['TELÉFONO'] || t['TELEFONO'] || '',
+            'CORREO':                 t['CORREO'] || '',
+            'FERIA':                  t[this.COL.feria] || '',
+            'MODELO':                 t[this.COL.modelo] || '',
+            'TIPO TELA':              t[this.COL.tipoTela] || '',
+            'MEDIDAS':                t[this.COL.medidas] || '',
+            'FICHA':                  t['FICHA'] || '',
+            'ESTADO':                 'ANULADO',
+            'TELA':                   telaTxt,
+            // La tela cortada no se tira: el traje se confecciona después de la
+            // campaña y se queda de stock. Esta marca es lo que se lo recuerda.
+            'PENDIENTE CONFECCIONAR': opt.tela === 'perdida' ? 'SI' : 'NO',
+            'MOTIVO':                 opt.motivo || '',
+            'QUE SE DESHIZO':         (hecho || []).map(h => h.replace(/<[^>]+>/g, '')).join(' | '),
+            'DATOS ORIGINALES':       JSON.stringify(snapshot),
+        };
+        // Evitar que Sheets interprete un texto como fórmula: apóstrofo delante
+        const txt = v => { const s2 = String(v == null ? '' : v); return /^[=+\-@]/.test(s2) ? "'" + s2 : s2; };
+        const row = new Array(hdr.length).fill('');
+        for (const [col, v] of Object.entries(valores)) {
+            const i = hdr.indexOf(col);
+            if (i >= 0) row[i] = col === 'Nº' ? v : txt(v);
+        }
+        const lastCol = App.sheets._colLetter(hdr.length - 1);
+        await App.sheets.appendRows(sheetId, `${this.ANULADOS_TAB}!A:${lastCol}`, [row]);
+        return true;
+    },
+
+
+    /* ── Bandeja "Anulados" ──────────────────────────────────────────────────
+       Los trajes anulados ya no están en el LISTADO: viven en la pestaña
+       ANULADOS. Esta vista los lee, los pinta y permite recuperarlos.
+       Lo importante para Pilar: ver de un vistazo cuáles tienen la TELA YA
+       CORTADA (pendientes de confeccionar para stock cuando acabe la campaña).
+       ──────────────────────────────────────────────────────────────────────── */
+
+    /** Lee la pestaña ANULADOS. Cachea en memoria hasta que se anule/recupere algo. */
+    async loadAnulados(forceRefresh = false) {
+        if (this._anuladosLoaded && !forceRefresh) return this._anulados;
+        // Puede llamarse a la vez desde load() (contador, en segundo plano) y desde
+        // la propia bandeja: compartimos la promesa para no leer el Sheet dos veces.
+        if (this._anuladosPromise) return this._anuladosPromise;
+        this._anuladosPromise = this._loadAnuladosNow();
+        try { return await this._anuladosPromise; }
+        finally { this._anuladosPromise = null; }
+    },
+
+    async _loadAnuladosNow() {
+        const sheetId = App.settings.get('listadoId');
+        if (!sheetId) { this._anulados = []; this._anuladosLoaded = true; return this._anulados; }
+        let rows;
+        try {
+            rows = await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A1:Z`);
+        } catch (e) {
+            // La pestaña no existe todavía (no se ha anulado nunca nada) → lista vacía
+            this._anulados = []; this._anuladosLoaded = true;
+            return this._anulados;
+        }
+        const hdr = (rows[0] || []).map(h => String(h || '').trim());
+        this._anulados = rows.slice(1).map((r, i) => {
+            const o = { _rowIndex: i + 2 };
+            hdr.forEach((h, c) => { if (h && !Object.prototype.hasOwnProperty.call(o, h)) o[h] = String(r[c] || '').trim(); });
+            return o;
+        }).filter(o => (o['Nº'] || '') || (o['NOMBRE'] || ''));
+        this._anulados.reverse();   // el último anulado, arriba
+        this._anuladosLoaded = true;
+        return this._anulados;
+    },
+
+    _esRecuperado(an) {
+        return String(an['ESTADO'] || '').toUpperCase().includes('RECUPERADO');
+    },
+
+    /** Pinta la lista de anulados dentro de #trajesList. */
+    async _renderAnulados(q = '') {
+        const cont = document.getElementById('trajesList');
+        if (!cont) return;
+        if (!this._anuladosLoaded) {
+            cont.innerHTML = '<div class="empty-state"><div class="spinner spinner-lg"></div><p>Cargando anulados…</p></div>';
+            try {
+                await this.loadAnulados();
+            } catch (e) {
+                cont.innerHTML = `<div class="alert alert-danger" style="margin:20px;">Error leyendo ANULADOS: ${e.message}</div>`;
+                return;
+            }
+            this._updateBandejaCounts();
+            if ((this._bandeja || '') !== 'anulados') return;   // el usuario ya cambió de bandeja
+        }
+        const query = (q || '').toLowerCase().trim();
+        const lista = this._anulados.filter(an => {
+            if (!query) return true;
+            return [an['NOMBRE'], an['MODELO'], an['Nº'], an['MOTIVO']]
+                .join(' ').toLowerCase().includes(query);
+        });
+
+        const countEl = document.getElementById('trajeCount');
+        const pendientes = this._anulados.filter(an => !this._esRecuperado(an) &&
+            String(an['PENDIENTE CONFECCIONAR'] || '').toUpperCase() === 'SI').length;
+        if (countEl) {
+            countEl.innerHTML = `${lista.length} anulado${lista.length !== 1 ? 's' : ''}` +
+                (pendientes ? ` · <strong>${pendientes}</strong> con la tela cortada, pendiente${pendientes !== 1 ? 's' : ''} de confeccionar` : '');
+        }
+
+        if (!lista.length) {
+            cont.innerHTML =
+                '<div class="empty-state"><div class="empty-icon">&#x1F5D1;&#xFE0F;</div>' +
+                `<h3>${query ? 'Sin resultados' : 'No hay trajes anulados'}</h3>` +
+                `<p>${query ? 'Prueba con otra búsqueda.' : 'Cuando anules un traje aparecerá aquí, con sus datos y la opción de recuperarlo.'}</p></div>`;
+            return;
+        }
+
+        const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        cont.innerHTML =
+            `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:10px;">` +
+            lista.map(an => this._renderAnuladoCard(an, esc)).join('') +
+            `</div>`;
+    },
+
+    _renderAnuladoCard(an, esc) {
+        const recuperado = this._esRecuperado(an);
+        const pendiente  = String(an['PENDIENTE CONFECCIONAR'] || '').toUpperCase() === 'SI';
+        const tela       = String(an['TELA'] || '').toUpperCase();
+        const num        = esc(an['Nº'] || '');
+        const chips = [];
+        if (recuperado) {
+            chips.push(`<span class="chip chip-correcto" style="font-size:10px;">&#x21A9;&#xFE0F; ${esc(an['ESTADO'])}</span>`);
+        } else if (pendiente) {
+            chips.push(`<span class="chip" style="background:#ffe0b2; color:#bf6900; font-size:10px;" ` +
+                       `title="La tela ya estaba cortada al anularlo. Confecciónalo cuando acabe la campaña para tenerlo de stock.">` +
+                       `&#x2702;&#xFE0F; Tela cortada &mdash; pdte. confeccionar</span>`);
+        }
+        if (tela.includes('DEVUELTA')) {
+            chips.push(`<span class="chip chip-recibida" style="font-size:10px;">&#x21A9;&#xFE0F; Tela devuelta al stock</span>`);
+        }
+        const linea = (label, val) => val
+            ? `<div style="font-size:12px; color:#666;"><span style="color:var(--text-muted);">${label}:</span> ${esc(val)}</div>`
+            : '';
+        const ficha = String(an['FICHA'] || '').trim();
+        return (
+            `<div class="card" style="padding:12px; ${recuperado ? 'opacity:0.6;' : ''}">` +
+            `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">` +
+            `<div style="flex:1; min-width:0;">` +
+            `<strong style="font-size:14px;">${esc(an['NOMBRE'] || '(sin nombre)')}</strong>` +
+            (num ? ` <span style="font-size:12px; color:var(--text-muted);">N&ordm;&nbsp;${num}</span>` : '') +
+            `</div></div>` +
+            (chips.length ? `<div style="margin:6px 0; display:flex; flex-wrap:wrap; gap:4px;">${chips.join('')}</div>` : '') +
+            linea('Modelo', an['MODELO']) +
+            linea('Tela', an['TIPO TELA']) +
+            linea('Talla', an['MEDIDAS']) +
+            linea('Feria', an['FERIA']) +
+            linea('Motivo', an['MOTIVO']) +
+            `<div style="font-size:11px; color:var(--text-muted); margin-top:6px;">` +
+            `Anulado el ${esc(an['FECHA ANULACION'] || '—')}${an['USUARIO'] ? ' por ' + esc(an['USUARIO']) : ''}</div>` +
+            `<div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">` +
+            (recuperado
+                ? `<span style="font-size:11px; color:var(--text-muted);">Ya recuperado &mdash; está en el listado de trajes.</span>`
+                : `<button class="btn btn-primary btn-sm" onclick="App.trajes.recuperar(${an._rowIndex})">&#x21A9;&#xFE0F; Recuperar traje</button>`) +
+            (ficha ? `<a class="btn btn-secondary btn-sm" href="${esc(ficha)}" target="_blank" rel="noopener" ` +
+                     `style="text-decoration:none;">&#x1F4C4; Ficha</a>` : '') +
+            (an['QUE SE DESHIZO']
+                ? `<button class="btn btn-secondary btn-sm" title="${esc(an['QUE SE DESHIZO'])}" ` +
+                  `onclick="App.trajes._verDetalleAnulado(${an._rowIndex})">&#x2139;&#xFE0F; Detalle</button>`
+                : '') +
+            `</div></div>`
+        );
+    },
+
+    /** Muestra qué se deshizo al anular (para consultar sin abrir el Sheet). */
+    async _verDetalleAnulado(rowIndex) {
+        const an = this._anulados.find(x => x._rowIndex === rowIndex);
+        if (!an) return;
+        const partes = String(an['QUE SE DESHIZO'] || '').split('|').map(x => x.trim()).filter(Boolean);
+        await App.ui.confirmDialog({
+            title: `Traje Nº ${an['Nº'] || ''} — qué se deshizo al anularlo`,
+            message: (partes.length
+                ? `<ul style="margin:4px 0 0 18px; padding:0;">${partes.map(p => `<li>${p}</li>`).join('')}</ul>`
+                : '<em>No quedó nada apuntado.</em>') +
+                (an['TELA'] ? `<div style="margin-top:10px; font-size:12px;"><strong>Tela:</strong> ${an['TELA']}</div>` : ''),
+            actions: [{ label: 'Cerrar', value: 'ok', style: 'primary' }],
+        });
+    },
+
+    /* ── Recuperar un traje anulado ──────────────────────────────────────────
+       Devuelve la fila al LISTADO con su Nº original (que nunca se reutilizó).
+       El estado con el que vuelve depende de qué se hizo con la tela:
+         · TELA DEVUELTA AL STOCK → vuelve como si nada: TELA RECIBIDA a
+           PENDIENTE y sin corte/taller/fechas, porque esa tela volvió al rollo
+           y hay que asignársela otra vez (así el consumo se registra de nuevo
+           por el camino normal y el stock nunca se descuadra).
+         · TELA PERDIDA (ya cortada) → vuelve tal cual estaba: el CONSUMO sigue
+           vivo en MOVIMIENTOS, así que no hay que volver a restar nada.
+       La fila de ORDEN DE CORTE no se recrea aquí: el botón "Sincronizar" del
+       modelo la vuelve a añadir sola en cuanto el traje cumpla las condiciones.
+       ──────────────────────────────────────────────────────────────────────── */
+    async recuperar(rowIndexAnulados) {
+        const an = this._anulados.find(x => x._rowIndex === rowIndexAnulados);
+        if (!an) { App.toast.show('No encuentro ese traje anulado.', 'error'); return; }
+        if (!(App.isAdmin && App.isAdmin())) {
+            App.toast.show('Solo un Admin puede recuperar trajes.', 'warning');
+            return;
+        }
+        if (this._esRecuperado(an)) { App.toast.show('Ese traje ya se recuperó.', 'info'); return; }
+
+        let snapshot;
+        try {
+            snapshot = JSON.parse(an['DATOS ORIGINALES'] || '{}');
+        } catch (e) {
+            App.toast.show('Los datos guardados de ese traje no se pueden leer. Recupéralo a mano desde la pestaña ANULADOS.', 'error', 7000);
+            return;
+        }
+        const num       = String(an['Nº'] || snapshot['Nº'] || '').trim();
+        const nombre    = String(an['NOMBRE'] || snapshot['NOMBRE'] || '').trim();
+        const telaVuelta = String(an['TELA'] || '').toUpperCase().includes('DEVUELTA');
+
+        const answer = await App.ui.confirmDialog({
+            title: '↩️ Recuperar traje',
+            message:
+                `Vuelve al listado el traje <strong>N&ordm; ${num} · ${nombre}</strong>` +
+                (snapshot['MODELO'] ? ` (${snapshot['MODELO']})` : '') + `.<br><br>` +
+                (telaVuelta
+                    ? `<div style="background:#fff8e1; padding:8px 10px; border-radius:4px; font-size:12px;">` +
+                      `Su tela se devolvió al stock al anularlo, así que vuelve <strong>al principio del flujo</strong> ` +
+                      `(esperando tela, sin corte ni taller). Cuando le vuelvas a marcar TELA RECIBIDA se descontará del stock como siempre.</div>`
+                    : `<div style="background:#e8f5e9; color:#1b5e20; padding:8px 10px; border-radius:4px; font-size:12px;">` +
+                      `Su tela estaba cortada y no se devolvió al stock, así que vuelve <strong>en el mismo punto</strong> en que se quedó. ` +
+                      `El consumo de tela sigue registrado: no se descuenta nada otra vez.</div>`) +
+                `<div style="font-size:11px; color:var(--text-muted); margin-top:10px;">` +
+                (snapshot['FICHA'] ? `Su ficha vuelve de la carpeta ANULADAS a la de fichas. ` : '') +
+                `Si necesita orden de corte, dale a <strong>Sincronizar</strong> en la sección Orden de corte del modelo.</div>`,
+            actions: [
+                { label: '↩️ Sí, recuperarlo', value: 'ok', style: 'primary' },
+                { label: 'Cancelar', value: null, style: 'secondary' },
+            ],
+        });
+        if (answer !== 'ok') return;
+
+        App.toast.show(`Recuperando el traje Nº ${num}…`, 'info', 3000);
+        try {
+            const destino = await this._restaurarFilaListado(snapshot, telaVuelta);
+            // Ficha: devolverla de ANULADAS a su carpeta (best-effort, no bloquea)
+            let fichaMsg = '';
+            const dm = String(snapshot['FICHA'] || '').match(/\/d\/([a-zA-Z0-9_-]+)/);
+            if (dm) {
+                try {
+                    const r = await this._restaurarFichaAnulada(dm[1]);
+                    fichaMsg = r.movida ? `<br>Ficha devuelta a su carpeta como <em>${r.name}</em>.` : '';
+                } catch (e) {
+                    console.warn('[recuperar.ficha]', e);
+                    fichaMsg = `<br><span style="color:#bf6900;">La ficha no se pudo sacar de ANULADAS (${e.message}). Muévela tú.</span>`;
+                }
+            }
+            // Marcar la fila de ANULADOS como recuperada
+            try {
+                await this._marcarRecuperado(an);
+            } catch (e) {
+                console.warn('[recuperar.marcar]', e);
+                App.toast.show('El traje volvió al listado, pero no se pudo marcar como RECUPERADO en ANULADOS. Márcalo a mano.', 'warning', 7000);
+            }
+
+            this._anuladosLoaded = false;
+            await App.sheets.invalidateListadoCache().catch(() => {});
+            await this.load(true).catch(() => {});
+            this.setBandeja(telaVuelta ? 'esperandoTela' : 'todos');
+            await App.ui.confirmDialog({
+                title: '✅ Traje recuperado',
+                message: `El traje <strong>N&ordm; ${num} · ${nombre}</strong> vuelve a estar en el listado (fila ${destino.row}).` +
+                         fichaMsg +
+                         (telaVuelta
+                            ? `<br><br><span style="font-size:12px;">Está en <strong>Esperando tela</strong>: asígnale la tela cuando la tengas.</span>`
+                            : `<br><br><span style="font-size:12px;">Vuelve con su estado de antes. Si lo necesitas en la orden de corte, dale a Sincronizar en su modelo.</span>`),
+                actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
+            });
+        } catch (err) {
+            console.error('[recuperar]', err);
+            await App.ui.confirmDialog({
+                title: '❌ No se pudo recuperar',
+                message: `<span style="color:#b71c1c;">${err.message}</span><br><br>` +
+                         `<span style="font-size:12px;">El traje sigue en la lista de anulados. Puedes volver a intentarlo.</span>`,
+                actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
+            });
+        }
+    },
+
+    /** Escribe la fila del traje de vuelta en el LISTADO. Reutiliza su fila original
+     *  si sigue vacía; si no, la añade al final. Devuelve {row}. */
+    async _restaurarFilaListado(snapshot, telaVuelta) {
+        const sheetId = App.settings.get('listadoId');
+        const tab     = App.seasons?.getTab() || '2026';
+        if (!sheetId) throw new Error('No hay LISTADO configurado para esta temporada.');
+        const num = String(snapshot['Nº'] || '').trim();
+
+        const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
+        const hdr = (headers[0] || []).map(h => String(h || '').trim());
+        const iNombre = hdr.indexOf('NOMBRE');
+        if (iNombre < 0) throw new Error('El LISTADO no tiene columna NOMBRE.');
+
+        // ¿El Nº ya está en el listado? (recuperación duplicada / traje recreado a mano)
+        const iNum = hdr.indexOf('Nº');
+        if (iNum >= 0 && num) {
+            const colNum = App.sheets._colLetter(iNum);
+            const nums = await App.sheets.readRange(sheetId, `${tab}!${colNum}2:${colNum}1000`);
+            const dup = (nums || []).findIndex(r => App.movimientos._numMatch(r[0], num));
+            if (dup >= 0) throw new Error(`El Nº ${num} ya existe en el LISTADO (fila ${dup + 2}). No se duplica: revísalo antes.`);
+        }
+
+        // Fila destino: la original si sigue completamente vacía; si no, al final
+        const colNombre = App.sheets._colLetter(iNombre);
+        const colData = await App.sheets.readRange(sheetId, `${tab}!${colNombre}1:${colNombre}1000`);
+        let lastDataRow = 1;
+        for (let i = 1; i < colData.length; i++) if ((colData[i][0] || '').trim()) lastDataRow = i + 1;
+        let row = lastDataRow + 1;
+        const original = parseInt(snapshot._rowIndex, 10);
+        if (!isNaN(original) && original > 1 && original <= lastDataRow) {
+            const cur = (await App.sheets.readRange(sheetId, `${tab}!A${original}:AZ${original}`))[0] || [];
+            if (!cur.some(v => String(v || '').trim())) row = original;
+        }
+
+        // Valores: los del snapshot, con los ajustes según el destino de la tela
+        const valores = {};
+        for (const [k, v] of Object.entries(snapshot)) {
+            if (k.startsWith('_')) continue;
+            valores[k] = v;
+        }
+        if (telaVuelta) {
+            // La tela volvió al rollo: el traje empieza de nuevo la fase de tela
+            valores['TELA RECIBIDA']        = 'PENDIENTE';
+            valores['CORTE']                = '';
+            valores['FECHA ENVIADO CORTE']  = '';
+            valores['FECHA RECOGIDO CORTE'] = '';
+            valores['TALLER']               = '';
+            valores['FECHA ENTREGA TALLER'] = '';
+            valores['TRAJE RECIBIDO']       = '';
+            valores['FECHA RECIBIDO']       = '';
+            valores['TRAJE ENTREGADO']      = '';
+            valores['TRAJE ENTREGADO TIENDA'] = '';
+            valores['FECHA ENTREGADO TIENDA'] = '';
+            valores['ADORNO COMPRADO']      = '';
+            valores['FECHA ADORNO COMPRADO'] = '';
+        }
+        const d = new Date();
+        const p2 = n => String(n).padStart(2, '0');
+        valores['FECHA ULTIMA MOD'] = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
+
+        const rowValues = new Array(hdr.length).fill('');
+        for (const [col, v] of Object.entries(valores)) {
+            const i = hdr.indexOf(col);
+            if (i >= 0) rowValues[i] = v == null ? '' : String(v);
+        }
+        const lastCol = App.sheets._colLetter(hdr.length - 1);
+        await App.sheets.writeRange(sheetId, `${tab}!A${row}:${lastCol}${row}`, [rowValues]);
+
+        // Notas de celda: las originales + una que deja constancia de la recuperación
+        const notes = snapshot._notes || {};
+        const marca = `[Recuperado de ANULADOS el ${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}]`;
+        const notesFinal = Object.assign({}, notes);
+        notesFinal['ESTADO'] = notes['ESTADO'] ? `${notes['ESTADO']}\n${marca}` : marca;
+        const noteUpdates = Object.entries(notesFinal)
+            .map(([col, txt]) => ({ rowIndex: row - 1, colIndex: hdr.indexOf(col), noteText: txt }))
+            .filter(n => n.colIndex >= 0);
+        if (noteUpdates.length) {
+            await App.sheets.setBatchNotes(sheetId, tab, noteUpdates)
+                .catch(e => console.warn('[recuperar] notas:', e.message));
+        }
+        return { row };
+    },
+
+    /** Saca la ficha de la carpeta ANULADAS y le quita el prefijo del nombre. */
+    async _restaurarFichaAnulada(docId) {
+        const meta = await App.sheets.getDriveFileMetadata(docId);
+        const parentId = (meta.parents || [])[0];
+        const newName = meta.name.replace(/^ANULADA_/, '');
+        if (!parentId) {
+            if (newName !== meta.name) await App.sheets.renameDriveFile(docId, newName);
+            return { name: newName, movida: false };
+        }
+        const parentMeta = await App.sheets.getDriveFileMetadata(parentId).catch(() => null);
+        if (!parentMeta || parentMeta.name !== 'ANULADAS') {
+            // No estaba en ANULADAS: solo normalizamos el nombre si hiciera falta
+            if (newName !== meta.name) await App.sheets.renameDriveFile(docId, newName);
+            return { name: newName, movida: false };
+        }
+        // Volver a la carpeta que contiene a ANULADAS (o a la de fichas de la temporada)
+        const destino = (parentMeta.parents || [])[0] || App.settings.get('fichasFolderId');
+        if (!destino) throw new Error('No sé a qué carpeta devolver la ficha.');
+        await App.sheets.moveDriveFile(docId, destino, parentId);
+        if (newName !== meta.name) await App.sheets.renameDriveFile(docId, newName);
+        return { name: newName, movida: true };
+    },
+
+    /** Marca la fila de ANULADOS como RECUPERADO (y quita el pendiente de confeccionar). */
+    async _marcarRecuperado(an) {
+        const sheetId = App.settings.get('listadoId');
+        const hdr = await this._ensureAnuladosHeaders(sheetId);
+        const d = new Date();
+        const p2 = n => String(n).padStart(2, '0');
+        const fecha = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
+        const updates = [];
+        const set = (col, val) => {
+            const i = hdr.indexOf(col);
+            if (i >= 0) updates.push({
+                range: `${this.ANULADOS_TAB}!${App.sheets._colLetter(i)}${an._rowIndex}`,
+                values: [[val]],
+            });
+        };
+        set('ESTADO', `RECUPERADO (${fecha})`);
+        set('PENDIENTE CONFECCIONAR', 'NO');
+        if (updates.length) await App.sheets.batchWriteRanges(sheetId, updates);
+        an['ESTADO'] = `RECUPERADO (${fecha})`;
+        an['PENDIENTE CONFECCIONAR'] = 'NO';
+    },
+
+    /** Vacía la fila del traje en el LISTADO (valores + notas de celda). NO elimina la
+     *  fila para no desplazar las demás. Antes comprueba que la fila sigue siendo este Nº. */
+    async _limpiarFilaListado(t) {
+        const sheetId = App.settings.get('listadoId');
+        const tab     = App.seasons?.getTab() || '2026';
+        const row     = t._rowIndex;
+        const num     = String(t[this.COL.num] || '').trim();
+        if (!sheetId || !row) throw new Error('Sin LISTADO o sin fila.');
+        const headers = await App.sheets.readRange(sheetId, `${tab}!A1:AZ1`);
+        const hdr = (headers[0] || []).map(h => String(h || '').trim());
+        const iNum = hdr.indexOf('Nº');
+        const cur  = (await App.sheets.readRange(sheetId, `${tab}!A${row}:AZ${row}`))[0] || [];
+        if (iNum >= 0 && !App.movimientos._numMatch(cur[iNum], num)) {
+            throw new Error(`La fila ${row} del LISTADO ya no contiene el Nº ${num} (¿alguien ha movido o borrado filas?). No se ha tocado el LISTADO: recarga la app y vuelve a intentarlo.`);
+        }
+        // Valores: A..AZ (mismo rango que lee la app) → todo vacío
+        await App.sheets.writeRange(sheetId, `${tab}!A${row}:AZ${row}`, [new Array(52).fill('')]);
+        // Notas de celda de esa fila
+        const noteUpdates = Object.keys(t._notes || {})
+            .map(col => ({ rowIndex: row - 1, colIndex: hdr.indexOf(col), noteText: '' }))
+            .filter(n => n.colIndex >= 0);
+        if (noteUpdates.length) {
+            await App.sheets.setBatchNotes(sheetId, tab, noteUpdates).catch(e =>
+                console.warn('[anular] No se pudieron borrar las notas de la fila:', e.message));
+        }
     },
 
 };
@@ -15348,6 +16492,29 @@ App.movimientos = {
             return { ...c, consumoId: id };
         }
         return null;
+    },
+
+    /** TODOS los CONSUMO_TRAJE vivos (sin REVERSO) de un traje, sea cual sea la tela.
+     *  A diferencia de findOpenConsumo, no filtra por TIPO/VARIANTE: sirve para
+     *  anular un traje aunque le hayan cambiado la tela después de consumir.
+     *  Acepta `all` ya cargado para no releer el Sheet. */
+    findOpenConsumosByTraje(numTraje, all = null) {
+        const rows = all || [];
+        const reversados = new Set();
+        for (const m of rows) {
+            if (m.TIPO !== this.TIPOS.REVERSO) continue;
+            const ref = this.extractRefId(m.NOTAS);
+            if (ref) reversados.add(ref);
+        }
+        const out = [];
+        for (const c of rows) {
+            if (c.TIPO !== this.TIPOS.CONSUMO) continue;
+            if (!this._numMatch(c.TRAJE_NUM, numTraje)) continue;
+            const id = this.extractConsumoId(c.NOTAS);
+            if (!id || reversados.has(id)) continue;
+            out.push({ ...c, consumoId: id });
+        }
+        return out;
     },
 
     /** Calcula los IDs de pedidos con RECEPCION VIVA (con RECEPCION + sin REVERSO posterior). */
@@ -17020,7 +18187,15 @@ App.jose = {
                 throw new Error((data && data.message) || 'El proxy no pudo guardar el cambio.');
             }
             if (data.rejected && data.rejected.length) {
+                // Antes solo se avisaba por consola: la UI se quedaba con el
+                // cambio optimista y el sheet sin tocar, o sea que la app
+                // ensenaba una cosa y el LISTADO otra (visto con ADORNO
+                // COMPRADO cuando el Apps Script aun no estaba redesplegado).
+                // Ahora es un error: _enqueueWrites avisa y resincroniza.
                 console.warn('[jose._writeUpdates] columnas rechazadas por el proxy:', data.rejected);
+                throw new Error(
+                    'El proxy rechazo estas columnas: ' + data.rejected.join(', ') +
+                    '. Falta redesplegar el Apps Script (taller-proxy.gs).');
             }
             return;
         }
@@ -19191,23 +20366,30 @@ App.telas = {
     },
 
     /** Borra un retal (elimina su fila del Sheet). */
+    /** Elimina físicamente una fila de la pestaña RETALES (lanza error si falla).
+     *  Compartido por borrarRetal() y por la anulación de trajes. */
+    async _deleteRetalRow(rowIndex) {
+        const sheetId = App.settings.get('catalogosId');
+        if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
+        const meta = await App.sheets._fetch(
+            `${CONFIG.SHEETS_API}/${sheetId}?fields=sheets(properties(sheetId,title))`);
+        const tab = meta.sheets.find(s => s.properties.title === this.RETAL_TAB);
+        if (!tab) throw new Error('Pestaña RETALES no encontrada');
+        await App.sheets._fetch(`${CONFIG.SHEETS_API}/${sheetId}:batchUpdate`, {
+            method: 'POST',
+            body: JSON.stringify({ requests: [{ deleteDimension: {
+                range: { sheetId: tab.properties.sheetId, dimension: 'ROWS',
+                         startIndex: rowIndex - 1, endIndex: rowIndex },
+            }}]}),
+        });
+    },
+
     async borrarRetal(rowIndex, silent = false) {
         const retal = this._retales.find(r => r._rowIndex === rowIndex);
         if (!retal) return;
         if (!silent && !confirm(`¿Borrar el retal de ${retal.TIPO} / ${retal.VARIANTE} (${this._normNum(retal.METROS)} m)?`)) return;
-        const sheetId = App.settings.get('catalogosId');
         try {
-            const meta = await App.sheets._fetch(
-                `${CONFIG.SHEETS_API}/${sheetId}?fields=sheets(properties(sheetId,title))`);
-            const tab = meta.sheets.find(s => s.properties.title === this.RETAL_TAB);
-            if (!tab) throw new Error('Pestaña RETALES no encontrada');
-            await App.sheets._fetch(`${CONFIG.SHEETS_API}/${sheetId}:batchUpdate`, {
-                method: 'POST',
-                body: JSON.stringify({ requests: [{ deleteDimension: {
-                    range: { sheetId: tab.properties.sheetId, dimension: 'ROWS',
-                             startIndex: rowIndex - 1, endIndex: rowIndex },
-                }}]}),
-            });
+            await this._deleteRetalRow(rowIndex);
             await this.loadRetales();
             this.filter();
             App.toast.show('Retal borrado.', 'success', 2000);
