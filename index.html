@@ -9784,7 +9784,7 @@ App.clientas = {
 
         if (idxNombre < 0) { if (infoEl) infoEl.textContent = ''; return; }
 
-        const colLetraNombre = String.fromCharCode(65 + idxNombre);
+        const colLetraNombre = App.sheets._colLetter(idxNombre);
         const colData = await App.sheets.readRange(sheetId, `${tab}!${colLetraNombre}1:${colLetraNombre}1000`);
         let lastDataRow = 1;
         for (let i = 1; i < colData.length; i++) {
@@ -9794,7 +9794,7 @@ App.clientas = {
 
         let nextNum = '001';
         if (idxNum >= 0) {
-            const colLetraNum = String.fromCharCode(65 + idxNum);
+            const colLetraNum = App.sheets._colLetter(idxNum);
             const numData = await App.sheets.readRange(sheetId, `${tab}!${colLetraNum}2:${colLetraNum}${lastDataRow}`);
             let maxNum = numData.reduce((max, r) => {
                 const n = parseInt((r[0] || '').replace(/\D/g, ''), 10);
@@ -9806,11 +9806,20 @@ App.clientas = {
             // Si la pestaña no existe todavía, readRange falla → se ignora.
             try {
                 const anulTab = (App.trajes && App.trajes.ANULADOS_TAB) || 'ANULADOS';
-                const anulados = await App.sheets.readRange(sheetId, `${anulTab}!C2:C`);
-                maxNum = (anulados || []).reduce((max, r) => {
-                    const n = parseInt(String(r[0] || '').replace(/\D/g, ''), 10);
-                    return isNaN(n) ? max : Math.max(max, n);
-                }, maxNum);
+                const anulRows = await App.sheets.readRange(sheetId, `${anulTab}!A1:AZ`);
+                // La columna del Nº se busca por su cabecera: si la pestaña se creó
+                // con otra versión o alguien reordenó columnas, leer una fija (C)
+                // devolvería basura y el Nº de un traje anulado se reutilizaría.
+                const anulHdr = (anulRows[0] || []).map(h => String(h || '').trim().toUpperCase());
+                const iAnulNum = anulHdr.indexOf('Nº') >= 0 ? anulHdr.indexOf('Nº') : anulHdr.indexOf('N°');
+                if (iAnulNum >= 0) {
+                    maxNum = anulRows.slice(1).reduce((max, r) => {
+                        const n = parseInt(String(r[iAnulNum] || '').replace(/\D/g, ''), 10);
+                        return isNaN(n) ? max : Math.max(max, n);
+                    }, maxNum);
+                } else {
+                    console.warn('[proximoNum] La pestaña ANULADOS no tiene columna Nº: no se puede garantizar que no se reutilice un número.');
+                }
             } catch (e) { /* sin pestaña ANULADOS: nada que sumar */ }
             nextNum = String(maxNum + 1).padStart(3, '0');
         }
@@ -14087,8 +14096,18 @@ App.trajes = {
                     otrosTrajes:  trajes.filter(n => !App.movimientos._numMatch(n, num)),
                 });
             }
+            // ¿Un intento ANTERIOR de anular ya devolvió tela al stock? (reintento
+            // tras un fallo a mitad). Nuestros reversos de anulación se marcan con
+            // "traje N ANULADO" / "traje N ANULADO, la tela no se cortó".
+            const marcaAnul = new RegExp(`traje\\s*#?0*${parseInt(num, 10) || num}\\b[^|]*ANULADO`, 'i');
+            a.telaYaDevuelta = all.some(m =>
+                (m.TIPO === App.movimientos.TIPOS.REVERSO || m.TIPO === App.movimientos.TIPOS.AJUSTE) &&
+                App.movimientos._numMatch(m.TRAJE_NUM, num) &&
+                marcaAnul.test(m.NOTAS || ''));
+            a._movimientos = all;
         } catch (e) {
             a.errores.push('No se pudo leer MOVIMIENTOS (stock de tela): ' + e.message);
+            a.movimientosKO = true;
         }
 
         // 2. Retales guardados a raíz de este traje ("asignación a traje 012")
@@ -14099,7 +14118,25 @@ App.trajes = {
                 const nInt = parseInt(num, 10);
                 const core = isNaN(nInt) ? num.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : `0*${nInt}`;
                 const re = new RegExp(`traje\\s*#?${core}(?!\\d)`, 'i');
-                a.retales = (App.telas._retales || []).filter(r => re.test(r.ORIGEN || ''));
+                // El Nº de traje se reinicia cada temporada, pero RETALES vive en el
+                // Sheet de catálogos, que es GLOBAL: el "traje 012" de la temporada
+                // pasada dejaría un falso positivo. Nos quedamos solo con los retales
+                // de una tela que este traje consumió y posteriores a ese consumo.
+                const telasTraje = new Set(a.consumos.map(c => `${c.TELA_TIPO}|${c.TELA_VARIANTE}`));
+                const fechaConsumo = a.consumos
+                    .map(c => Date.parse(String(c.FECHA || '').replace(' ', 'T')))
+                    .filter(x => !isNaN(x)).sort((x, y) => x - y)[0];
+                a.retales = (App.telas._retales || [])
+                    .filter(r => re.test(r.ORIGEN || ''))
+                    .filter(r => !telasTraje.size || telasTraje.has(`${r.TIPO}|${r.VARIANTE}`))
+                    .filter(r => {
+                        if (fechaConsumo == null) return true;
+                        const f = Date.parse(String(r.FECHA || ''));
+                        return isNaN(f) ? true : f >= fechaConsumo - 86400000;   // 1 día de margen
+                    })
+                    // Se borran físicamente del Sheet: de abajo arriba para que el
+                    // borrado de uno no desplace la fila del siguiente.
+                    .sort((x, y) => (y._rowIndex || 0) - (x._rowIndex || 0));
             }
         } catch (e) {
             a.errores.push('No se pudo leer RETALES: ' + e.message);
@@ -14197,6 +14234,16 @@ App.trajes = {
         const num    = a.num;
         const nombre = String(t[this.COL.nombre] || '').trim();
         const modelo = String(t[this.COL.modelo] || '').trim();
+        if (a.movimientosKO) {
+            await App.ui.confirmDialog({
+                title: '⚠️ No se puede anular ahora mismo',
+                message: `No se ha podido leer el histórico de tela (MOVIMIENTOS), así que no sé si este traje ` +
+                         `tiene tela consumida ni cuánta. Anularlo a ciegas descuadraría el stock.<br><br>` +
+                         `<span style="font-size:12px;">Revisa la conexión y vuelve a intentarlo.</span>`,
+                actions: [{ label: 'Entendido', value: 'ok', style: 'primary' }],
+            });
+            return null;
+        }
         const metrosTotal = a.consumos.reduce((s2, c) => s2 + Math.abs(Number(c.METROS) || 0), 0);
         const telaLista = a.consumos.map(c =>
             `<strong>${fmt(Math.abs(c.METROS))} m</strong> de <strong>${c.TELA_TIPO}/${c.TELA_VARIANTE}</strong>`
@@ -14208,7 +14255,25 @@ App.trajes = {
         // el stock si se falla, así que va en su propia pantalla y con dos botones
         // explícitos, no una casilla que se pueda pasar por alto.
         let destinoTela = null;   // 'devolver' | 'perdida' | null (no había tela)
-        if (a.consumos.length) {
+        if (a.telaYaDevuelta) {
+            // Un intento anterior de anular este traje ya devolvió tela al stock y se
+            // quedó a medias. No se puede volver a preguntar: parte de la tela ya está
+            // en el rollo, así que lo que quede tiene que seguir el mismo camino.
+            destinoTela = 'devolver';
+            await App.ui.confirmDialog({
+                title: '↩️ La tela de este traje ya volvió al stock',
+                message:
+                    `En un intento anterior de anular el traje <strong>Nº ${num}</strong> su tela ya se devolvió al stock, ` +
+                    `pero la anulación se quedó a medias.<br><br>` +
+                    `Se sigue por ese camino: ` +
+                    (a.consumos.length
+                        ? `lo que queda (${telaLista}) también vuelve al stock.`
+                        : `no queda nada de tela por devolver.`) +
+                    `<br><br><span style="font-size:12px; color:var(--text-muted);">` +
+                    `Si en realidad la tela estaba cortada, cancela y ajusta el stock a mano en la sección Telas antes de anular.</span>`,
+                actions: [{ label: 'Entendido, seguir', value: 'ok', style: 'primary' }],
+            });
+        } else if (a.consumos.length) {
             const motivoCortado = a.corte
                 ? `CORTE = <strong>${a.corte}</strong>`
                 : (a.ordenRows.some(r => r.impreso) ? 'su <strong>orden de corte ya está impresa</strong>'
@@ -14260,8 +14325,11 @@ App.trajes = {
         // Decisión de la tela ya tomada (se muestra, no se vuelve a preguntar)
         if (destinoTela === 'devolver') {
             html += `<div style="background:#e8f5e9; color:#1b5e20; padding:8px 10px; border-radius:4px; margin:8px 0; font-size:12px;">` +
-                    `↩️ ${telaLista} <strong>vuelven al stock</strong>` +
-                    (a.retales.length ? `, y el retal de ${retalLista} vuelve al rollo` : '') + `.</div>`;
+                    (a.consumos.length
+                        ? `↩️ ${telaLista} <strong>vuelven al stock</strong>` +
+                          (a.retales.length ? `, y el retal de ${retalLista} vuelve al rollo` : '') + `.`
+                        : `↩️ Su tela <strong>ya se devolvió al stock</strong> en el intento anterior. No se toca nada más.`) +
+                    `</div>`;
         } else if (destinoTela === 'perdida') {
             html += `<div style="background:#fff3e0; color:#7c3a00; padding:8px 10px; border-radius:4px; margin:8px 0; font-size:12px;">` +
                     `✂️ ${telaLista} <strong>se dan por perdidos</strong> (ya cortada). El stock no cambia y el traje queda ` +
@@ -14363,7 +14431,7 @@ App.trajes = {
         // 3. Orden de corte
         if (opt.orden && a.ordenRows.length) {
             try {
-                await this._borrarFilasOrdenCorte(a.ordenRows);
+                await this._borrarFilasOrdenCorte(a.ordenRows, num);
                 hecho.push(`Fila borrada en la orden de corte: ${[...new Set(a.ordenRows.map(r => r.tab))].join(', ')}.`);
                 if (a.ordenRows.some(r => r.impreso)) {
                     manual.push('Avisar al cortador: la orden de corte de este traje ya estaba impresa.');
@@ -14393,7 +14461,13 @@ App.trajes = {
 
         // 5. Apuntar en ANULADOS (antes de vaciar: si esto falla, el traje sigue intacto)
         try {
-            await this._registrarAnulado(t, opt, hecho);
+            const nuevo = await this._registrarAnulado(t, opt, hecho);
+            // Se apunta DESPUÉS de llamar para que no se cite a sí mismo dentro de la
+            // columna QUE SE DESHIZO, pero antes del paso 6: así, si el vaciado falla,
+            // el aviso de error dice que el traje ya está en ANULADOS y no asusta.
+            hecho.push(nuevo
+                ? 'Traje apuntado en la pestaña ANULADOS con todos sus datos.'
+                : 'El traje ya estaba apuntado en ANULADOS (no se ha duplicado).');
         } catch (e) { fail('apuntar el traje en la pestaña ANULADOS', e); }
 
         // 6. Vaciar la fila del LISTADO (último paso, con comprobación de Nº)
@@ -14424,17 +14498,26 @@ App.trajes = {
         if (!metrosAbs) return null;
         const nuevoStock = await App.telas.updateStock(tipo, variante, +metrosAbs);
         if (nuevoStock === null) {
-            throw new Error(`La tela ${tipo}/${variante} ya no está en el catálogo de Telas: no se pueden devolver ${metrosAbs} m. Vuelve a darla de alta o desmarca la casilla de la tela.`);
+            throw new Error(`La tela ${tipo}/${variante} ya no está en el catálogo de Telas: no se pueden devolver ${metrosAbs} m. Vuelve a darla de alta o elige "darla por perdida".`);
         }
-        await App.movimientos.append({
-            TIPO:           App.movimientos.TIPOS.REVERSO,
-            TELA_TIPO:      tipo,
-            TELA_VARIANTE:  variante,
-            METROS:         +metrosAbs,
-            TRAJE_NUM:      num,
-            PROVEEDOR:      consumo.PROVEEDOR || '',
-            NOTAS:          `[REF:${consumo.consumoId}] reverso consumo · +${metrosAbs} m al stock (nuevo: ${nuevoStock} m) · traje ${num} ANULADO`,
-        });
+        // La fila REVERSO es la ÚNICA marca de que este consumo ya se deshizo. Si no
+        // se llega a escribir, al reintentar se sumarían los metros otra vez → se
+        // deshace la suma antes de lanzar, para que el stock nunca quede inflado.
+        try {
+            await App.movimientos.append({
+                TIPO:           App.movimientos.TIPOS.REVERSO,
+                TELA_TIPO:      tipo,
+                TELA_VARIANTE:  variante,
+                METROS:         +metrosAbs,
+                TRAJE_NUM:      num,
+                PROVEEDOR:      consumo.PROVEEDOR || '',
+                NOTAS:          `[REF:${consumo.consumoId}] reverso consumo · +${metrosAbs} m al stock (nuevo: ${nuevoStock} m) · traje ${num} ANULADO`,
+            });
+        } catch (e) {
+            await App.telas.updateStock(tipo, variante, -metrosAbs)
+                .catch(e2 => console.error('[anular] ¡No se pudo deshacer la suma al stock!', e2));
+            throw new Error(`No se pudo apuntar la devolución de ${metrosAbs} m de ${tipo}/${variante} en MOVIMIENTOS (${e.message}). El stock se ha dejado como estaba.`);
+        }
         return { tipo, variante, metros: metrosAbs, nuevoStock };
     },
 
@@ -14448,9 +14531,21 @@ App.trajes = {
         if (!tela) {
             throw new Error(`La tela ${tipo}/${variante} del retal ya no está en el catálogo. Desmarca la casilla del retal o vuelve a darla de alta.`);
         }
-        await App.telas._deleteRetalRow(retal._rowIndex);
+        // Primero el stock, después el borrado de la fila: si se borrase la fila y
+        // luego fallase la suma, esos metros no volverían nunca y no habría forma de
+        // detectarlo (el retal ya no existiría). En este orden, un fallo al borrar se
+        // compensa devolviendo el stock a como estaba.
         let nuevoStock = metros ? await App.telas.updateStock(tipo, variante, +metros) : App.telas._stockNum(tela);
         if (nuevoStock === null) nuevoStock = App.telas._stockNum(tela);
+        try {
+            await App.telas._deleteRetalRow(retal._rowIndex);
+        } catch (e) {
+            if (metros) {
+                await App.telas.updateStock(tipo, variante, -metros)
+                    .catch(e2 => console.error('[anular] ¡No se pudo deshacer la suma del retal!', e2));
+            }
+            throw new Error(`No se pudo borrar el retal de ${tipo}/${variante} de la lista (${e.message}). El stock se ha dejado como estaba.`);
+        }
         await App.movimientos.append({
             TIPO:           App.movimientos.TIPOS.AJUSTE,
             TELA_TIPO:      tipo,
@@ -14466,9 +14561,23 @@ App.trajes = {
 
     /** Borra físicamente las filas [{tab, sheetRow}] del ORDEN DE CORTE (un solo batchUpdate).
      *  Dentro de cada pestaña se borra de abajo arriba para que los índices no bailen. */
-    async _borrarFilasOrdenCorte(rows) {
+    async _borrarFilasOrdenCorte(rows, num) {
         const ordenId = App.settings.get('ordenId');
         if (!ordenId || !rows.length) return;
+        // Los índices de fila se capturaron ANTES de los diálogos, que pueden haber
+        // estado abiertos un buen rato. Entre medias otra persona (o un "Sincronizar")
+        // puede haber movido filas: se vuelve a buscar el Nº ahora mismo y se borra lo
+        // que hay de verdad, para no cargarse la fila de otro traje.
+        if (num) {
+            let frescas = [];
+            try {
+                frescas = await this._buscarEnOrdenCorte(num);
+            } catch (e) {
+                throw new Error(`No se pudo releer el ORDEN DE CORTE antes de borrar (${e.message}).`);
+            }
+            if (!frescas.length) return;   // ya no está: nada que borrar
+            rows = frescas;
+        }
         const props = await App.sheets.getSheetProperties(ordenId);
         const byTab = {};
         rows.forEach(r => (byTab[r.tab] ||= []).push(r.sheetRow));
@@ -14518,15 +14627,24 @@ App.trajes = {
      *  la app puede no tenerlas). Devuelve el array de cabeceras ya actualizado. */
     async _ensureAnuladosHeaders(sheetId) {
         await App.sheets.ensureSheet(sheetId, this.ANULADOS_TAB, this.ANULADOS_HEADERS);
-        let hdr = ((await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A1:Z1`))[0] || [])
+        let hdr = ((await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A1:AZ1`))[0] || [])
             .map(h => String(h || '').trim());
         for (const col of this.ANULADOS_HEADERS) {
-            if (hdr.indexOf(col) === -1) {
+            // ensureColumn compara sin distinguir mayúsculas: si la pestaña tiene
+            // "Estado" y pedimos "ESTADO", NO crea nada y devuelve la que hay. Por eso
+            // aquí se busca igual (si no, creeríamos que falta y la daríamos por perdida).
+            if (this._anulIdx(hdr, col) === -1) {
                 const res = await App.sheets.ensureColumn(sheetId, this.ANULADOS_TAB, col);
                 hdr = res.hdr;
             }
         }
         return hdr;
+    },
+
+    /** Índice de una columna de ANULADOS, sin distinguir mayúsculas/acentos del ordinal. */
+    _anulIdx(hdr, name) {
+        const t = String(name).toLowerCase();
+        return (hdr || []).findIndex(h => String(h || '').trim().toLowerCase() === t);
     },
 
     /** Apunta el traje en la pestaña ANULADOS del LISTADO (con todos sus datos en JSON).
@@ -14538,8 +14656,8 @@ App.trajes = {
         const hdr = await this._ensureAnuladosHeaders(sheetId);
         const num    = String(t[this.COL.num] || '').trim();
         const nombre = String(t[this.COL.nombre] || '').trim();
-        const iNum = hdr.indexOf('Nº'), iNom = hdr.indexOf('NOMBRE'), iEst = hdr.indexOf('ESTADO');
-        const prev = await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A2:Z`).catch(() => []);
+        const iNum = this._anulIdx(hdr, 'Nº'), iNom = this._anulIdx(hdr, 'NOMBRE'), iEst = this._anulIdx(hdr, 'ESTADO');
+        const prev = await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A2:AZ`).catch(() => []);
         const yaEsta = (prev || []).some(r =>
             App.movimientos._numMatch(r[iNum], num) &&
             String(r[iNom] || '').trim().toUpperCase() === nombre.toUpperCase() &&
@@ -14582,9 +14700,17 @@ App.trajes = {
         // Evitar que Sheets interprete un texto como fórmula: apóstrofo delante
         const txt = v => { const s2 = String(v == null ? '' : v); return /^[=+\-@]/.test(s2) ? "'" + s2 : s2; };
         const row = new Array(hdr.length).fill('');
+        const noEscritas = [];
         for (const [col, v] of Object.entries(valores)) {
-            const i = hdr.indexOf(col);
+            const i = this._anulIdx(hdr, col);
             if (i >= 0) row[i] = col === 'Nº' ? v : txt(v);
+            else if (String(v || '').trim()) noEscritas.push(col);
+        }
+        if (noEscritas.length) {
+            // Que un dato no llegue a ANULADOS es grave: sin TELA no se sabe luego si
+            // hay que devolver stock al recuperar, y sin DATOS ORIGINALES no se puede
+            // recuperar. Se para aquí, con el traje todavía intacto en el LISTADO.
+            throw new Error(`La pestaña ANULADOS no tiene estas columnas y no se han podido crear: ${noEscritas.join(', ')}. Añádelas a mano en el Sheet y vuelve a intentarlo.`);
         }
         const lastCol = App.sheets._colLetter(hdr.length - 1);
         await App.sheets.appendRows(sheetId, `${this.ANULADOS_TAB}!A:${lastCol}`, [row]);
@@ -14615,7 +14741,7 @@ App.trajes = {
         if (!sheetId) { this._anulados = []; this._anuladosLoaded = true; return this._anulados; }
         let rows;
         try {
-            rows = await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A1:Z`);
+            rows = await App.sheets.readRange(sheetId, `${this.ANULADOS_TAB}!A1:AZ`);
         } catch (e) {
             // La pestaña no existe todavía (no se ha anulado nunca nada) → lista vacía
             this._anulados = []; this._anuladosLoaded = true;
@@ -14701,7 +14827,9 @@ App.trajes = {
         const linea = (label, val) => val
             ? `<div style="font-size:12px; color:#666;"><span style="color:var(--text-muted);">${label}:</span> ${esc(val)}</div>`
             : '';
-        const ficha = String(an['FICHA'] || '').trim();
+        // Solo enlazamos http(s): una celda con "javascript:..." sería un enlace ejecutable
+        const fichaRaw = String(an['FICHA'] || '').trim();
+        const ficha = /^https?:\/\//i.test(fichaRaw) ? fichaRaw : '';
         return (
             `<div class="card" style="padding:12px; ${recuperado ? 'opacity:0.6;' : ''}">` +
             `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">` +
@@ -14735,13 +14863,16 @@ App.trajes = {
     async _verDetalleAnulado(rowIndex) {
         const an = this._anulados.find(x => x._rowIndex === rowIndex);
         if (!an) return;
+        // Estos textos salen de una pestaña que edita gente a mano → se escapan.
+        const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         const partes = String(an['QUE SE DESHIZO'] || '').split('|').map(x => x.trim()).filter(Boolean);
         await App.ui.confirmDialog({
-            title: `Traje Nº ${an['Nº'] || ''} — qué se deshizo al anularlo`,
+            title: `Traje Nº ${String(an['Nº'] || '').replace(/[<>]/g, '')} — qué se deshizo al anularlo`,
             message: (partes.length
-                ? `<ul style="margin:4px 0 0 18px; padding:0;">${partes.map(p => `<li>${p}</li>`).join('')}</ul>`
+                ? `<ul style="margin:4px 0 0 18px; padding:0;">${partes.map(p => `<li>${esc(p)}</li>`).join('')}</ul>`
                 : '<em>No quedó nada apuntado.</em>') +
-                (an['TELA'] ? `<div style="margin-top:10px; font-size:12px;"><strong>Tela:</strong> ${an['TELA']}</div>` : ''),
+                (an['TELA'] ? `<div style="margin-top:10px; font-size:12px;"><strong>Tela:</strong> ${esc(an['TELA'])}</div>` : ''),
             actions: [{ label: 'Cerrar', value: 'ok', style: 'primary' }],
         });
     },
@@ -14962,7 +15093,7 @@ App.trajes = {
         const fecha = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
         const updates = [];
         const set = (col, val) => {
-            const i = hdr.indexOf(col);
+            const i = this._anulIdx(hdr, col);
             if (i >= 0) updates.push({
                 range: `${this.ANULADOS_TAB}!${App.sheets._colLetter(i)}${an._rowIndex}`,
                 values: [[val]],
@@ -14970,6 +15101,9 @@ App.trajes = {
         };
         set('ESTADO', `RECUPERADO (${fecha})`);
         set('PENDIENTE CONFECCIONAR', 'NO');
+        if (this._anulIdx(hdr, 'ESTADO') === -1) {
+            throw new Error('La pestaña ANULADOS no tiene columna ESTADO: no se puede marcar como recuperado.');
+        }
         if (updates.length) await App.sheets.batchWriteRanges(sheetId, updates);
         an['ESTADO'] = `RECUPERADO (${fecha})`;
         an['PENDIENTE CONFECCIONAR'] = 'NO';
@@ -14990,8 +15124,52 @@ App.trajes = {
         if (iNum >= 0 && !App.movimientos._numMatch(cur[iNum], num)) {
             throw new Error(`La fila ${row} del LISTADO ya no contiene el Nº ${num} (¿alguien ha movido o borrado filas?). No se ha tocado el LISTADO: recarga la app y vuelve a intentarlo.`);
         }
-        // Valores: A..AZ (mismo rango que lee la app) → todo vacío
-        await App.sheets.writeRange(sheetId, `${tab}!A${row}:AZ${row}`, [new Array(52).fill('')]);
+        // Se vacía solo hasta la última columna CON cabecera: lo que el snapshot de
+        // ANULADOS guarda es exactamente eso, así que borrar más allá destruiría datos
+        // de columnas auxiliares que luego no se podrían recuperar.
+        const ancho = Math.max(hdr.length, 1);
+        const lastColLetter = App.sheets._colLetter(ancho - 1);
+        try {
+            await App.sheets.writeRange(sheetId, `${tab}!A${row}:${lastColLetter}${row}`, [new Array(ancho).fill('')]);
+        } catch (err) {
+            // Vaciar la fila entera de un golpe falla si el LISTADO tiene alguna columna
+            // PROTEGIDA (típico: Nº, NOMBRE, FICHA… protegidas para que nadie las pise a
+            // mano). La edición normal no lo nota porque escribe solo las columnas que
+            // toca. Aquí reintentamos columna a columna: se limpia todo lo que se pueda y
+            // se informa de lo que quede. Lo imprescindible es NOMBRE: la app solo muestra
+            // las filas que lo tienen, así que si esa se limpia el traje ya desaparece.
+            if (!/protegid|protected|permission/i.test(err.message || '')) throw err;
+            console.warn('[anular] La fila entera está protegida; limpiando columna a columna:', err.message);
+            const noBorradas = [];
+            for (let i = 0; i < ancho; i++) {
+                if (!String(cur[i] || '').trim()) continue;   // ya vacía, no hace falta tocarla
+                const letra = App.sheets._colLetter(i);
+                try {
+                    await App.sheets.writeRange(sheetId, `${tab}!${letra}${row}`, [['']]);
+                } catch (e2) {
+                    noBorradas.push(hdr[i] || letra);
+                }
+            }
+            const iNombre = hdr.indexOf('NOMBRE');
+            const nombreProtegido = iNombre >= 0 &&
+                noBorradas.includes(hdr[iNombre] || App.sheets._colLetter(iNombre));
+            if (nombreProtegido) {
+                throw new Error(
+                    `El LISTADO tiene columnas protegidas que no puedo vaciar (${noBorradas.join(', ')}), ` +
+                    `y entre ellas está NOMBRE, que es la que hace desaparecer el traje de la app. ` +
+                    `Quita la protección de esa columna (Datos → Proteger hojas y rangos) y vuelve a intentarlo, ` +
+                    `o vacía la fila ${row} a mano en el Sheet.`);
+            }
+            if (noBorradas.length) {
+                // El traje ya no se ve en la app; solo quedan restos en columnas protegidas.
+                App.toast.show(
+                    `<strong>Fila vaciada a medias</strong><br>No se han podido borrar estas columnas porque están ` +
+                    `protegidas en el Sheet: <strong>${noBorradas.join(', ')}</strong>.<br>` +
+                    `El traje ya no aparece en la app; si quieres dejar la fila limpia del todo, bórralas a mano.`,
+                    'warning', 0);
+                console.warn('[anular] Columnas protegidas no borradas en la fila ' + row + ':', noBorradas);
+            }
+        }
         // Notas de celda de esa fila
         const noteUpdates = Object.keys(t._notes || {})
             .map(col => ({ rowIndex: row - 1, colIndex: hdr.indexOf(col), noteText: '' }))
