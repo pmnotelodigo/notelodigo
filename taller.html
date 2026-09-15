@@ -1134,9 +1134,21 @@
                 </div>`;
             },
 
+            /** Sección "Adornos" del modal y del PDF. Misma fuente que la card
+             *  (columna ADORNOS del LISTADO): el proxy bloquea ADORNOS del Doc,
+             *  así que NO llegan dentro de las medidas. */
+            _renderAdornos(t) {
+                const adornos = (t['ADORNOS'] || '').trim();
+                if (!adornos) return '';
+                return `<div class="modal-section">
+                    <h3>Adornos</h3>
+                    <div class="content">${App._esc(adornos)}</div>
+                </div>`;
+            },
+
             /** Renderiza el bloque básico del modal (sin Talla ni Feria — esas
-             *  ya están en la card o en las medidas detalladas). Sin adornos
-             *  porque también vienen en las medidas. */
+             *  ya están en la card o en las medidas detalladas) + la sección de
+             *  adornos. Se usa en el modal y en la impresión. */
             _renderFichaBasica(t) {
                 const modelo   = (t['MODELO']   || '').trim() || '—';
                 const tipoTela = (t['TIPO TELA'] || '').trim();
@@ -1158,7 +1170,7 @@
                     (fechaEnt ? fila('Entrega al taller', fechaEnt) : '') +
                     (trajeRecibido ? fila('Estado recibido', trajeRecibido) : '') +
                     (trajeEntregado ? fila('Estado entregado', trajeEntregado) : '') +
-                '</table>';
+                '</table>' + App._renderAdornos(t);
             },
 
             closeFicha() {
@@ -1506,6 +1518,7 @@
     </script>
 </body>
 </html>
+
 
 
 
