@@ -3934,11 +3934,14 @@
                                     &#x2139;
                                 </span>
                                 <span style="font-size:11px; color:var(--text-muted); font-weight:normal;">
-                                    &mdash; puedes poner varios separados por coma
+                                    &mdash; uno por línea; añade los que necesites
                                 </span>
                             </label>
-                            <input type="text" class="form-input mono" id="tallerCatEmail"
-                                   placeholder="taller@gmail.com, hija@gmail.com" autocomplete="off">
+                            <div id="tallerCatEmails"></div>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnTallerCatAddEmail"
+                                    style="margin-top:6px;" onclick="App.talleresCatalogo.addEmailRow('', true)">
+                                &#x2795; Añadir correo
+                            </button>
                         </div>
                         <div class="form-group" style="margin:0;">
                             <label>Teléfono</label>
@@ -19382,6 +19385,70 @@ App.talleresCatalogo = {
         window.open(url, '_blank', 'noopener');
     },
 
+    // ── Correos del taller: una línea por correo ─────────────────────────
+    // Andrés (2026-09-17): con 3+ correos en un solo input no se veía dónde
+    // acababa uno y empezaba otro (la línea se corta y no sabes cuántos hay).
+    // Cada correo tiene su fila, su aspa para quitarlo, y un botón para
+    // añadir. En el Sheet se siguen guardando juntos en la celda EMAIL.
+
+    /** Pinta las filas de correo del modal. Siempre deja al menos una vacía
+     *  para que el campo no aparezca en blanco sin sitio donde escribir. */
+    _renderEmailRows(list) {
+        const box = document.getElementById('tallerCatEmails');
+        if (!box) return;
+        box.innerHTML = '';
+        const arr = (list && list.length) ? list : [''];
+        arr.forEach(e => this.addEmailRow(e, false));
+    },
+
+    /** Añade una fila. `foco` = true cuando la pulsa el usuario. */
+    addEmailRow(valor, foco) {
+        const box = document.getElementById('tallerCatEmails');
+        if (!box) return;
+        const row = document.createElement('div');
+        row.className = 'taller-email-row';
+        row.style.cssText = 'display:flex; gap:6px; align-items:center; margin-bottom:6px;';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-input mono taller-email-input';
+        input.placeholder = 'taller@gmail.com';
+        input.autocomplete = 'off';
+        input.value = valor || '';
+        input.style.flex = '1';
+        // Enter no envía nada: abre la siguiente fila, que es lo que espera
+        // quien está metiendo varios correos seguidos.
+        input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') { ev.preventDefault(); this.addEmailRow('', true); }
+        });
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn-secondary btn-sm';
+        del.innerHTML = '&#x2715;';
+        del.title = 'Quitar este correo';
+        del.style.cssText = 'flex:0 0 auto; padding:4px 10px;';
+        del.addEventListener('click', () => this.removeEmailRow(row));
+        row.appendChild(input);
+        row.appendChild(del);
+        box.appendChild(row);
+        if (foco) input.focus();
+    },
+
+    /** Quita una fila. Si era la última, deja una vacía. */
+    removeEmailRow(row) {
+        const box = document.getElementById('tallerCatEmails');
+        if (!box || !row) return;
+        row.remove();
+        if (!box.querySelector('.taller-email-row')) this.addEmailRow('', false);
+    },
+
+    /** Valores escritos en las filas (sin vaciar ni normalizar: de eso se
+     *  encarga _parseEmails al guardar). */
+    _emailInputs() {
+        return [...document.querySelectorAll('#tallerCatEmails .taller-email-input')]
+            .map(i => i.value.trim())
+            .filter(Boolean);
+    },
+
     openModal(nombre) {
         const get = id => document.getElementById(id);
         get('tallerCatOriginalNombre').value = nombre || '';
@@ -19391,7 +19458,7 @@ App.talleresCatalogo = {
         get('btnTallerCatMarkInactive').style.display = editing && this._isActive(t || {}) ? 'inline-flex' : 'none';
 
         get('tallerCatNombre').value   = t?.NOMBRE   || '';
-        get('tallerCatEmail').value    = t?.EMAIL    || '';
+        this._renderEmailRows(this._emails(t));
         get('tallerCatTelefono').value = t?.TELEFONO || '';
         get('tallerCatNotas').value    = t?.NOTAS    || '';
         get('tallerCatActivo').checked = t ? this._isActive(t) : true;
@@ -19416,7 +19483,7 @@ App.talleresCatalogo = {
             // La celda EMAIL admite VARIOS correos. Los normalizamos a
             // "a@x.com, b@y.com" para que el Sheet quede legible y para que
             // el proxy (que trocea igual) los lea sin sorpresas.
-            const emails = this._parseEmails(get('tallerCatEmail').value);
+            const emails = this._parseEmails(this._emailInputs().join(','));
             const malos = emails.filter(e => !e.includes('@') || e.startsWith('@') || e.endsWith('@'));
             if (malos.length) {
                 App.toast.show(`Email inválido: ${malos.join(', ')}`, 'error');
