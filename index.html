@@ -3928,13 +3928,17 @@
                             <input type="text" class="form-input" id="tallerCatNombre" placeholder="DOLORES" autocomplete="off">
                         </div>
                         <div class="form-group" style="margin:0; grid-column:1/3;">
-                            <label>Email Google
+                            <label>Emails Google
                                 <span style="font-size:11px; color:var(--text-muted); font-weight:normal;"
-                                      title="Email Google del taller. Si entra a la app con este email, solo verá sus trajes.">
+                                      title="Emails Google del taller. Quien entre con cualquiera de ellos solo verá los trajes de este taller.">
                                     &#x2139;
                                 </span>
+                                <span style="font-size:11px; color:var(--text-muted); font-weight:normal;">
+                                    &mdash; puedes poner varios separados por coma
+                                </span>
                             </label>
-                            <input type="email" class="form-input mono" id="tallerCatEmail" placeholder="taller@gmail.com" autocomplete="off">
+                            <input type="text" class="form-input mono" id="tallerCatEmail"
+                                   placeholder="taller@gmail.com, hija@gmail.com" autocomplete="off">
                         </div>
                         <div class="form-group" style="margin:0;">
                             <label>Teléfono</label>
@@ -19253,11 +19257,32 @@ App.talleresCatalogo = {
         return !['FALSE','NO','0','INACTIVO'].includes(v);
     },
 
-    /** Devuelve el taller (objeto) cuyo EMAIL coincide con el dado, o null. */
+    /** Trocea una celda/campo EMAIL en la lista de correos que contiene.
+     *  Un taller puede tener VARIOS correos (la duena y su hija, el movil del
+     *  taller y el personal...): se admiten separados por coma, punto y coma,
+     *  barra vertical, espacio o salto de linea. Todo en minusculas y sin
+     *  repetidos. */
+    _parseEmails(raw) {
+        return [...new Set(
+            (raw || '').toString().toLowerCase()
+                .split(/[\s,;|]+/)
+                .map(s => s.trim())
+                .filter(Boolean)
+        )];
+    },
+
+    /** Correos de un taller del catalogo (ver _parseEmails). */
+    _emails(t) {
+        return this._parseEmails(t && t.EMAIL);
+    },
+
+    /** Devuelve el taller (objeto) cuyo EMAIL contiene el correo dado, o null.
+     *  Compara correo a correo, no la celda entera: con varios correos en la
+     *  misma celda, entra cualquiera de ellos. */
     findByEmail(email) {
         const e = (email || '').toLowerCase().trim();
         if (!e) return null;
-        return this._data.find(t => t.EMAIL === e && this._isActive(t)) || null;
+        return this._data.find(t => this._emails(t).includes(e) && this._isActive(t)) || null;
     },
 
     /**
@@ -19339,7 +19364,10 @@ App.talleresCatalogo = {
                 <strong style="font-size:15px;">&#x1F3ED; ${t.NOMBRE}</strong>
                 ${inactiveBadge}
             </div>
-            ${t.EMAIL ? `<div style="font-size:12px; color:#444; margin-bottom:4px;">&#x1F4E7; <span class="mono">${t.EMAIL}</span></div>` : '<div style="font-size:11px; color:#999; margin-bottom:4px;">sin email — el taller no podrá entrar a su vista</div>'}
+            ${this._emails(t).length
+                ? this._emails(t).map(e =>
+                    `<div style="font-size:12px; color:#444; margin-bottom:3px;">&#x1F4E7; <span class="mono">${e}</span></div>`).join('')
+                : '<div style="font-size:11px; color:#999; margin-bottom:4px;">sin email — el taller no podrá entrar a su vista</div>'}
             ${t.TELEFONO ? `<div style="font-size:11px; color:#888;">&#x1F4DE; ${t.TELEFONO}</div>` : ''}
             ${t.NOTAS ? `<div style="font-size:11px; color:var(--text-muted); margin-top:6px;">${t.NOTAS}</div>` : ''}
             ${verComoBtn}
@@ -19385,12 +19413,16 @@ App.talleresCatalogo = {
             if (!sheetId) throw new Error('CATALOGOS_NOTELODIGO no encontrado en la carpeta CONFIG.');
             const nombre = get('tallerCatNombre').value.trim().toUpperCase();
             if (!nombre) { App.toast.show('El nombre es obligatorio', 'error'); return; }
-            const email = get('tallerCatEmail').value.trim().toLowerCase();
-            // Validación email opcional
-            if (email && !email.includes('@')) {
-                App.toast.show('Email inválido', 'error');
+            // La celda EMAIL admite VARIOS correos. Los normalizamos a
+            // "a@x.com, b@y.com" para que el Sheet quede legible y para que
+            // el proxy (que trocea igual) los lea sin sorpresas.
+            const emails = this._parseEmails(get('tallerCatEmail').value);
+            const malos = emails.filter(e => !e.includes('@') || e.startsWith('@') || e.endsWith('@'));
+            if (malos.length) {
+                App.toast.show(`Email inválido: ${malos.join(', ')}`, 'error');
                 return;
             }
+            const email = emails.join(', ');
             const original = get('tallerCatOriginalNombre').value;
             // Duplicados por nombre
             if ((!original || original !== nombre) &&
@@ -19398,10 +19430,15 @@ App.talleresCatalogo = {
                 App.toast.show(`Ya existe el taller "${nombre}"`, 'error');
                 return;
             }
-            // Duplicados por email
-            if (email && this._data.some(x => x.EMAIL === email && x.NOMBRE !== original)) {
-                App.toast.show(`El email "${email}" ya está asignado a otro taller`, 'error');
-                return;
+            // Duplicados por email — correo a correo, porque ahora cada taller
+            // puede tener varios en la misma celda. Un mismo correo en dos
+            // talleres haria que el login fuese impredecible.
+            for (const e of emails) {
+                const otro = this._data.find(x => x.NOMBRE !== original && this._emails(x).includes(e));
+                if (otro) {
+                    App.toast.show(`El email "${e}" ya está asignado al taller "${otro.NOMBRE}"`, 'error');
+                    return;
+                }
             }
             const t = {
                 NOMBRE:    nombre,
