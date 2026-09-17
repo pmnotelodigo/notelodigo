@@ -453,6 +453,9 @@
                     client_id: APP_CLIENT_ID,
                     scope: 'openid email profile',
                     callback: App._onTokenResponse,
+                    // Sin esto, si la ventana de Google no llega a abrirse (bloqueada)
+                    // o se cierra, nadie se entera y la carga se queda colgada.
+                    error_callback: (err) => App._onTokenError(err),
                 });
                 // Compartimos origen con index.html (la app de admin), así que
                 // podemos detectar la sesión activa allí. Si la cuenta del admin
@@ -542,6 +545,41 @@
                         App._hideLoginLoading();
                         App._showLoginError('No se pudo obtener email: ' + err.message);
                     });
+            },
+
+            /** Error de la ventana de Google (bloqueada, cerrada...). Si había una
+             *  renovación de sesión en marcha, la aborta; si no, lo muestra en el login. */
+            _onTokenError(err) {
+                const tipo = (err && err.type) || 'unknown';
+                if (App._pendingRefresh) {
+                    const p = App._pendingRefresh;
+                    App._pendingRefresh = null;
+                    p.reject(new Error(tipo));
+                    return;
+                }
+                App._hideLoginLoading();
+                if (tipo === 'popup_closed') {
+                    App._showLoginError('Se cerró la ventana de Google antes de terminar. Pulsa «Entrar con Google» otra vez.');
+                } else {
+                    App._showLoginError('No se pudo abrir la ventana de Google (' + tipo + '). Revisa que el navegador no bloquee ventanas emergentes y vuelve a intentarlo.');
+                }
+            },
+
+            _errorSesionCaducada() {
+                const e = new Error('Tu sesión ha caducado. Cierra sesión y vuelve a entrar con Google.');
+                e.sesionCaducada = true;
+                return e;
+            },
+
+            /** Sesión caducada y sin poder renovarla sola: volvemos al login con
+             *  un aviso. Entrar pulsando el botón sí abre la ventana de Google. */
+            _volverALogin(msg) {
+                App.token = null;
+                try { localStorage.removeItem(STORAGE_KEY_TOKEN); } catch (_) {}
+                document.getElementById('appContainer').classList.remove('active');
+                document.getElementById('loginScreen').style.display = '';
+                App._hideLoginLoading();
+                App._showLoginError(msg || 'Tu sesión ha caducado. Pulsa «Entrar con Google» para volver a entrar.');
             },
 
             /** Muestra el spinner "Cargando..." en el login screen, oculta el botón
@@ -648,6 +686,10 @@
                     // Al clicar una card, las medidas suelen estar ya cargadas.
                     App._prefetchFichas();
                 } catch (err) {
+                    if (err && err.sesionCaducada) {
+                        App._volverALogin();
+                        return;
+                    }
                     if (fromLogin) {
                         App._hideLoginLoading();
                         App._showLoginError('Error: ' + err.message);
@@ -697,35 +739,70 @@
                     }
                     return `${PROXY_URL}?${params.toString()}`;
                 };
-                let resp = await fetch(buildUrl(App.token), { method: 'GET', redirect: 'follow' });
-                let data = await resp.json();
-                if (data && data.error === 'invalid_token' && !App._refreshingToken) {
-                    // Token caducado — pedir uno nuevo silenciosamente
-                    App._refreshingToken = true;
+                // fetch con tope de 45 s (Apps Script puede tardar en "despertar",
+                // pero nunca debe quedarse esperando para siempre).
+                const fetchJson = async (url) => {
+                    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+                    const t = ctrl ? setTimeout(() => ctrl.abort(), 45000) : null;
                     try {
-                        const newToken = await App._refreshToken();
-                        App._refreshingToken = false;
-                        App.token = newToken;
-                        resp = await fetch(buildUrl(newToken), { method: 'GET', redirect: 'follow' });
-                        data = await resp.json();
+                        const r = await fetch(url, { method: 'GET', redirect: 'follow', signal: ctrl ? ctrl.signal : undefined });
+                        return await r.json();
                     } catch (e) {
-                        App._refreshingToken = false;
+                        if (e && e.name === 'AbortError') {
+                            throw new Error('El servidor tarda demasiado en responder. Pulsa Actualizar para reintentar.');
+                        }
+                        throw e;
+                    } finally {
+                        if (t) clearTimeout(t);
                     }
+                };
+                let data = await fetchJson(buildUrl(App.token));
+                if (data && data.error === 'invalid_token') {
+                    // Token caducado (dura ~1 h): intentamos renovarlo sin molestar.
+                    let newToken = null;
+                    if (!App._refreshingToken) {
+                        App._refreshingToken = true;
+                        try { newToken = await App._refreshToken(); }
+                        catch (_) { newToken = null; }
+                        finally { App._refreshingToken = false; }
+                    }
+                    if (!newToken) throw App._errorSesionCaducada();
+                    App.token = newToken;
+                    data = await fetchJson(buildUrl(newToken));
+                    if (data && data.error === 'invalid_token') throw App._errorSesionCaducada();
                 }
                 return data;
             },
 
+            /** Renueva el token sin interacción. Fuera de un clic el navegador
+             *  (sobre todo en móvil) suele bloquear la ventana de Google sin avisar,
+             *  así que hay tope de 10 s: si no llega, se rechaza y no se cuelga. */
             _refreshToken() {
                 return new Promise((resolve, reject) => {
                     const orig = App.tokenClient.callback;
-                    App.tokenClient.callback = (resp) => {
+                    let terminado = false;
+                    let timer = null;
+                    const fin = (fn, val) => {
+                        if (terminado) return;
+                        terminado = true;
+                        if (timer) clearTimeout(timer);
                         App.tokenClient.callback = orig;
-                        if (resp.error) return reject(new Error(resp.error));
+                        App._pendingRefresh = null;
+                        fn(val);
+                    };
+                    timer = setTimeout(() => fin(reject, new Error('timeout')), 10000);
+                    App._pendingRefresh = { reject: (e) => fin(reject, e) };
+                    App.tokenClient.callback = (resp) => {
+                        if (resp.error) return fin(reject, new Error(resp.error));
                         App.token = resp.access_token;
                         localStorage.setItem(STORAGE_KEY_TOKEN, resp.access_token);
-                        resolve(resp.access_token);
+                        fin(resolve, resp.access_token);
                     };
-                    App.tokenClient.requestAccessToken({ prompt: '' });
+                    try {
+                        App.tokenClient.requestAccessToken({ prompt: '' });
+                    } catch (e) {
+                        fin(reject, e);
+                    }
                 });
             },
 
@@ -1518,6 +1595,16 @@
     </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
 
 
 
